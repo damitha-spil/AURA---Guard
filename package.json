@@ -1,0 +1,29 @@
+{
+  "name": "aura-guard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SPIL's internal engineering assistant that learns Aura",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "aura-guard": "engine/dist/cli/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p engine",
+    "typecheck": "tsc -p engine --noEmit",
+    "test": "node --test --experimental-strip-types \"engine/test/**/*.test.ts\"",
+    "guard": "node --experimental-strip-types engine/src/cli/main.ts",
+    "mcp": "node --experimental-strip-types engine/src/mcp/server.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  }
+}

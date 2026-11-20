@@ -1,0 +1,21 @@
+node_modules/
+engine/dist/
+# The index is rebuilt from the vault and the repos; never commit it.
+data/
+*.db
+*.db-wal
+*.db-shm
+# Local settings may hold paths to private repos.
+guard.config.local.json
+.artifacts/
+# Masking audit log stays on this machine.
+logs/
+
+# Local Python env for graphify (never commit).
+.venv/
+# Obsidian keeps per-machine window layout and caches here.
+vault/.obsidian/workspace*.json
+vault/.obsidian/cache
+
+# Built at test time from evals/masking/generate.mjs (fake secrets; never commit).
+evals/masking/cases.jsonl

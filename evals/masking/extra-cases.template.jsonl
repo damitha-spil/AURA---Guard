@@ -1,0 +1,51 @@
+{"id":"clean-188","text":"  passphrase: \"Passphrase\",\n  secrets: \"Secrets\",","expect":"clean"}
+{"id":"clean-189","text":"  tokenPlaceholder: \"123456789ABC\",\n  tokenRemove: \"Remove\",\n  secretsOk: \"Worked\",","expect":"clean"}
+{"id":"clean-190","text":"max_output_tokens: 65_536,\ninput_tokens: 1_000_000,\noutput_tokens: 2_000,","expect":"clean"}
+{"id":"clean-191","text":"{ path: \"workspace.dir\", label: c.workspace, about: c.workspaceAbout }","expect":"clean"}
+{"id":"clean-192","text":"<BorderBeam animated pattern=\"diagonal-stripes\" tone=\"brand\" /> pattern = \"wave-divider\"","expect":"clean"}
+{"id":"clean-193","text":"{\"line_id\":{\"type\":\"string\",\"pattern\":\"^[A-Z]{2}-[0-9]{4}$\"},\"path\":\"notes/readme.md\",\"patch\":\"unified-diff-format\"}","expect":"clean"}
+{"id":"clean-194","text":"agent-core = { path = \"../crates/agent-core\" }\n#[path = \"tests/support.rs\"]","expect":"clean"}
+{"id":"clean-195","text":"access_token: \"\".into(),\ntoken_type: \"Bearer\".into(),","expect":"clean"}
+{"id":"clean-196","text":"export const FOREMAN_HUB_TOKEN_HEADER = 'x-example-header-name'","expect":"clean"}
+{"id":"clean-197","text":"{\"messages\":[{\"id\":\"m-1\"}],\"nextPageToken\":\"Zm9vYmFyYmF6cXV4\"} and ?pageToken=cursor-2","expect":"clean"}
+{"id":"clean-198","text":"const SERVICE_SECRETS: &[&str] = &[\"telegram\", \"brave-search\"];\nfn restore_secrets(secrets: &[(String, Option<String>)]) {}","expect":"clean"}
+{"id":"clean-199","text":"let token = &args.access_token;\nlet password = &self.password_input;","expect":"clean"}
+{"id":"clean-200","text":"const SECRET_RESULT = /^Setup result:\n([sS]*)\n\nReference a provided variable/;","expect":"clean"}
+{"id":"clean-201","text":"password: \"auth.form.label\",\ntoken: \"settings.api.title\",","expect":"clean"}
+{"id":"clean-202","text":"password: \"test-password-123\",\naccess_token: \"fake-token-abc\",\nsecret: \"dummy_secret_2\"","expect":"clean"}
+{"id":"clean-203","text":"const url = \"http://user:pass@localhost/mcp\"; const u2 = \"https://user:password@localhost:9090/x\";","expect":"clean"}
+{"id":"clean-204","text":"<Input type=\"password\" password={value} autoComplete=\"current-password\" />\nconst body = { password: password, token: token };\ntype Form = { password: string; token?: string };","expect":"clean"}
+{"id":"clean-205","text":"fn x12_order_with_split_lines_and_backorder_flag_is_accepted() {}","expect":"clean"}
+{"id":"clean-206","text":"// Branch aura/feature/demo-chat-orders-20261111-r2 into development","expect":"clean"}
+{"id":"clean-207","text":"GALLERY_PORT_8080_FALLBACK=1 npm run gallery","expect":"clean"}
+{"id":"clean-208","text":"className=\"peer-disabled:cursor-not-allowed data-[state=checked]:bg-primary/90 size-4 shadow-[0_0_0_1px_rgb(0_0_0/0.1)] min-w-0 grid-cols-12 focus-visible:ring-ring/50\"","expect":"clean"}
+{"id":"clean-209","text":"<path d=\"M12-2c0-1-1-2-3-2s-3-1-3-3c0-2-1-3-2-4v-9-8h-3-4-5-6-7-8-9z\" />","expect":"clean"}
+{"id":"clean-210","text":"import { useCheckboxGroup } from \"../../components/ui/checkbox-group-item/useCheckboxGroup2\";","expect":"clean"}
+{"id":"clean-211","text":"\"integrity\": \"sha512-mTi/rh36E/NM/DYBEr7zvEnfN5EzJBtv301vCVJqYTyU3jMdkaT1mWtlZkPFlhdScFxMH2mn7PeZorOMnASxxb==\",\n\"resolved\": \"https://registry.example.test/pkg/-/pkg-1.0.0.tgz\"","expect":"clean"}
+{"id":"clean-212","text":"fixture body: \"UGxlYXNlIHNlbmQgbWUgdGhlIHF1b3RlIGZvciB0d2VsdmUgZ2xhc3MgcGFuZWxz\"","expect":"clean"}
+{"id":"clean-213","text":"import logo from \"./icon@2x.png\"; // and ./hero@3x.webp","expect":"clean"}
+{"id":"clean-214","text":"remote = git@github.com:org/repo.git\nCo-Authored-By: Claude <noreply@anthropic.com>","expect":"clean"}
+{"id":"clean-215","text":"npm i -D @types/node @typescript-eslint/parser; @Component({ selector: \"x\" }) class A {}; ssh user@host","expect":"clean"}
+{"id":"clean-216","text":"Open C:/Users/staff/Documents/Aura and \"C:\\Users\\user\\AppData\" or /Users/you/project or /home/user/.config","expect":"clean"}
+{"id":"clean-217","text":"t = t.replace(/\\frac{([^{}]*)}{([^{}]*)}/g, \"$1/$2\");","expect":"clean"}
+{"id":"clean-218","text":"const k = \"sk-abcdefghijklmnopqrstuvwxyz123456\"; const g = \"ghp_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\"; curl -H 'Authorization: Bearer abcdefgh12345678'","expect":"clean"}
+{"id":"clean-219","text":"\"Server=db;User Id=sa;Password=${DB_PASSWORD};\" and \"Server=db;Pwd=<your-password>;\" and Server=db;Password=changeme;","expect":"clean"}
+{"id":"clean-220","text":"const nvidia = \"nvidia/nemotron-3-super-120b-a12b:free\";","expect":"clean"}
+{"id":"block-076","text":"Server=db1;Database=erp;User Id=sa;Password=Welcome;","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-077","text":"Data Source=sql1;Initial Catalog=erp;Uid=app;Pwd=Summerfield","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-078","text":"conn = \"Host=pg1;Database=app;Username=svc;Password=Rainbowtrout\"","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-079","text":"password: \"Qm7!xv2KpL\"","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-080","text":"pat: \"{{rand::AN:12}}\"","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-081","text":"const secret_key_base = \"{{rand::AN:16}}\"","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-082","text":"password: \"{{rand:test-:AN:10}}\"","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-083","text":"let token_value = \"{{rand::AN:16}}\";","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-084","text":"\"api_key\": \"{{rand::URL64:30}}\"","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-085","text":"key = {{rand::AN:30}}","expect":"block"}
+{"id":"block-086","text":"{{rand:ghp_:AN:36}}","expect":"block","kinds":["GITHUB_TOKEN"]}
+{"id":"block-087","text":"{{rand:sk-proj-:URL64:40}}","expect":"block","kinds":["OPENAI_KEY"]}
+{"id":"block-088","text":"Authorization: Bearer {{rand::URL64:40}}","expect":"block","kinds":["BEARER_TOKEN"]}
+{"id":"block-089","text":"export CLIENT_SECRET=\"{{rand::AN:24}}\"","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-090","text":"postgres://svc:{{rand::AN:14}}@db.internal.test/app","expect":"block","kinds":["URL_PASSWORD"]}
+{"id":"block-091","text":"next_page_token: \"ok\" password: \"Xt4#nv8Qa2\"","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-092","text":"{ path: \"a/b\", password: \"Zp9$mK2xLq\" }","expect":"block","kinds":["PASSWORD_VALUE"]}
+{"id":"block-093","text":"token: \"{{rand:sk-ant-api03-:URL64:40}}\"","expect":"block","kinds":["ANTHROPIC_KEY"]}

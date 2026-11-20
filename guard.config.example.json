@@ -1,0 +1,11 @@
+{
+  "$comment": "Copy to guard.config.local.json and edit. Paths are per machine and are never committed.",
+  "department": "dev",
+  "dataDir": "data",
+  "vaultDir": "vault",
+  "repos": [
+    { "id": "spil-aura", "path": "D:/SPIL AURA" },
+    { "id": "erp-mcp", "path": "D:/ERP-MCP-SERVERS" }
+  ],
+  "busyProcesses": ["cargo", "rustc", "msbuild", "link", "tsc", "vite"]
+}

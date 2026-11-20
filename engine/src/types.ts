@@ -1,0 +1,83 @@
+// Shared contracts. Every module builds against these; change them only with
+// a note in AI_HANDOFF.md.
+
+export type NoteType =
+  | "adr" | "rule" | "pattern" | "incident" | "domain" | "diary" | "choice";
+export type NoteStatus = "proposed" | "shadow" | "active" | "stale" | "deprecated";
+export type Audience = "internal_dev" | "qa_internal" | "customer_support";
+export type NoteSource =
+  | "owner-answer" | "commit" | "pr-comment" | "session" | "evidence" | "import";
+
+export interface CodeAnchor {
+  repo: string;
+  path: string;
+  symbol?: string;
+  verified_sha?: string;
+}
+
+export interface NoteMeta {
+  id: string;
+  type: NoteType;
+  status: NoteStatus;
+  audience: Audience[];
+  department: string;
+  source: NoteSource;
+  code_anchors?: CodeAnchor[];
+  created: string; // YYYY-MM-DD
+  reviewed?: string;
+  title?: string;
+}
+
+export interface Note {
+  meta: NoteMeta;
+  body: string;
+  file: string; // path relative to the vault root, forward slashes
+  hash: string; // sha256 of the whole file text
+}
+
+export interface NoteProblem {
+  file: string;
+  message: string;
+}
+
+export interface RepoConfig {
+  id: string;
+  path: string;
+}
+
+export interface GuardConfig {
+  department: string;
+  dataDir: string;
+  vaultDir: string;
+  repos: RepoConfig[];
+  busyProcesses: string[];
+  root: string; // absolute repo root of AURA Guard, filled in by loadConfig
+}
+
+export interface CommitRecord {
+  repo: string;
+  sha: string;
+  author: string;
+  date: string; // ISO
+  subject: string;
+  body: string;
+  files: { path: string; added: number; removed: number }[];
+}
+
+export type DocKind = "note" | "commit" | "file";
+
+export interface SearchHit {
+  kind: DocKind;
+  ref: string; // note id, "repo@sha", or "repo:path"
+  title: string;
+  snippet: string;
+  score: number;
+  status?: NoteStatus;
+}
+
+export interface SearchOptions {
+  limit?: number;
+  audience?: Audience; // filter notes to this audience; commits/files are internal_dev only
+  kinds?: DocKind[];
+  includeStale?: boolean; // default false: stale/deprecated notes are left out
+}
