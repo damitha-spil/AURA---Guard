@@ -33,7 +33,7 @@ function tmpGuard() {
   cpSync(join(GUARD_ROOT, "engine", "test", "fixtures", "journeys"), join(root, "vault", "journeys"), { recursive: true });
   mkdirSync(join(root, "vault", "inbox"), { recursive: true });
   const cfg: GuardConfig = {
-    department: "dev", dataDir: join(root, "data"), vaultDir: join(root, "vault"),
+    dataDir: join(root, "data"), vaultDir: join(root, "vault"),
     repos: [{ id: "spil-aura", path: join(root, "aura repo") }], busyProcesses: [], root,
   };
   return { root, cfg, cleanup: () => rmSync(root, { recursive: true, force: true }) };

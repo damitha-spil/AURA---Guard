@@ -122,22 +122,3 @@ export function ingestDocSources(db: Db, cfg: GuardConfig): IngestResult[] {
   }
   return results;
 }
-
-/**
- * Drops index rows of sources that are no longer part of the department (a source that was
- * removed or moved to another department). Only for department configs; returns rows removed.
- */
-export function pruneRemovedSources(db: Db, cfg: GuardConfig): number {
-  if (cfg.departmentId === undefined) return 0;
-  const keep = new Set([...cfg.repos.map((r) => r.id), ...(cfg.docSources ?? []).map((s) => s.id)]);
-  const repos = db.prepare("SELECT DISTINCT repo FROM docs WHERE repo IS NOT NULL").all() as { repo: string }[];
-  let removed = 0;
-  for (const { repo } of repos) {
-    if (keep.has(repo)) continue;
-    // Notes are never touched: only commit and file rows that belong to a repo/source.
-    removed += Number(db.prepare("DELETE FROM docs WHERE repo=? AND kind IN ('commit','file')").run(repo).changes);
-    db.prepare("DELETE FROM commit_files WHERE repo=?").run(repo);
-    db.prepare("DELETE FROM repo_state WHERE repo=?").run(repo);
-  }
-  return removed;
-}

@@ -1,1 +1,1 @@
-SPIL Quality Support Bot Companion. See docs/vscode-extension.md in the SPIL Quality Support Bot repo.
+SPIL AURA QA Bot Companion. See docs/vscode-extension.md in the SPIL AURA QA Bot repo.

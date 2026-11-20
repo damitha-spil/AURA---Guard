@@ -1,4 +1,4 @@
-# SPIL Quality Support Bot vault
+# SPIL AURA QA Bot vault
 
 Open this folder in Obsidian. Each note is a Markdown file that starts with a
 short block of settings between `---` lines. Guard reads these notes and
@@ -10,7 +10,6 @@ rebuilds its search index from them, so the notes are the truth.
 - `type`: `rule`, `adr` (a decision), `pattern`, `incident`, `domain`, `diary` or `choice`.
 - `status`: see below.
 - `audience`: who may see it: `internal_dev`, `qa_internal`, `customer_support`.
-- `department`: for example `dev`.
 - `source`: where it came from, for example `owner-answer`, `commit`, `import`.
 - `code_anchors`: the code the note is about (`repo`, `path`, optional `symbol`). When that code changes, the note is flagged for a check.
 - `created`: date as `YYYY-MM-DD`.

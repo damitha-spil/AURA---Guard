@@ -229,7 +229,6 @@ export function minePrs(
       type: "choice",
       status: "proposed",
       audience: ["internal_dev"],
-      department: "dev",
       source: "pr-comment",
       title,
       created: new Date().toISOString().slice(0, 10),

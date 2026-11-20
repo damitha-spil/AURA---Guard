@@ -5,7 +5,7 @@ import type { AnswerResult } from "../core/cli.ts";
 import type { Session } from "./session.ts";
 
 export const HELP = [
-  "**@guard** answers questions about how Aura is built and why, using SPIL Quality Support Bot's notes.",
+  "**@guard** answers questions about how Aura is built and why, using SPIL AURA QA Bot's notes.",
   "",
   "- Ask a plain question, for example `@guard why do helpers ask for a kind of help?`",
   "- Notes that are not approved yet are marked as such.",
@@ -44,7 +44,7 @@ export function makeChatHandler(s: Session): vscode.ChatRequestHandler {
         stream.markdown(`${problem} Run **Guard: Set up** first.`);
         return {};
       }
-      stream.progress("Asking SPIL Quality Support Bot...");
+      stream.progress("Asking SPIL AURA QA Bot...");
       const r = await s.cli().answer(q);
       stream.markdown(renderAnswer(r));
       if (s.recorder && s.state === "capturing") {

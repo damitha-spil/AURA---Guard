@@ -3,7 +3,6 @@ id: journey-replace-with-kebab-id
 type: journey
 status: proposed
 audience: [qa_internal, internal_dev]
-department: dev
 source: owner-answer
 created: {{date:YYYY-MM-DD}}
 title: "{{title}}"

@@ -10,7 +10,6 @@ const schema = z.object({
   audience: z
     .array(z.enum(["internal_dev", "qa_internal", "customer_support"]))
     .min(1, "audience must not be empty"),
-  department: z.string().min(1).default("dev"),
   source: z.enum(["owner-answer", "commit", "pr-comment", "session", "evidence", "import"]),
   code_anchors: z
     .array(

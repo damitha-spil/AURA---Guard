@@ -1,4 +1,4 @@
-# SPIL Quality Support Bot implementation plan
+# SPIL AURA QA Bot implementation plan
 
 Status: draft, 2026-11-20. Starts after the open decisions in
 [ARCHITECTURE.md](ARCHITECTURE.md#14-open-decisions) are settled.
@@ -70,12 +70,6 @@ owner has graded at least 20 shadow reviews.
 
 **Done when:** each live role has passed its gate in
 [ARCHITECTURE.md §11](ARCHITECTURE.md#11-proving-it-works).
-
-## Later: other departments
-
-- [ ] Split department config out of the engine (`departments/dev/`).
-- [ ] Finance pilot: read-only ERP connection, report questions.
-- [ ] HR pilot: strict privacy review first.
 
 ## Daily routine (from Phase 2)
 

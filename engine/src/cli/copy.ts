@@ -11,14 +11,6 @@ interface Changes {
 export const copy = {
   help: `${PRODUCT_NAME} (${PRODUCT_SHORT}), command aura-guard
 
-  --dept <id>                 Work on one department (also env QSB_DEPT or AURA_GUARD_DEPT).
-                              Without it, the default department is used.
-  dept list | show <id> | add <id> --name ".." [--template T] | archive <id> | purge <id> --yes | seed
-  dept source add <dept> --path <folder> [--kind git|docs] [--module m] [--sub s] [--label l]
-  dept module add <dept> <name>      dept sub add <dept> <module> <name>
-                              Manage departments, modules and sources (see docs/departments.md)
-  index --all                 Index every department, one after the other
-
   index [--force] [--max N] [--graph]
                               Read the vault and the repos into the index
                               (--graph also rebuilds the code graph, about 45 s)
@@ -37,11 +29,19 @@ export const copy = {
   diary [YYYY-MM-DD]          Draft the day's diary note (uses the model backend below)
   brain status                Which model backends exist, and which one is used
   brain test                  One tiny round trip through the chosen backend
+  brain models                List the models you can choose
+  brain backend <auto|anthropic-api|claude-cli>
+                              Choose where model calls go
+  brain model <backend> <id>  Choose the model for a backend (a listed name, or your own)
+  brain key set               Save the Anthropic API key (read from stdin or a hidden prompt)
+  brain key status | remove   Where the key comes from / delete the saved key
   mine [repo] [--since YYYY-MM-DD] [--min-score 0.7] [--max 15] [--dry-run]
                               Find your corrections in Claude Code sessions;
                               writes proposed choice notes to vault/inbox/
   qa plan [repo] [--base ref] [--head ref] [--no-model]
                               Which journeys a change affects, ranked
+  qa agent "<request>" [--no-model] [--json]
+                              Plan QA for a change, PR, branch or feature (read-only)
   qa generate <journey-id>    Write a Playwright spec for a journey (never run unchecked)
   qa check <spec>             Safety-check a spec (no save/create/send)
   qa run <spec|journey-id> [--widths 800,1100,1440] [--video] [--note]
@@ -76,7 +76,7 @@ export const copy = {
     (dry ? "dry run (nothing written)." : `${written} notes written, ${dup} already there.`),
   diaryWritten: (path: string) => `Diary draft written: ${path} (status: proposed).`,
   brainUsed: (id: string) => `Model backend used: ${id}.`,
-  brainWanted: (w: string) => `Backend setting: ${w} (config brain.backend, env AURA_GUARD_BRAIN overrides).`,
+  brainWanted: (w: string) => `Backend setting: ${w} (environment overrides settings; set it with: brain backend).`,
   brainRow: (id: string, kind: string, ok: boolean, detail: string) => `  ${ok ? "available  " : "unavailable"} ${id} (${kind}): ${detail}`,
   brainPicked: (id: string) => `Would use: ${id}`,
   brainNone: "Would use: nothing. Set ANTHROPIC_API_KEY, or install Claude Code and sign in.",
@@ -85,9 +85,6 @@ export const copy = {
   diaryNothing: (date: string) => `No commits on ${date}; no diary written.`,
   busy: "Not indexing now:",
   busyHint: "Use --force to run anyway.",
-  archived: (id: string) => `The department "${id}" is archived. Un-archive it in the app, or pick another with --dept.`,
-  pruned: (n: number) => `Removed ${n} index rows of sources that are no longer in this department.`,
-  department: (name: string, id: string) => `Department: ${name} (${id})`,
   indexed: (added: number, updated: number, removed: number) =>
     `Notes: ${added} added, ${updated} updated, ${removed} removed.`,
   repoLine: (repo: string, commits: number, files: number, c: Changes, f: Changes) =>

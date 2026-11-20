@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Starts SPIL Quality Support Bot's read-only MCP server from the developer's own Guard clone.
+// Starts SPIL AURA QA Bot's read-only MCP server from the developer's own Guard clone.
 // The plugin itself runs from Claude Code's cached copy, which has no
 // node_modules and no index, so it points at the clone given by the plugin's
 // `guard_home` setting (or the AURA_GUARD_HOME environment variable).
@@ -14,7 +14,7 @@ const server = home && join(home, "engine", "src", "mcp", "server.ts");
 
 if (!server || !existsSync(server)) {
   process.stderr.write(
-    "SPIL Quality Support Bot: Guard folder not found. Clone the SPIL Quality Support Bot repo, run `npm install` and " +
+    "SPIL AURA QA Bot: Guard folder not found. Clone the SPIL AURA QA Bot repo, run `npm install` and " +
       "`npm run guard -- index` there, then set it with `claude plugin configure aura-guard` " +
       "(guard_home) or the AURA_GUARD_HOME environment variable.\n",
   );

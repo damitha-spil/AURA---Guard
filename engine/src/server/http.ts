@@ -1,4 +1,4 @@
-// Small HTTP helpers shared by the server and the department API.
+// Small HTTP helpers shared by the server routes.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 

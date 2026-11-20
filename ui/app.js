@@ -3,19 +3,12 @@ import { initReview } from "/review.js";
 import { buildMark, remountMarks, setMarkState, STYLES, STYLE_NAMES, STYLE_BLURBS, WORK_DEFAULTS, styleDescriptor } from "/marks.js";
 import { applyStep, workSteps, summarize, totalMs, formatDuration, stepIcon, splitEvents } from "/steps.js";
 import { planReveal, revealedLength, shouldReveal } from "/reveal.js";
-import { shortTitle } from "/titles.js";
-import { PRODUCT_NAME, PRODUCT_SHORT } from "/brand.js";
-import { initDepartments } from "/depts.js";
-import { withDept } from "/deptapi.js";
-import { saveLast, colorHex } from "/departments.js";
+import { shortTitle, groupChats, relativeTime, showChatSearch, filterChats, currentWork, flipWork, errorInfo, statusSummary, suggestionCards } from "/titles.js";
+import { PRODUCT_NAME, PRODUCT_SHORT, PROJECT_NAME, MONOGRAM } from "/brand.js";
+import { mountSettings } from "/settings.js";
+import { QA_LABEL, routeSlash, qaSlashItems, chipAction, usedChip, isQaMessage, qaInitial, reduceQaEvent, qaFromJson, qaSummary, qaTotalMs, qaErrorInfo, progressNote, announceBucket, findReportPath } from "/qa.js";
+import { renderQaCard, renderNeedsInput, markAskUsed } from "/qa-view.js";
 
-// Suggestions are real questions the vault can answer.
-const EXAMPLES = [
-  "Why does the AI never get an ERP create tool?",
-  "In what order should I run the checks, and why?",
-  "How does the front desk choose a helper?",
-  "What is the rule for the shared QA SQL Server?",
-];
 const KIND_LABEL = { note: "Note", commit: "Commit", file: "File", context: "Context" };
 const KIND_ICON = {
   note: "M7 3h8l4 4v14H7V3Zm7 0v5h5M10 13h6M10 17h6",
@@ -32,6 +25,22 @@ const ICON = {
   check: "m5 12.5 4.5 4.5L19 7.5",
   x: "m6 6 12 12M18 6 6 18",
   trash: "M5 7h14M10 11v6M14 11v6M8 7l1-3h6l1 3M7 7l1 13h8l1-13",
+  user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4.5 20a7.5 7.5 0 0 1 15 0",
+  spark: "M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8L12 3.5Z",
+  alert: "M12 8v5M12 16.5v.01M10.3 4.2 2.8 17.5A2 2 0 0 0 4.5 20.5h15a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0Z",
+  edit: "M4 20h4L19 9l-4-4L4 16v4ZM13.5 6.5l4 4",
+  modules: "M12 3.5 3.5 8 12 12.5 20.5 8 12 3.5ZM3.5 12 12 16.5 20.5 12M3.5 16 12 20.5 20.5 16",
+  recent: "M12 7v5l3 2M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Z",
+  review: "M4 13l2.5-7.5h11L20 13v5.5H4V13Zm0 0h5l1 2h4l1-2h5",
+  draft: "M7 3.5h7.5L19 8v12.5H7v-17Zm7 0V8.5h5M10 13h6M10 16.5h3",
+  note: "M7 3.5h7.5L19 8v12.5H7v-17Zm7 0V8.5h5M10 13h6M10 16.5h6",
+  search: "m20 20-4.2-4.2M10.5 17a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z",
+  list: "M5 6h2M5 12h2M5 18h2M10 6h9M10 12h9M10 18h6",
+  code: "m8 8-4 4 4 4M16 8l4 4-4 4",
+  qa: "M12 3.5 5 6.2v5.6c0 4.3 3 7.4 7 8.7 4-1.3 7-4.4 7-8.7V6.2l-7-2.7Zm-3 8.6 2.2 2.2 4-4.3",
+  index: "M20 12a8 8 0 0 1-14 5.3M4 12a8 8 0 0 1 14-5.3M18.5 3v4h-4M5.5 21v-4h4",
+  inbox: "M4 13l2.5-7.5h11L20 13v5.5H4V13Zm0 0h5l1 2h4l1-2h5",
+  key: "M8 11.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM10.5 13 19 4.5M16 7.5l2.5 2.5",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -61,10 +70,11 @@ const svg = (d, sw = 2) => {
 const Prefs = globalThis.GuardPrefs;
 const storage = Prefs ? Prefs.safeStorage() : null;
 const state = {
-  dept: null, depts: [], view: "landing", legacy: false,
+  view: "chat", project: null, status: null, summary: null, suggestions: null, indexing: null,
   prefs: Prefs ? Prefs.load(storage) : { style: "noir", mode: "system", motion: "auto", showWork: "auto" },
   chats: [], chat: null, commands: [], busy: false, abort: null, menuIndex: 0, menuItems: [],
   backend: "No model", runningChat: null, notesOnly: false, sideSet: false, reveal: null,
+  chatQuery: "", armedDelete: null,
 };
 const style = () => state.prefs.style;
 const desc = () => styleDescriptor(style());
@@ -111,12 +121,10 @@ function followStyleSidebar() {
 /* ---------- api ---------- */
 async function api(path, opts = {}) {
   const init = { ...opts };
-  const scoped = withDept(path, opts.body, state.dept);
-  path = scoped.path;
   if (opts.body !== undefined) {
     init.method = opts.method || "POST";
     init.headers = { "Content-Type": "application/json" };
-    init.body = JSON.stringify(scoped.body);
+    init.body = JSON.stringify(opts.body);
   }
   const r = await fetch(path, init);
   const data = await r.json().catch(() => ({}));
@@ -126,7 +134,7 @@ async function api(path, opts = {}) {
 
 /** POST that streams newline-delimited JSON events. Falls back to one JSON reply (errors, old servers). */
 async function streamPost(path, body, signal, onEvent) {
-  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" }, body: JSON.stringify(withDept(path, body, state.dept).body), signal });
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" }, body: JSON.stringify(body), signal });
   const type = r.headers.get("content-type") || "";
   if (!type.includes("ndjson") || !r.body) return { json: await r.json().catch(() => ({})), status: r.status };
   const reader = r.body.getReader();
@@ -172,57 +180,80 @@ function toBottom(force) {
 function renderChatList() {
   const box = $("chat-list");
   box.replaceChildren();
+  const wrap = $("chat-search-wrap");
+  const searchable = showChatSearch(state.chats.length);
+  wrap.hidden = !searchable;
+  if (!searchable) state.chatQuery = "";
   if (!state.chats.length) {
-    box.appendChild(el("p", "empty-list", "No chats yet."));
+    box.appendChild(el("p", "empty-list", "No chats yet. Ask a question to start one."));
     return;
   }
-  for (const c of state.chats) {
-    const row = el("div", "chat-item" + (state.chat && state.chat.id === c.id ? " active" : ""));
-    const open = el("button", "chat-open");
-    open.type = "button";
-    open.title = c.title;
-    open.appendChild(el("span", "chat-name", shortTitle(c.title)));
-    if (state.runningChat === c.id) {
-      const dots = el("span", "run-dots");
-      dots.setAttribute("role", "img");
-      dots.setAttribute("aria-label", "Working");
-      dots.append(el("i"), el("i"), el("i"));
-      open.appendChild(dots);
-    } else open.appendChild(el("span", "chat-time", dayOrClock(c.updated)));
-    open.addEventListener("click", () => openChat(c.id));
-    const del = el("button", "chat-del");
-    del.type = "button";
-    del.setAttribute("aria-label", `Delete chat: ${c.title}`);
-    del.appendChild(svg(ICON.trash));
-    del.addEventListener("click", () => deleteChat(c.id, c.title));
-    row.append(open, del);
-    box.appendChild(row);
+  const shown = filterChats(state.chats, state.chatQuery);
+  if (!shown.length) {
+    box.appendChild(el("p", "empty-list", "No chat matches that."));
+    return;
+  }
+  for (const g of groupChats(shown)) {
+    box.appendChild(el("h3", "chat-group", g.label));
+    for (const c of g.chats) {
+      const active = state.chat && state.chat.id === c.id;
+      const row = el("div", "chat-item" + (active ? " active" : ""));
+      const open = el("button", "chat-open");
+      open.type = "button";
+      open.title = c.title;
+      if (active) open.setAttribute("aria-current", "true");
+      open.appendChild(el("span", "chat-name", shortTitle(c.title)));
+      if (state.runningChat === c.id) {
+        const dots = el("span", "run-dots");
+        dots.setAttribute("role", "img");
+        dots.setAttribute("aria-label", "Working");
+        dots.append(el("i"), el("i"), el("i"));
+        open.appendChild(dots);
+      } else open.appendChild(el("span", "chat-time", relativeTime(c.updated)));
+      open.addEventListener("click", () => openChat(c.id));
+      const del = el("button", "chat-del" + (state.armedDelete === c.id ? " armed" : ""));
+      del.type = "button";
+      const armed = state.armedDelete === c.id;
+      del.setAttribute("aria-label", armed ? `Confirm: delete chat ${c.title}` : `Delete chat: ${c.title}`);
+      if (armed) del.appendChild(el("span", "", "Delete?"));
+      else del.appendChild(svg(ICON.trash, 1.5));
+      del.addEventListener("click", () => deleteChat(c.id, c.title));
+      row.append(open, del);
+      box.appendChild(row);
+    }
   }
 }
 
-function chip(label, value, cls) {
-  const c = el("div", "chip" + (cls ? " " + cls : ""));
-  c.append(el("span", "chip-label", label), el("span", "chip-value", value));
-  return c;
+/** Reads the status and the project facts, then repaints the sidebar pill, the badge and the open popover. */
+async function refreshStatus() {
+  const [st, pr] = await Promise.all([api("/api/status"), api("/api/project")]);
+  state.status = st.ok ? st.data : null;
+  state.project = pr.ok ? pr.data : null;
+  paintStatus();
+  if (st.ok) setBusy(st.data.running);
+  if (state.project && state.project.inbox) setInboxBadge(Number(state.project.inbox.pending) || 0);
+  else review.refreshCount();
 }
 
-async function refreshStatus() {
-  const { ok, data } = await api("/api/status");
-  const box = $("status");
-  box.replaceChildren();
-  if (!ok) return;
-  const idx = data.index;
-  const indexText = idx ? `${idx.note || 0} notes, ${idx.commit || 0} commits, ${idx.file || 0} files` : "not built - run /index";
-  box.appendChild(chip("Index", indexText, idx ? "" : "warn"));
-  box.appendChild(chip("Model", data.backend.label, data.backend.picked ? "" : "bad"));
-  box.appendChild(chip("Vault", data.vault.problems ? `${data.vault.problems} problems` : `${data.vault.notes} notes, no problems`, data.vault.problems ? "warn" : ""));
-  state.backend = data.backend.label;
-  $("backend-chip").textContent = data.backend.label;
-  $("status-line").textContent = `${data.backend.label} · ${idx ? (idx.note || 0) + " notes" : "no index"}`;
-  const dot = $("status-dot");
-  dot.className = "status-dot " + (!data.backend.picked ? "bad" : !idx || data.vault.problems ? "warn" : "ok");
-  $("status-toggle").title = `Model: ${data.backend.label}. Index: ${indexText}. Vault: ${data.vault.notes} notes.`;
-  setBusy(data.running);
+function setInboxBadge(n) {
+  const b = $("inbox-count");
+  b.hidden = !n;
+  b.textContent = String(n);
+  b.setAttribute("aria-label", `${n} waiting for review`);
+}
+
+function paintStatus() {
+  const s = statusSummary({ status: state.status, project: state.project });
+  state.summary = s;
+  if (state.status && state.status.backend) {
+    state.backend = s.model;
+    $("backend-name").textContent = s.model;
+  }
+  $("status-line").textContent = s.line;
+  $("status-dot").className = "status-dot " + s.tone;
+  $("status-toggle").title = `Project status. ${s.title}`;
+  for (const f of document.querySelectorAll(".empty-facts")) fillFacts(f);
+  if (!$("status-detail").hidden) renderStatusPanel();
 }
 
 function setBusy(name) {
@@ -254,19 +285,23 @@ function stepIconNode(s) {
  */
 function createTrace(initial) {
   const box = el("div", "trace");
-  const ctl = { box, steps: initial.steps || [], live: !!initial.live, open: initial.open, ms: initial.ms || 0, sources: initial.sources || [], t0: Date.now(), timer: null };
+  const ctl = { box, steps: initial.steps || [], live: !!initial.live, open: initial.open, ms: initial.ms || 0, sources: initial.sources || [], t0: Date.now(), timer: null, agent: initial.agent || null, bucket: 0 };
   const render = () => {
     box.setAttribute("data-open", String(ctl.open));
     box.setAttribute("data-live", String(ctl.live));
+    if (ctl.agent) box.setAttribute("data-agent", ctl.agent);
     box.replaceChildren();
     const head = el("button", "trace-head");
     head.type = "button";
     head.setAttribute("aria-expanded", String(ctl.open));
-    const label = el("span", ctl.live ? "shimmer" : "");
-    label.textContent = ctl.live ? `Thinking ${formatDuration(Date.now() - ctl.t0).replace("under 1 s", "")}`.trim() : summarize(ctl.steps, ctl.ms);
-    const chev = svg(ICON.chev, 2);
+    const ic = el("span", "trace-ic");
+    ic.appendChild(svg(ICON.spark, 1.5));
+    const label = el("span", "trace-label" + (ctl.live ? " shimmer" : ""));
+    const lived = formatDuration(Date.now() - ctl.t0).replace("under 1 s", "");
+    label.textContent = ctl.agent === "qa" ? (ctl.live ? `${QA_LABEL} is working ${lived}`.trim() : qaSummary(ctl.steps, ctl.ms)) : ctl.live ? `Thinking ${lived}`.trim() : summarize(ctl.steps, ctl.ms);
+    const chev = svg(ICON.chev, 1.75);
     chev.setAttribute("class", "chev");
-    head.append(label, chev);
+    head.append(ic, label, chev);
     head.addEventListener("click", () => {
       ctl.open = !ctl.open;
       render();
@@ -278,12 +313,17 @@ function createTrace(initial) {
       const li = el("li", "step");
       li.setAttribute("data-status", s.status);
       const text = el("span", "step-label", s.label);
-      if (s.detail) text.appendChild(el("span", "step-detail", s.detail));
+      if (s.detail) text.appendChild(el("span", ctl.agent === "qa" && s.id === "target" && /^I assumed/i.test(s.detail) ? "step-assume" : "step-detail", s.detail));
+      if (ctl.agent === "qa" && s.status === "running") {
+        const note = progressNote(s.id, Date.now() - (s.startedAt || Date.now()));
+        if (note) text.appendChild(el("span", "step-hint", note));
+      }
       li.append(stepIconNode(s), text);
       if (s.status !== "running" && typeof s.ms === "number" && s.ms > 0) li.appendChild(el("span", "step-ms", formatDuration(s.ms)));
       list.appendChild(li);
     }
     box.appendChild(list);
+    if (ctl.live) box.appendChild(el("span", "trace-bar"));
     if (!ctl.live && ctl.sources.length) {
       box.appendChild(el("p", "trace-sources", "Sources used: " + ctl.sources.map((s) => s.title).join("; ")));
     }
@@ -299,7 +339,18 @@ function createTrace(initial) {
     toBottom(false);
   };
   ctl.start = () => {
-    ctl.timer = setInterval(() => ctl.live && render(), 1000);
+    ctl.timer = setInterval(() => {
+      if (!ctl.live) return;
+      render();
+      const run = ctl.agent === "qa" ? ctl.steps.find((x) => x.status === "running") : null;
+      if (!run) return;
+      const age = Date.now() - (run.startedAt || Date.now());
+      const b = announceBucket(age);
+      if (b > 0 && b !== ctl.bucket) {
+        ctl.bucket = b;
+        say(progressNote(run.id, age) || run.label);
+      }
+    }, 1000);
   };
   ctl.stop = () => clearInterval(ctl.timer);
   render();
@@ -323,8 +374,8 @@ function actionButton(icon, label, onClick, pressable) {
   const b = el("button", "act");
   b.type = "button";
   b.setAttribute("aria-label", label);
-  b.title = label;
-  b.appendChild(svg(icon, 1.8));
+  b.setAttribute("data-tip", label.split(":")[0]);
+  b.appendChild(svg(icon, 1.5));
   if (pressable) b.setAttribute("aria-pressed", "false");
   b.addEventListener("click", () => onClick(b));
   return b;
@@ -403,7 +454,7 @@ function metaText(m) {
   const parts = [clock(m.ts)];
   if (m.role === "assistant") {
     parts.push(state.backend);
-    if (m.trace) parts.push(formatDuration(totalMs(m.trace, 0)));
+    if (m.trace) parts.push(formatDuration(isQaMessage(m) ? qaTotalMs(m.trace, m.qa) : totalMs(m.trace, 0)));
   }
   return parts.filter(Boolean).join(" · ");
 }
@@ -411,12 +462,24 @@ function metaText(m) {
 function messageShell(role, m) {
   const wrap = el("div", `msg ${role}${m && m.error ? " error" : ""}`);
   const av = el("div", "msg-avatar");
-  av.appendChild(mark("idle"));
+  av.appendChild(role === "user" ? svg(ICON.user, 1.5) : mark("idle"));
   const top = el("div", "msg-top");
-  top.append(el("span", "msg-role", role === "user" ? "You" : "Guard"), el("span", "msg-meta", m ? metaText(m) : ""));
+  top.append(el("span", "msg-role", role === "user" ? "You" : PRODUCT_SHORT), el("span", "msg-meta", m ? metaText(m) : ""));
   const main = el("div", "msg-main");
   wrap.append(av, top, main);
-  return { wrap, main, av, top };
+  const s = { wrap, main, av, top };
+  if (m && isQaMessage(m)) markQa(s);
+  return s;
+}
+
+/** The QA sub-agent speaks with its own identity: a small QA badge on the avatar and its own name. */
+function markQa(s) {
+  if (s.wrap.classList.contains("qa-agent")) return;
+  s.wrap.classList.add("qa-agent");
+  const badge = el("span", "qa-badge", "QA");
+  badge.setAttribute("aria-hidden", "true");
+  s.av.appendChild(badge);
+  s.top.querySelector(".msg-role").textContent = QA_LABEL;
 }
 
 function toolCard(name, output, ok, running) {
@@ -467,6 +530,68 @@ function toolCard(name, output, ok, running) {
   return { card, pre, chip: chipEl, head, setOpen, spin };
 }
 
+/** Code blocks get a small header with a Copy button. Runs after renderSafe has built the (escaped) markup. */
+function decorateCode(node) {
+  for (const pre of node.querySelectorAll("pre")) {
+    if (pre.parentElement && pre.parentElement.classList.contains("codeblock")) continue;
+    const wrap = el("div", "codeblock");
+    const head = el("div", "code-head");
+    const lang = el("span", "code-lang");
+    lang.append(svg(ICON.code, 1.5), el("span", "", "Code"));
+    const btn = el("button", "code-copy");
+    btn.type = "button";
+    btn.append(svg(ICON.copy, 1.5), el("span", "", "Copy"));
+    btn.addEventListener("click", async () => {
+      const label = btn.querySelector("span");
+      try {
+        await navigator.clipboard.writeText(pre.textContent || "");
+        label.textContent = "Copied";
+      } catch {
+        label.textContent = "Copy failed";
+      }
+      setTimeout(() => (label.textContent = "Copy"), 1500);
+    });
+    head.append(lang, btn);
+    pre.replaceWith(wrap);
+    wrap.append(head, pre);
+  }
+}
+
+/** A failed answer as an alert card: icon, plain title, the message, and what to do next. */
+function alertCard(message, userText, live, qa) {
+  const info = qa ? qaErrorInfo(message, qa.kind) : errorInfo(message);
+  const card = el("div", "alert-card");
+  card.setAttribute("role", live ? "alert" : "group");
+  card.setAttribute("aria-label", info.title);
+  const ic = el("span", "alert-ic");
+  ic.appendChild(svg(ICON.alert, 1.5));
+  const body = el("div", "alert-body");
+  body.append(el("h3", "alert-title", info.title), el("p", "alert-text", message));
+  if (userText) {
+    const acts = el("div", "alert-actions");
+    const edit = el("button", "alert-btn");
+    edit.type = "button";
+    edit.append(svg(ICON.edit, 1.5), el("span", "", "Edit message"));
+    edit.addEventListener("click", () => {
+      $("input").value = userText;
+      growInput();
+      syncSend();
+      $("input").focus();
+    });
+    acts.appendChild(edit);
+    if (info.retry) {
+      const again = el("button", "alert-btn alert-btn-quiet");
+      again.type = "button";
+      again.append(svg(ICON.redo, 1.5), el("span", "", "Try again"));
+      again.addEventListener("click", () => send(userText));
+      acts.appendChild(again);
+    }
+    body.appendChild(acts);
+  }
+  card.append(ic, body);
+  return card;
+}
+
 /** A stored message as a node. `prev` is the message before it (to spot command results). */
 function messageNode(m, index, prev) {
   const { wrap, main } = messageShell(m.role, m);
@@ -481,12 +606,31 @@ function messageNode(m, index, prev) {
     main.appendChild(toolCard(prev.text, out, !m.error, false).card);
     return wrap;
   }
+  const qaMsg = isQaMessage(m);
   if (m.trace && m.trace.length) {
     const w = workMode();
-    main.appendChild(createTrace({ steps: m.trace, live: false, open: w.expanded, ms: totalMs(m.trace, 0), sources: m.sources || [] }).box);
+    const agent = m.trace.some((t) => t.agent === "qa") ? "qa" : null;
+    main.appendChild(createTrace({ steps: m.trace, live: false, open: w.expanded, ms: agent ? qaTotalMs(m.trace, m.qa) : totalMs(m.trace, 0), sources: m.sources || [], agent }).box);
+  }
+  if (m.error) {
+    main.appendChild(alertCard(m.text, prev && prev.role === "user" ? prev.text : "", false, qaMsg ? {} : null));
+    return wrap;
+  }
+  if (m.needsInput) {
+    const msgs = state.chat ? state.chat.messages : [];
+    const next = msgs[index + 1];
+    main.appendChild(renderNeedsInput(m.needsInput, qaCtx, usedChip(m.needsInput, next ? (next.role === "user" ? next.text : "") : null)));
+    return wrap;
+  }
+  if (m.qa) {
+    const total = state.chat ? state.chat.messages.length : 0;
+    main.appendChild(renderQaCard(m.qa, qaCtx, { isLatest: index === total - 1 }));
+    main.appendChild(actionsFor(m, index).wrap);
+    return wrap;
   }
   const ans = el("div", "answer bubble");
   ans.innerHTML = renderSafe(m.text, known); // renderSafe escapes all text before adding tags
+  decorateCode(ans);
   main.appendChild(ans);
   if (m.sources && m.sources.length) {
     const row = el("div", "src-row");
@@ -498,29 +642,44 @@ function messageNode(m, index, prev) {
   return wrap;
 }
 
+/** Quiet facts under the sentence: what the answers can draw on, and how fresh it is. */
+function fillFacts(node) {
+  node.replaceChildren();
+  const s = state.summary;
+  if (!s) return;
+  if (s.counts) {
+    for (const [n, w] of [[s.counts.notes, "notes"], [s.counts.commits, "commits"], [s.counts.files, "files"]]) if (n) node.appendChild(el("span", "fact", `${n.toLocaleString("en")} ${w}`));
+  }
+  if (s.index) node.appendChild(el("span", "fact " + s.index.state, s.index.label.replace(/. It is getting old.$/, "")));
+}
+
+/** The first screen: the project tile, one plain sentence and the suggestion cards. */
 function emptyState() {
-  const d = desc();
   const box = el("div", "empty");
   const hero = el("div", "hero-mark");
-  hero.appendChild(mark("idle"));
+  const tile = el("span", "tile hero-tile", MONOGRAM);
+  tile.setAttribute("aria-hidden", "true");
+  hero.appendChild(tile);
   box.append(hero);
-  const cur = currentDept();
-  box.appendChild(el("p", "prompt-line", "> " + PRODUCT_SHORT.toLowerCase().replace(/\s+/g, "-") + " ready"));
-  box.append(el("h2", "", cur ? `What do you want to know about ${cur.name}?` : "What do you want to know?"));
-  box.append(el("p", "", "Answers come only from the vault notes and the indexed code, with sources. Type / for commands."));
+  box.append(el("h2", "", `Ask anything about ${PROJECT_NAME}`));
+  box.append(el("p", "empty-sub", "Answers come only from the vault notes and the indexed code, with sources. Type / for commands."));
+  const facts = el("div", "empty-facts");
+  fillFacts(facts);
+  box.appendChild(facts);
   const grid = el("div", "examples");
-  // The example questions are about one project, so they are only shown when no department is chosen.
-  (state.dept ? [] : EXAMPLES).forEach((q, i) => {
-    const b = el("button", "example");
+  for (const s of suggestionCards(state.suggestions)) {
+    const b = el("button", "suggest" + (s.fill ? " suggest-qa" : ""));
     b.type = "button";
-    if (d.empty === "terminal") b.appendChild(el("span", "example-n", String(i + 1).padStart(2, "0")));
-    b.appendChild(el("span", "example-q", q));
-    b.addEventListener("click", () => {
-      $("input").value = q;
-      send();
-    });
+    b.setAttribute("data-suggest", s.id);
+    const ic = el("span", "suggest-ic");
+    ic.appendChild(svg(ICON[s.icon] || ICON.note, 1.5));
+    const tx = el("span", "suggest-text");
+    tx.append(el("span", "suggest-title", s.title), el("span", "suggest-hint", s.hint));
+    b.append(ic, tx);
+    // A question card sends at once. "QA this change" only fills the box: the person decides when to send.
+    b.addEventListener("click", () => (s.fill ? qaCtx.fillComposer(s.fill) : send(s.text)));
     grid.appendChild(b);
-  });
+  }
   box.appendChild(grid);
   return box;
 }
@@ -536,7 +695,7 @@ function renderMessages() {
   $("app").setAttribute("data-empty", String(!msgs.length));
   if (!msgs.length) th.appendChild(emptyState());
   msgs.forEach((m, i) => th.appendChild(messageNode(m, i, msgs[i - 1])));
-  box.scrollTop = box.scrollHeight;
+  box.scrollTop = msgs.length ? box.scrollHeight : 0; // the first screen starts at its top, a chat at its latest message
 }
 const thread = () => $("thread");
 
@@ -570,8 +729,20 @@ async function ensureChat() {
   return data;
 }
 
-async function deleteChat(id, title) {
-  if (!confirm(`Delete this chat?\n\n${title}`)) return;
+let armTimer = null;
+async function deleteChat(id) {
+  // First click asks "Delete?" in the row; a second click within a few seconds deletes.
+  clearTimeout(armTimer);
+  if (state.armedDelete !== id) {
+    state.armedDelete = id;
+    renderChatList();
+    armTimer = setTimeout(() => {
+      state.armedDelete = null;
+      renderChatList();
+    }, 3500);
+    return;
+  }
+  state.armedDelete = null;
   await api(`/api/chats/${id}`, { method: "DELETE" });
   if (state.chat && state.chat.id === id) state.chat = null;
   await refreshChats();
@@ -583,13 +754,14 @@ function setSending(on) {
   state.busy = on;
   $("send").hidden = on;
   $("stop").hidden = !on;
-  for (const m of document.querySelectorAll(".brand-mark")) setMarkState(m, on ? "thinking" : "idle");
+  $("brand-tile").setAttribute("data-state", on ? "thinking" : "idle");
 }
 
 function revealInto(node, text, known, done) {
   const d = desc();
   if (d.reveal === "none" || !shouldReveal({ reducedMotion: reducedMotion(), text })) {
     node.innerHTML = renderSafe(text, known);
+    decorateCode(node);
     return done();
   }
   const plan = planReveal(text, d.reveal === "typewriter" ? { wordMs: 9, maxMs: 900 } : {});
@@ -600,6 +772,7 @@ function revealInto(node, text, known, done) {
     cancelAnimationFrame(raf);
     state.reveal = null;
     node.innerHTML = renderSafe(text, known);
+    decorateCode(node);
     done();
   };
   const tick = () => {
@@ -623,12 +796,15 @@ function userNode(text) {
   return wrap;
 }
 
-async function send(forced) {
+async function send(forced, opts = {}) {
   const input = $("input");
   const text = (typeof forced === "string" ? forced : input.value).trim();
   if (!text || state.busy) return;
   setView("chat");
   hideMenu();
+  // An older question or run button must not stay live once the conversation moves on.
+  for (const box of document.querySelectorAll(".qa-ask")) markAskUsed(box);
+  for (const b of document.querySelectorAll(".qa-run")) b.disabled = true;
   input.value = "";
   growInput();
   setSending(true);
@@ -643,13 +819,15 @@ async function send(forced) {
   const controller = new AbortController();
   state.abort = controller;
   try {
-    if (text.startsWith("/")) await runCommand(text, chat, controller.signal);
-    else await runAsk(text, chat, controller.signal);
+    const route = opts.runJourneys ? { kind: "ask", text } : routeSlash(text);
+    if (route.kind === "command") await runCommand(text, chat, controller.signal);
+    else if (route.kind === "qa") await runAsk(route.text, chat, controller.signal, { mode: "qa" });
+    else await runAsk(text, chat, controller.signal, opts.runJourneys ? { runJourneys: true } : {});
   } catch (e) {
     const aborted = e && e.name === "AbortError";
     document.querySelector(".msg.live")?.remove();
     const s = messageShell("assistant", { role: "assistant", ts: new Date().toISOString(), error: true });
-    s.main.appendChild(el("div", "answer", aborted ? "Stopped waiting. If the answer arrives, it is saved in this chat; reopen the chat to see it." : "Could not reach Guard. Is its window still running?"));
+    s.main.appendChild(alertCard(aborted ? "Stopped waiting. If the answer arrives, it is saved in this chat; reopen the chat to see it." : "Could not reach AURA QA. Is its window still running?", text, true));
     setMarkState(s.av.firstChild, "error");
     thread().appendChild(s.wrap);
   } finally {
@@ -663,7 +841,7 @@ async function send(forced) {
   }
 }
 
-async function runAsk(text, chat, signal) {
+async function runAsk(text, chat, signal, opts = {}) {
   const w = workMode();
   const s = messageShell("assistant", { role: "assistant", ts: new Date().toISOString() });
   s.wrap.classList.add("live", "entering");
@@ -673,15 +851,36 @@ async function runAsk(text, chat, signal) {
   s.main.appendChild(tr.box);
   thread().appendChild(s.wrap);
   toBottom(true);
-  say("Guard is working");
+  say("AURA QA is working");
   let result = null;
-  const reply = await streamPost(`/api/chats/${chat.id}/ask`, { question: text, ...(state.notesOnly ? { notesOnly: true } : {}) }, signal, (ev) => {
+  let qs = qaInitial();
+  const enterQa = () => {
+    markQa(s);
+    tr.set({ agent: "qa", open: state.prefs.showWork !== "off" });
+    say("QA agent started");
+  };
+  if (opts.mode === "qa" || opts.runJourneys) {
+    // The person asked for QA: show the agent's identity at once, before its first event arrives.
+    markQa(s);
+    tr.set({ agent: "qa", open: state.prefs.showWork !== "off" });
+  }
+  const sendBody = { question: text, ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.runJourneys ? { runJourneys: true } : {}), ...(state.notesOnly ? { notesOnly: true } : {}) };
+  const reply = await streamPost(`/api/chats/${chat.id}/ask`, sendBody, signal, (ev) => {
+    const was = qs.active;
+    qs = reduceQaEvent(qs, ev);
+    if (qs.active && !was) enterQa();
     if (ev.type === "step") tr.add(ev.step);
     else if (ev.type === "answer" || ev.type === "error") result = ev;
   });
   tr.stop();
   if (!result && reply.json) {
     const j = reply.json;
+    const jq = qaFromJson(j);
+    if (jq.active) {
+      qs = jq;
+      enterQa();
+      tr.set({ steps: jq.steps });
+    }
     result = j.text !== undefined ? { type: j.ok ? "answer" : "error", text: j.text, message: j.text, sources: j.sources, chat: j.chat } : { type: "error", message: j.error || "No answer.", chat: null };
   }
   if (!result) result = { type: "error", message: "The answer did not arrive.", chat: null };
@@ -689,13 +888,28 @@ async function runAsk(text, chat, signal) {
   const failed = result.type === "error";
   const body = failed ? result.message : result.text;
   const sources = failed ? [] : result.sources || [];
-  const ms = totalMs(tr.steps, Date.now() - tr.t0);
+  const isQa = qs.active;
+  const ms = isQa ? qaTotalMs(tr.steps, qs.result) || Date.now() - tr.t0 : totalMs(tr.steps, Date.now() - tr.t0);
   s.wrap.classList.remove("live");
   if (failed) s.wrap.classList.add("error");
   setMarkState(s.av.firstChild, failed ? "error" : "done");
   s.top.querySelector(".msg-meta").textContent = [clock(new Date().toISOString()), state.backend, formatDuration(ms)].filter(Boolean).join(" · ");
   tr.set({ live: false, ms, sources, open: w.expanded });
   if (!workSteps(tr.steps).length) tr.box.remove();
+  if (isQa && !failed && (qs.needsInput || qs.result)) {
+    // The structured outcome replaces the Markdown text (which stays stored as the fallback).
+    if (qs.needsInput) {
+      s.main.appendChild(renderNeedsInput(qs.needsInput, qaCtx, null));
+      say("QA needs one answer: " + qs.needsInput.question);
+    } else {
+      s.main.appendChild(renderQaCard(qs.result, qaCtx, { isLatest: true }));
+      s.main.appendChild(actionsFor({ text: body }, state.chat ? state.chat.messages.length - 1 : 0).wrap);
+      say("QA result ready. " + (qs.result.risk ? qs.result.risk.level + " risk." : ""));
+    }
+    $("chat-title").textContent = state.chat ? shortTitle(state.chat.title, 60) : "New chat";
+    toBottom(false);
+    return;
+  }
   const ans = el("div", "answer bubble");
   s.main.appendChild(ans);
   const known = new Set(sources.map((x) => x.ref));
@@ -710,11 +924,11 @@ async function runAsk(text, chat, signal) {
       const idx = state.chat ? state.chat.messages.length - 1 : 0;
       s.main.appendChild(actionsFor({ text: body }, idx).wrap);
     }
-    say(failed ? "Guard could not answer: " + body : "Answer ready");
+    say(failed ? (isQa ? "QA agent could not finish: " : "AURA QA could not answer: ") + body : "Answer ready");
     toBottom(false);
   };
   if (failed) {
-    ans.textContent = body;
+    ans.replaceWith(alertCard(body, text, true, isQa ? { kind: result.kind } : null));
     finish();
   } else revealInto(ans, body, known, finish);
   $("chat-title").textContent = state.chat ? shortTitle(state.chat.title, 60) : "New chat";
@@ -762,6 +976,7 @@ async function runCommand(text, chat, signal) {
 
 /* ---------- composer ---------- */
 function growInput() {
+  syncSend();
   const i = $("input");
   if (typeof CSS !== "undefined" && CSS.supports && CSS.supports("field-sizing", "content")) return;
   i.style.height = "auto";
@@ -771,20 +986,26 @@ function syncPills() {
   $("pill-notes").setAttribute("aria-pressed", String(state.notesOnly));
   const on = workMode().live;
   $("pill-work").setAttribute("aria-pressed", String(on));
-  $("top-work").setAttribute("aria-pressed", String(on));
+  $("top-work").setAttribute("aria-checked", String(on));
+}
+function syncSend() {
+  $("send").disabled = !$("input").value.trim();
 }
 function toggleWork() {
-  state.prefs.showWork = workMode().live ? "off" : "on";
+  state.prefs.showWork = flipWork(state.prefs.showWork, (WORK_DEFAULTS[style()] || WORK_DEFAULTS.noir).live);
   savePrefs();
   syncPills();
   renderPopover();
 }
 
 function menuMatches(value) {
-  if (!value.startsWith("/") || /\s/.test(value)) return [];
+  if (!value.startsWith("/")) return [];
+  const qa = qaSlashItems(value, PROJECT_NAME);
+  if (/\s/.test(value)) return qa;
   const q = value.slice(1).toLowerCase();
-  return state.commands.filter((c) => c.name.startsWith(q));
+  return [...state.commands.filter((c) => c.name.startsWith(q)), ...qa];
 }
+const menuText = (c) => (c.insert !== undefined ? c.insert : `/${c.name} `);
 
 function showMenu() {
   const items = menuMatches($("input").value);
@@ -805,6 +1026,12 @@ function showMenu() {
     });
     menu.appendChild(row);
   });
+  if (items.length) {
+    const foot = el("div", "slash-foot");
+    foot.append(el("span", "", "Up and down to move"), el("span", "", "Enter to pick"), el("span", "", "Esc to close"));
+    menu.appendChild(foot);
+    $("input").setAttribute("aria-activedescendant", `slash-${items[state.menuIndex].name}`);
+  } else $("input").removeAttribute("aria-activedescendant");
   $("input").setAttribute("aria-expanded", String(!menu.hidden));
 }
 
@@ -817,8 +1044,9 @@ function pick(i) {
   const c = state.menuItems[i];
   if (!c) return;
   const input = $("input");
-  input.value = `/${c.name} `;
-  hideMenu();
+  input.value = menuText(c);
+  state.menuIndex = 0;
+  showMenu();
   input.focus();
 }
 
@@ -883,34 +1111,19 @@ function toast(text, opts = {}) {
   setTimeout(() => t.remove(), opts.error ? 6000 : 1600);
 }
 
-const currentDept = () => state.depts.find((d) => d.id === state.dept) || null;
-function paintDeptChrome() {
-  const d = currentDept();
-  const inWork = !!d && state.view !== "landing";
-  $("dept-bar").hidden = !inWork;
-  $("tab-dept").hidden = !inWork;
-  if (d) {
-    $("dept-name").textContent = d.name;
-    $("dept-dot").style.setProperty("--dc", colorHex(d.color));
-    $("dept-current").setAttribute("aria-label", `${d.name}. Back to all departments (Ctrl+Shift+D)`);
-  }
-  for (const c of document.querySelectorAll("[data-dept-chip]")) {
-    c.replaceChildren();
-    c.hidden = !d;
-    if (!d) continue;
-    const dot = el("span", "dot");
-    dot.style.setProperty("--dc", colorHex(d.color));
-    dot.setAttribute("aria-hidden", "true");
-    c.append(dot, el("span", "dept-chip-name", d.name));
-    c.setAttribute("title", `Department: ${d.name}`);
-  }
-  document.title = d && inWork ? `${d.name} - ${PRODUCT_NAME}` : PRODUCT_NAME;
+/** The title and the project chips. There is one project, so nothing here changes per view. */
+function paintChrome() {
+  document.title = PRODUCT_NAME;
+  for (const n of document.querySelectorAll("[data-project-name]")) n.textContent = PROJECT_NAME;
 }
 
+let settingsView = null;
 function setView(name) {
+  if (state.view === "settings" && name !== "settings") settingsView?.hide();
+  if (name === "settings" && state.view !== "settings") state.viewBeforeSettings = state.view;
   state.view = name;
-  $("app").classList.toggle("at-landing", name === "landing");
-  for (const v of ["landing", "dept", "chat", "inbox", "reports"]) {
+  $("settings-btn")?.classList.toggle("active", name === "settings");
+  for (const v of ["chat", "inbox", "reports", "settings"]) {
     $(`view-${v}`).hidden = v !== name;
     const tab = $(`tab-${v}`);
     if (!tab) continue;
@@ -919,45 +1132,23 @@ function setView(name) {
   }
   for (const n of document.querySelectorAll(".chat-only")) n.hidden = name !== "chat";
   closePanel();
-  paintDeptChrome();
   if (name === "inbox" || name === "reports") review.show(name);
   if (name === "chat") $("input").focus();
+  if (name === "settings") {
+    settingsView ||= mountSettings({ root: $("view-settings"), onBack: closeSettings });
+    settingsView.show();
+  }
 }
 
-/** Switches the current department and shows one of its views. Everything per-department reloads. */
-async function enter(id, view = "chat") {
-  if (state.dept !== id) {
-    state.dept = id;
-    state.chat = null;
-    state.chats = [];
-    renderChatList();
-  }
-  saveLast(storage, id);
-  setView(view);
-  if (view === "dept") {
-    refreshStatus();
-    return depts.showDept(id);
-  }
-  await Promise.all([refreshChats(), refreshStatus()]);
-  if (view === "chat") {
-    if (state.chats[0]) await openChat(state.chats[0].id);
-    else renderMessages();
-    $("input").focus();
-  }
-  review.refreshCount();
+/** Machine-wide model and key settings. */
+function openSettings() {
+  closeStatus();
+  if (state.view !== "settings") setView("settings");
 }
-function showLanding() {
-  setView("landing");
-  depts.showLanding();
+function closeSettings() {
+  setView(state.viewBeforeSettings && state.viewBeforeSettings !== "settings" ? state.viewBeforeSettings : "chat");
 }
-const depts = initDepartments({
-  $, storage, enter, showLanding, toast, streamPost,
-  onList: (list) => { state.depts = list; paintDeptChrome(); },
-  paintChips: paintDeptChrome,
-  mountMark: (slot) => { slot.replaceChildren(buildMark(document, style(), "idle")); },
-});
-$("dept-current").addEventListener("click", showLanding);
-for (const b of document.querySelectorAll(".switch")) b.addEventListener("click", () => (state.legacy ? setView(b.getAttribute("data-view")) : enter(state.dept, b.getAttribute("data-view"))));
+for (const b of document.querySelectorAll(".switch")) b.addEventListener("click", () => setView(b.getAttribute("data-view")));
 
 document.addEventListener("click", (ev) => {
   const t = ev.target;
@@ -1073,7 +1264,6 @@ function closePopover() {
 function applyAll() {
   Prefs.apply(state.prefs, document.documentElement);
   remountMarks(document, document, style());
-  for (const m of document.querySelectorAll(".brand-mark")) setMarkState(m, state.busy ? "thinking" : "idle");
   if (!state.busy) renderMessages();
   if (!state.sideSet && sideStored() === null) followStyleSidebar();
   syncPills();
@@ -1127,6 +1317,202 @@ document.addEventListener("pointerdown", (e) => {
   }
 });
 
+/* ---------- QA agent: what the card and the question may ask of this screen ---------- */
+const qaCtx = {
+  get storage() {
+    return storage;
+  },
+  toast: (t, o) => toast(t, o),
+  say,
+  fillComposer(text, { onlyIfEmpty } = {}) {
+    const i = $("input");
+    if (onlyIfEmpty && i.value.trim()) return;
+    i.value = text;
+    growInput();
+    i.focus();
+    i.setSelectionRange(text.length, text.length);
+  },
+  pickChip(option) {
+    const a = chipAction(option);
+    if (a.action === "send") send(a.text);
+    else if (a.action === "fill") qaCtx.fillComposer(a.text);
+  },
+  runJourneys: () => send("Run the read-only journeys", { runJourneys: true }),
+  openInbox: () => setView("inbox"),
+  async openReport(markdownPath) {
+    const r = await api("/api/reports");
+    if (!r.ok) return false;
+    const rel = findReportPath(markdownPath, r.data.reports);
+    if (!rel) return false;
+    setView("reports");
+    for (let i = 0; i < 25; i++) {
+      const b = [...document.querySelectorAll("#report-list .report-item")].find((x) => x.getAttribute("data-path") === rel);
+      if (b) {
+        b.click();
+        return true;
+      }
+      await new Promise((ok) => setTimeout(ok, 100));
+    }
+    return false;
+  },
+};
+
+/* ---------- project status popover ---------- */
+function closeStatus() {
+  $("status-detail").hidden = true;
+  $("status-toggle").setAttribute("aria-expanded", "false");
+}
+
+function sdSection(title) {
+  const s = el("section", "sd-block");
+  s.appendChild(el("h4", "sd-title", title));
+  return s;
+}
+
+function sdAction(icon, label, onClick, cls = "btn") {
+  const b = el("button", cls);
+  b.type = "button";
+  b.append(svg(icon, 1.6), el("span", "", label));
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+/** Builds the popover from the last status and project facts. Everything is set with textContent. */
+function renderStatusPanel() {
+  const box = $("status-detail");
+  const s = state.summary || statusSummary({ status: state.status, project: state.project });
+  const keep = box.contains(document.activeElement) ? document.activeElement.getAttribute("data-k") : null;
+  box.replaceChildren();
+
+  const head = el("header", "sd-head");
+  head.appendChild(el("span", "tile sd-tile", MONOGRAM));
+  head.lastChild.setAttribute("aria-hidden", "true");
+  const titles = el("div", "sd-titles");
+  titles.append(el("h3", "sd-name", PROJECT_NAME), el("p", "sd-sub " + (s.index ? s.index.state : "unknown"), s.index ? s.index.label : "Index status unknown"));
+  const x = el("button", "icon-btn sd-close");
+  x.type = "button";
+  x.setAttribute("aria-label", "Close project status");
+  x.setAttribute("data-k", "close");
+  x.appendChild(svg(ICON.x, 1.75));
+  x.addEventListener("click", () => {
+    closeStatus();
+    $("status-toggle").focus();
+  });
+  head.append(titles, x);
+  box.appendChild(head);
+
+  const repos = sdSection("Repositories");
+  if (!s.repos.length) repos.appendChild(el("p", "sd-empty", "No repository has been read yet."));
+  else {
+    const list = el("ul", "sd-repos");
+    for (const r of s.repos) {
+      const li = el("li", "sd-repo");
+      const top = el("div", "sd-repo-top");
+      top.appendChild(el("span", "sd-repo-name", r.label));
+      if (r.branch) top.appendChild(el("span", "sd-branch", r.branch));
+      const meta = el("p", "sd-repo-meta");
+      meta.appendChild(el("span", "", r.commitText));
+      meta.appendChild(el("span", "sd-repo-idx " + r.state, r.indexText));
+      li.append(top, meta);
+      list.appendChild(li);
+    }
+    repos.appendChild(list);
+  }
+  box.appendChild(repos);
+
+  const notes = sdSection("Index and notes");
+  notes.appendChild(el("p", "sd-line", s.countsText));
+  if (s.vault) {
+    const grid = el("dl", "sd-stats");
+    for (const [label, n] of [["Notes", s.vault.notes], ["Active", s.vault.active], ["Proposed", s.vault.proposed], ["Stale", s.vault.stale]]) {
+      const cell = el("div", "sd-stat");
+      cell.append(el("dd", "", String(n)), el("dt", "", label));
+      grid.appendChild(cell);
+    }
+    notes.appendChild(grid);
+    const vl = el("p", "sd-vault " + s.vaultTone);
+    vl.append(el("span", "sd-dot"), el("span", "", s.vaultText));
+    notes.appendChild(vl);
+  }
+  box.appendChild(notes);
+
+  if (s.pending !== null) {
+    const inbox = el("section", "sd-block sd-inbox");
+    inbox.appendChild(el("p", "sd-line", s.pendingText));
+    const open = sdAction(ICON.inbox, "Open inbox", () => {
+      closeStatus();
+      setView("inbox");
+    });
+    open.setAttribute("data-k", "inbox");
+    inbox.appendChild(open);
+    box.appendChild(inbox);
+  }
+
+  const run = el("section", "sd-block sd-run");
+  const ix = state.indexing;
+  const live = ix && !ix.failed;
+  const running = live || (state.status && state.status.running);
+  const go = sdAction(ICON.index, live ? "Indexing..." : "Index now", indexNow, "btn btn-primary");
+  go.setAttribute("data-k", "index");
+  if (running) go.setAttribute("aria-disabled", "true");
+  const note = el("p", "sd-note" + (ix && ix.failed ? " bad" : ""));
+  note.id = "index-note";
+  note.setAttribute("role", "status");
+  note.textContent = ix ? ix.line : state.status && state.status.running ? `Running /${state.status.running}...` : "Reads the commits, files and notes again.";
+  run.append(go, note);
+  box.appendChild(run);
+
+  const foot = el("footer", "sd-foot");
+  const model = el("p", "sd-model " + (s.modelOk ? "ok" : "bad"));
+  model.append(el("span", "sd-dot"), el("span", "", s.modelOk ? `Model: ${s.model}` : "No model is ready"));
+  const link = sdAction(ICON.key, "Model & keys", openSettings, "sd-link");
+  link.setAttribute("data-k", "keys");
+  foot.append(model, link);
+  box.appendChild(foot);
+  if (keep) box.querySelector(`[data-k="${keep}"]`)?.focus();
+}
+
+/** Runs the index command through the same streaming API the chat uses, shows the last line, then refreshes. */
+async function indexNow() {
+  if ((state.indexing && !state.indexing.failed) || state.busy || (state.status && state.status.running)) return;
+  state.indexing = { line: "Starting...", failed: false };
+  say("Indexing started");
+  renderStatusPanel();
+  let done = null;
+  let ok = false;
+  try {
+    const reply = await streamPost("/api/command", { line: "/index" }, new AbortController().signal, (ev) => {
+      if (ev.type === "output") {
+        const last = String(ev.chunk).split("\n").map((x) => x.trim()).filter(Boolean).pop();
+        if (last) {
+          state.indexing.line = last;
+          const n = $("index-note");
+          if (n) n.textContent = last;
+        }
+      } else if (ev.type === "done") done = ev;
+    });
+    ok = reply.json ? !!reply.json.ok && reply.json.output !== undefined : !!done && done.code === 0;
+    if (!ok && reply.json && reply.json.error) state.indexing.line = reply.json.error;
+  } catch {
+    state.indexing.line = "Could not reach AURA QA.";
+  }
+  if (ok) {
+    state.indexing = null;
+    await refreshStatus();
+    toast("Index rebuilt");
+    say("Index rebuilt");
+  } else {
+    state.indexing = { line: state.indexing.line === "Starting..." ? "Indexing did not finish." : state.indexing.line, failed: true };
+    await refreshStatus();
+    toast("Indexing did not finish", { error: true });
+    setTimeout(() => {
+      state.indexing = null;
+      if (!$("status-detail").hidden) renderStatusPanel();
+    }, 6000);
+  }
+  if (!$("status-detail").hidden) renderStatusPanel();
+}
+
 /* ---------- wiring ---------- */
 $("composer").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -1144,7 +1530,7 @@ $("input").addEventListener("keydown", (e) => {
     const n = state.menuItems.length;
     state.menuIndex = (state.menuIndex + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
     showMenu();
-  } else if (open && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && $("input").value.trim() !== `/${state.menuItems[state.menuIndex]?.name}`))) {
+  } else if (open && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && $("input").value.trim() !== menuText(state.menuItems[state.menuIndex] || { name: "" }).trim()))) {
     e.preventDefault();
     pick(state.menuIndex);
   } else if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
@@ -1167,6 +1553,26 @@ $("status-toggle").addEventListener("click", () => {
   const open = b.getAttribute("aria-expanded") !== "true";
   b.setAttribute("aria-expanded", String(open));
   $("status-detail").hidden = !open;
+  if (open) {
+    renderStatusPanel();
+    $("status-detail").querySelector(".sd-close")?.focus(); // keyboard users land inside the popover
+    refreshStatus();
+  }
+});
+// The popover closes on a click elsewhere or Escape.
+document.addEventListener("pointerdown", (e) => {
+  if (!$("status-detail").hidden && e.target instanceof Node && !$("status-detail").contains(e.target) && !$("status-toggle").contains(e.target)) closeStatus();
+});
+$("settings-btn").addEventListener("click", openSettings);
+$("status-detail").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    closeStatus();
+    $("status-toggle").focus();
+  }
+});
+$("chat-search").addEventListener("input", (e) => {
+  state.chatQuery = e.target.value;
+  renderChatList();
 });
 $("pill-notes").addEventListener("click", () => {
   state.notesOnly = !state.notesOnly;
@@ -1174,17 +1580,16 @@ $("pill-notes").addEventListener("click", () => {
 });
 $("pill-work").addEventListener("click", toggleWork);
 $("top-work").addEventListener("click", toggleWork);
-for (const b of document.querySelectorAll("[data-cmd]")) {
-  b.addEventListener("click", () => {
-    $("input").value = b.getAttribute("data-cmd");
-    send();
-  });
-}
 document.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
-  if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === "d") {
+  if (e.key === "Escape" && !$("status-detail").hidden) {
+    closeStatus();
+    $("status-toggle").focus();
+    return;
+  }
+  if (mod && !e.shiftKey && !e.altKey && e.key === ",") {
     e.preventDefault();
-    if (!state.legacy) showLanding();
+    openSettings();
   } else if (mod && !e.altKey && e.key.toLowerCase() === "k") {
     e.preventDefault();
     newChat();
@@ -1214,23 +1619,17 @@ async function boot() {
   remountMarks(document, document, style());
   followStyleSidebar();
   syncPills();
-  document.title = PRODUCT_NAME;
+  paintChrome();
+  syncSend();
   $("brand-name").textContent = PRODUCT_SHORT;
-  await depts.loadList();
-  state.legacy = depts.legacy;
-  if (state.legacy) {
-    // An older server without departments: behave as before, one set of chats, no landing page.
-    const [cmds] = await Promise.all([api("/api/commands"), refreshStatus(), refreshChats()]);
-    state.commands = (cmds.data.commands || []).filter((c) => c.available);
-    setView("chat");
-    if (state.chats[0]) await openChat(state.chats[0].id);
-    else renderMessages();
-    review.refreshCount();
-  } else {
-    const cmds = await api("/api/commands");
-    state.commands = (cmds.data.commands || []).filter((c) => c.available);
-    showLanding();
-  }
-  setInterval(() => !state.busy && state.view !== "landing" && refreshStatus(), 30000);
+  // The app opens straight into a new chat. The cards come from the server; a failed call uses the fallback.
+  const [cmds, sug] = await Promise.all([api("/api/commands"), api("/api/suggestions"), refreshStatus(), refreshChats()]);
+  state.commands = (cmds.data.commands || []).filter((c) => c.available);
+  state.suggestions = sug.ok ? sug.data : null;
+  state.chat = null;
+  setView("chat");
+  renderMessages();
+  renderChatList();
+  setInterval(() => !state.busy && refreshStatus(), 30000);
 }
 boot();

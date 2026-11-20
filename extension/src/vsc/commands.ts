@@ -27,7 +27,7 @@ const SECRET_MSG = "That text looks like it contains a secret, so nothing was sa
 async function ready(s: Session, what: string, allowPaused = false): Promise<boolean> {
   const w = s.vsc.window;
   if (s.state === "off") {
-    void w.showInformationMessage("SPIL Quality Support Bot is off here. Open a workspace with ai-log/README.md, or add it to auraGuard.workspaces.");
+    void w.showInformationMessage("SPIL AURA QA Bot is off here. Open a workspace with ai-log/README.md, or add it to auraGuard.workspaces.");
     return false;
   }
   if (s.state === "needs-consent") {
@@ -35,7 +35,7 @@ async function ready(s: Session, what: string, allowPaused = false): Promise<boo
     startCapture(s);
   }
   if (s.state === "paused" && !allowPaused) {
-    void w.showInformationMessage(`Capture is paused, so ${what} was not recorded. Resume it from the SPIL Quality Support Bot status bar item.`);
+    void w.showInformationMessage(`Capture is paused, so ${what} was not recorded. Resume it from the SPIL AURA QA Bot status bar item.`);
     return false;
   }
   return true;
@@ -83,7 +83,7 @@ export async function logNote(s: Session, kind: Extract<EventKind, "idea" | "dec
 
 export async function showToday(s: Session, docs: VirtualDocs): Promise<void> {
   const { vsc } = s;
-  if (s.state === "off" || !s.spool) return void vsc.window.showInformationMessage("SPIL Quality Support Bot is off in this workspace.");
+  if (s.state === "off" || !s.spool) return void vsc.window.showInformationMessage("SPIL AURA QA Bot is off in this workspace.");
   const f = s.spool.file(s.key, localDate(s.now()));
   const text = existsSync(f) ? readFileSync(f, "utf8") : "";
   const path = docs.set(`/today-${s.key}.jsonl`, text || "// Nothing captured yet today.\n");
@@ -96,7 +96,7 @@ export async function togglePause(s: Session): Promise<void> {
     if (await s.askConsent()) startCapture(s);
     return;
   }
-  if (s.state === "off") return void s.vsc.window.showInformationMessage("SPIL Quality Support Bot is off in this workspace.");
+  if (s.state === "off") return void s.vsc.window.showInformationMessage("SPIL AURA QA Bot is off in this workspace.");
   await s.setPaused(!s.paused);
 }
 
@@ -112,7 +112,7 @@ export async function applyDraft(s: Session, rel: string, abs: string, content: 
     edit.replace(uri, new vsc.Range(new vsc.Position(0, 0), doc.positionAt(doc.getText().length)), content);
   }
   const ok = await vsc.workspace.applyEdit(edit);
-  if (!ok) return void vsc.window.showWarningMessage("SPIL Quality Support Bot: could not update the ai-log file.");
+  if (!ok) return void vsc.window.showWarningMessage("SPIL AURA QA Bot: could not update the ai-log file.");
   const doc = await vsc.workspace.openTextDocument(uri);
   if (save && doc.isDirty) await doc.save();
   await vsc.window.showTextDocument(doc);
@@ -123,17 +123,17 @@ export async function summarizeDay(s: Session, docs: VirtualDocs): Promise<void>
   const { vsc } = s;
   if (!(await ready(s, "the summary", true))) return;
   const problem = s.guardProblem();
-  if (problem) return void vsc.window.showWarningMessage(`SPIL Quality Support Bot: ${problem} Run "Guard: Set up".`);
+  if (problem) return void vsc.window.showWarningMessage(`SPIL AURA QA Bot: ${problem} Run "Guard: Set up".`);
   let res;
   try {
-    res = await vsc.window.withProgress({ location: vsc.ProgressLocation.Notification, title: "SPIL Quality Support Bot: summarizing your day" }, () =>
+    res = await vsc.window.withProgress({ location: vsc.ProgressLocation.Notification, title: "SPIL AURA QA Bot: summarizing your day" }, () =>
       s.cli().summarize(s.folder!),
     );
   } catch (e) {
     s.env.log(`summarize: ${(e as Error).message}`);
-    return void vsc.window.showWarningMessage(`SPIL Quality Support Bot: ${(e as Error).message}`);
+    return void vsc.window.showWarningMessage(`SPIL AURA QA Bot: ${(e as Error).message}`);
   }
-  if (!res.draft.trim()) return void vsc.window.showInformationMessage("SPIL Quality Support Bot: nothing to add for that day.");
+  if (!res.draft.trim()) return void vsc.window.showInformationMessage("SPIL AURA QA Bot: nothing to add for that day.");
   if (res.questions.length > 0) {
     const go = await vsc.window.showInformationMessage(
       `Guard has ${res.questions.length} question(s) for you`,
@@ -143,7 +143,7 @@ export async function summarizeDay(s: Session, docs: VirtualDocs): Promise<void>
     if (go !== "Continue") return;
   }
   const target = resolveAiLogTarget(s.folder!, res.file);
-  if (!target) return void vsc.window.showWarningMessage("SPIL Quality Support Bot returned an unexpected file name, so nothing was changed.");
+  if (!target) return void vsc.window.showWarningMessage("SPIL AURA QA Bot returned an unexpected file name, so nothing was changed.");
   const existed = existsSync(target.abs);
   const content = appendDraft(existed ? readFileSync(target.abs, "utf8") : null, res.draft);
 
@@ -153,7 +153,7 @@ export async function summarizeDay(s: Session, docs: VirtualDocs): Promise<void>
     "vscode.diff",
     vsc.Uri.from({ scheme: SCHEME, path: left }),
     vsc.Uri.from({ scheme: SCHEME, path: right }),
-    `SPIL Quality Support Bot: ${target.rel} (current vs with draft)`,
+    `SPIL AURA QA Bot: ${target.rel} (current vs with draft)`,
   );
   const pick = await vsc.window.showInformationMessage("Add these entries to ai-log?", "Apply", "Edit first", "Cancel");
   if (pick === "Apply") await applyDraft(s, target.rel, target.abs, content, existed, true);
@@ -162,10 +162,10 @@ export async function summarizeDay(s: Session, docs: VirtualDocs): Promise<void>
 
 export async function deleteData(s: Session): Promise<void> {
   const { vsc } = s;
-  if (s.state === "off") return void vsc.window.showInformationMessage("SPIL Quality Support Bot is off in this workspace.");
+  if (s.state === "off") return void vsc.window.showInformationMessage("SPIL AURA QA Bot is off in this workspace.");
   const yes = "Delete";
   const c = await vsc.window.showWarningMessage(
-    "Delete all SPIL Quality Support Bot data captured for this workspace?",
+    "Delete all SPIL AURA QA Bot data captured for this workspace?",
     { modal: true, detail: "This removes the captured events for this workspace from the local spool. Your ai-log files and git history are not touched." },
     yes,
   );
@@ -182,42 +182,42 @@ export async function deleteData(s: Session): Promise<void> {
     }
   } catch (e) {
     s.env.log(`delete: ${(e as Error).message}`);
-    void vsc.window.showWarningMessage(`SPIL Quality Support Bot: ${(e as Error).message}`);
+    void vsc.window.showWarningMessage(`SPIL AURA QA Bot: ${(e as Error).message}`);
   }
   s.changed();
 }
 
 export async function openChat(s: Session): Promise<void> {
   const problem = s.guardProblem();
-  if (problem) return void s.vsc.window.showWarningMessage(`SPIL Quality Support Bot: ${problem}`);
+  if (problem) return void s.vsc.window.showWarningMessage(`SPIL AURA QA Bot: ${problem}`);
   s.cli()
     .openUi()
     .catch((e: Error) => s.env.log(`chat window: ${e.message}`));
-  void s.vsc.window.showInformationMessage("SPIL Quality Support Bot chat window is starting.");
+  void s.vsc.window.showInformationMessage("SPIL AURA QA Bot chat window is starting.");
 }
 
 export async function setup(s: Session): Promise<void> {
   const { vsc } = s;
-  const pick = await vsc.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Use this SPIL Quality Support Bot folder", title: "Choose your SPIL Quality Support Bot clone" });
+  const pick = await vsc.window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false, openLabel: "Use this SPIL AURA QA Bot folder", title: "Choose your SPIL AURA QA Bot clone" });
   const dir = pick?.[0]?.fsPath ?? s.cfg<string>("guardHome", "").trim();
   if (!dir) return;
   await vsc.workspace.getConfiguration("auraGuard").update("guardHome", dir, vsc.ConfigurationTarget.Global);
   const problem = s.guardProblem();
-  if (problem) return void vsc.window.showWarningMessage(`SPIL Quality Support Bot: ${problem}`);
+  if (problem) return void vsc.window.showWarningMessage(`SPIL AURA QA Bot: ${problem}`);
   let nodeV = "";
   try {
     nodeV = (await s.run(s.cfg<string>("nodePath", "").trim() || "node", ["--version"], { timeout: 10_000, maxBuffer: 4096 })).stdout.trim();
   } catch {
-    return void vsc.window.showWarningMessage("SPIL Quality Support Bot: Node was not found. Set auraGuard.nodePath to node 24 or newer.");
+    return void vsc.window.showWarningMessage("SPIL AURA QA Bot: Node was not found. Set auraGuard.nodePath to node 24 or newer.");
   }
   try {
     const st = await s.cli().status();
     const repos = st.repos.length;
     void vsc.window.showInformationMessage(
-      `SPIL Quality Support Bot is ready. Node ${nodeV}. Consent: ${st.consent.accepted ? "accepted" : "not given yet"}. Spool: ${st.spoolDir} (${repos} workspace(s) with data).`,
+      `SPIL AURA QA Bot is ready. Node ${nodeV}. Consent: ${st.consent.accepted ? "accepted" : "not given yet"}. Spool: ${st.spoolDir} (${repos} workspace(s) with data).`,
     );
   } catch (e) {
-    void vsc.window.showWarningMessage(`SPIL Quality Support Bot: ${(e as Error).message}`);
+    void vsc.window.showWarningMessage(`SPIL AURA QA Bot: ${(e as Error).message}`);
   }
   if (s.state === "needs-consent" && (await s.askConsent())) startCapture(s);
 }
@@ -241,6 +241,6 @@ export async function menu(s: Session, docs: VirtualDocs): Promise<void> {
     items.push({ label: `Terminal capture: ${s.terminalAvailable ? "available" : "unavailable (no shell integration)"}`, description: "info" });
     items.push({ label: `Today: ${s.recorder?.today ?? 0} events, ${s.recorder?.dropped ?? 0} dropped for secrets`, description: "info" });
   }
-  const p = await vsc.window.showQuickPick(items, { placeHolder: "SPIL Quality Support Bot" });
+  const p = await vsc.window.showQuickPick(items, { placeHolder: "SPIL AURA QA Bot" });
   await p?.run?.();
 }

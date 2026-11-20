@@ -5,7 +5,7 @@ import { Session } from "./vsc/session.ts";
 import { createStatusBar } from "./vsc/statusbar.ts";
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const out = vscode.window.createOutputChannel("SPIL Quality Support Bot");
+  const out = vscode.window.createOutputChannel("SPIL AURA QA Bot");
   context.subscriptions.push(out);
   const log = (m: string) => out.appendLine(`${new Date().toISOString()} ${m}`);
   const s = new Session({ vsc: vscode, workspaceState: context.workspaceState, log });
@@ -19,7 +19,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await fn();
       } catch (e) {
         log(`${name}: ${(e as Error).stack ?? (e as Error).message}`);
-        s.warnOnce(`Something went wrong (${(e as Error).message}). See the "SPIL Quality Support Bot" Output channel.`);
+        s.warnOnce(`Something went wrong (${(e as Error).message}). See the "SPIL AURA QA Bot" Output channel.`);
       }
     });
   context.subscriptions.push(

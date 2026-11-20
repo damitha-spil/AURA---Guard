@@ -1,6 +1,6 @@
 {
   "name": "aura-guard-companion",
-  "displayName": "SPIL Quality Support Bot Companion",
+  "displayName": "SPIL AURA QA Bot Companion",
   "description": "Records your editor activity into a local, masked spool (after you consent), lets you log ideas and decisions, adds an @guard chat participant, and turns your day into reviewable ai-log entries.",
   "version": "0.1.0",
   "publisher": "spil",
@@ -11,7 +11,7 @@
   "categories": ["Other"],
   "extensionKind": ["workspace"],
   "capabilities": {
-    "untrustedWorkspaces": { "supported": false, "description": "SPIL Quality Support Bot runs a local program and reads your git history, so it needs a trusted workspace." },
+    "untrustedWorkspaces": { "supported": false, "description": "SPIL AURA QA Bot runs a local program and reads your git history, so it needs a trusted workspace." },
     "virtualWorkspaces": false
   },
   "activationEvents": ["workspaceContains:ai-log/README.md", "onStartupFinished", "onChatParticipant:aura-guard.guard"],
@@ -38,16 +38,16 @@
       {
         "id": "aura-guard.guard",
         "name": "guard",
-        "fullName": "SPIL Quality Support Bot",
-        "description": "Ask SPIL Quality Support Bot about how Aura is built and why",
+        "fullName": "SPIL AURA QA Bot",
+        "description": "Ask SPIL AURA QA Bot about how Aura is built and why",
         "isSticky": false,
         "commands": [{ "name": "help", "description": "What @guard can do" }]
       }
     ],
     "configuration": {
-      "title": "SPIL Quality Support Bot",
+      "title": "SPIL AURA QA Bot",
       "properties": {
-        "auraGuard.guardHome": { "type": "string", "default": "", "scope": "machine", "markdownDescription": "Folder of your own SPIL Quality Support Bot clone (must contain `engine/src/cli/main.ts`). Required." },
+        "auraGuard.guardHome": { "type": "string", "default": "", "scope": "machine", "markdownDescription": "Folder of your own SPIL AURA QA Bot clone (must contain `engine/src/cli/main.ts`). Required." },
         "auraGuard.nodePath": { "type": "string", "default": "", "scope": "machine", "description": "Path to node (24 or newer). Empty means `node` from PATH." },
         "auraGuard.spoolDir": { "type": "string", "default": "", "scope": "machine", "markdownDescription": "Local folder for captured events. Empty means the env var `AURA_GUARD_SPOOL`, else `~/.aura-guard/spool`. Network paths are refused." },
         "auraGuard.workspaces": { "type": "array", "items": { "type": "string" }, "default": [], "scope": "machine", "description": "Absolute paths of workspaces to capture even if they have no ai-log/README.md." },

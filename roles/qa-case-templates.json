@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "note": "Data for the offline QA plan. The first matching category wins for each changed file. {area} is filled in. Add or change categories here; no code change is needed.",
+  "thresholds": { "medium": 3, "high": 7 },
+  "churnPerPoint": 150,
+  "categories": [
+    { "id": "tests-only", "label": "Test files", "match": ["(^|/)(tests?|__tests__|spec)/", "\\.(test|spec)\\.[a-z]+$"], "riskWeight": 0, "ui": false, "service": false, "cases": [
+      { "type": "regression", "priority": "P2", "title": "{area}: the changed tests still fail when the behaviour is wrong", "preconditions": ["The code under test is at the same revision"], "steps": ["Read the changed tests", "Check that each assertion would fail if the behaviour broke"], "expected": ["Every changed test checks real behaviour, not only that it runs"], "automatable": false }
+    ] },
+    { "id": "docs-only", "label": "Documentation", "match": ["\\.(md|mdx|rst|txt|adoc)$", "(^|/)docs?/"], "riskWeight": 0, "ui": false, "service": false, "cases": [
+      { "type": "functional", "priority": "P2", "title": "{area}: links, commands and examples in the changed docs are correct", "preconditions": ["A clean checkout"], "steps": ["Open each changed document", "Follow each link", "Run each example command in a test environment"], "expected": ["No broken link", "Every example works as written"], "automatable": false }
+    ] },
+    { "id": "dependencies", "label": "Dependencies and lock files", "match": ["(^|/)(package(-lock)?\\.json|yarn\\.lock|pnpm-lock\\.yaml|Cargo\\.(toml|lock)|requirements[^/]*\\.txt|poetry\\.lock|go\\.(mod|sum)|[^/]+\\.csproj)$"], "riskWeight": 3, "ui": false, "service": false, "cases": [
+      { "type": "compat", "priority": "P0", "title": "{area}: the app still installs and starts with the changed dependencies", "preconditions": ["A clean install in a test environment"], "steps": ["Install from the lock file", "Start the app", "Open the main screens or call the main endpoint"], "expected": ["Install succeeds without new warnings you cannot explain", "The app starts and the main path works"], "automatable": false },
+      { "type": "security", "priority": "P1", "title": "{area}: no new vulnerable or unexpected package", "preconditions": ["The lock file diff"], "steps": ["List added and upgraded packages", "Check each for known advisories and licence fit"], "expected": ["Every new package is expected and acceptable"], "automatable": false }
+    ] },
+    { "id": "ci-build", "label": "Build and pipeline files", "match": ["(^|/)(\\.github|\\.azure|azure-pipelines[^/]*|Dockerfile[^/]*|Makefile|build)(/|$|\\.)", "\\.ya?ml$"], "riskWeight": 2, "ui": false, "service": false, "cases": [
+      { "type": "regression", "priority": "P1", "title": "{area}: the build and pipeline still pass", "preconditions": ["A branch with the change"], "steps": ["Run the pipeline or the build command in a clean environment"], "expected": ["The build passes", "Artifacts have the expected names and contents"], "automatable": false }
+    ] },
+    { "id": "config", "label": "Configuration and settings", "match": ["\\.(json|toml|ini|env|conf|cfg|properties)$", "(^|/)(config|settings|configs)/"], "riskWeight": 2, "ui": false, "service": false, "cases": [
+      { "type": "functional", "priority": "P0", "title": "{area}: the app reads the changed setting and behaves as set", "preconditions": ["A test environment", "The old and the new value of the setting"], "steps": ["Start with the new value", "Exercise the feature that depends on it", "Switch back to the old value"], "expected": ["The new value takes effect", "The old value still works", "No secret or address is hard-coded"], "automatable": false },
+      { "type": "negative", "priority": "P1", "title": "{area}: a missing or invalid setting gives a clear message", "preconditions": ["A test environment"], "steps": ["Remove the setting", "Set it to an invalid value", "Start the app"], "expected": ["A plain error that names the setting", "No crash and no silent default that hides the problem"], "automatable": false }
+    ] },
+    { "id": "data-schema", "label": "Data, schema and migrations", "match": ["(^|/)(migrations?|schema|schemas|db|database|sql)/", "\\.(sql|prisma)$", "(^|/)models?/"], "riskWeight": 4, "ui": false, "service": true, "cases": [
+      { "type": "data", "priority": "P0", "title": "{area}: existing data survives the change", "preconditions": ["A copy of representative data in a test database"], "steps": ["Record row counts and sample values", "Apply the change or migration", "Compare counts and samples"], "expected": ["No row is lost or changed by mistake", "New columns or fields have sensible defaults"], "automatable": false },
+      { "type": "data", "priority": "P1", "title": "{area}: the change can be rolled back or re-run safely", "preconditions": ["A test database"], "steps": ["Apply the change twice", "Roll it back if a rollback exists"], "expected": ["Re-running does no harm", "The rollback restores the previous state, or the plan says why there is none"], "automatable": false },
+      { "type": "edge", "priority": "P2", "title": "{area}: empty, null and very large values", "preconditions": ["A test database"], "steps": ["Save empty, null and very long values in the changed fields"], "expected": ["Each is stored or rejected with a clear message"], "automatable": false }
+    ] },
+    { "id": "ui-screen", "label": "User interface screens and components", "match": ["\\.(tsx|jsx|vue|svelte|css|scss|less|html)$", "(^|/)(components?|screens?|pages?|views?|ui|areas)/"], "riskWeight": 2, "ui": true, "service": false, "cases": [
+      { "type": "functional", "priority": "P0", "title": "{area}: the changed screen works end to end", "preconditions": ["The real app running against the test environment", "Test data that exercises the screen"], "steps": ["Open the screen from the normal navigation", "Do the main task the screen is for", "Check each changed element"], "expected": ["The task completes", "Every changed element shows the right words and data"], "automatable": true },
+      { "type": "edge", "priority": "P1", "title": "{area}: empty, loading, error and very long content", "preconditions": ["Test data with no items, one item and many items", "A way to see an error state"], "steps": ["Open the screen with no data", "Open it with a very long name or value", "Cause an error state if you can"], "expected": ["No overflow or cut-off text", "Empty and error states say what to do next"], "automatable": false },
+      { "type": "accessibility", "priority": "P1", "title": "{area}: keyboard and screen-reader basics", "preconditions": ["The screen is open"], "steps": ["Tab through every control", "Check that focus is visible", "Check that controls have names"], "expected": ["Every control can be reached and used with the keyboard", "Focus is visible and in a sensible order"], "automatable": false },
+      { "type": "compat", "priority": "P1", "title": "{area}: layout at the supported window widths and in dark mode", "preconditions": ["The screen is open"], "steps": ["Resize to the narrowest and widest supported widths", "Switch to dark mode and back"], "expected": ["No sideways overflow", "Text stays readable in both themes"], "automatable": true }
+    ] },
+    { "id": "api-endpoint", "label": "API, endpoints and service handlers", "match": ["(^|/)(api|routes?|controllers?|handlers?|endpoints?|server|services?|rpc|mcp)/", "(^|/)(server|routes|router|handler)[^/]*\\.[a-z]+$"], "riskWeight": 3, "ui": false, "service": true, "cases": [
+      { "type": "functional", "priority": "P0", "title": "{area}: a valid request returns the right result", "preconditions": ["The service running against the test environment"], "steps": ["Send a valid request that uses the changed code", "Read the result back from the source of truth"], "expected": ["The response has the expected shape and values", "The readback matches the response"], "automatable": false },
+      { "type": "negative", "priority": "P0", "title": "{area}: invalid, missing and oversized input is refused clearly", "preconditions": ["The service running against the test environment"], "steps": ["Send a request with a missing field", "Send a wrong type", "Send a very large body"], "expected": ["A clear error and a sensible status", "Nothing is saved for a refused request"], "automatable": false },
+      { "type": "security", "priority": "P1", "title": "{area}: permissions and secrets", "preconditions": ["Two users with different permissions"], "steps": ["Call the changed operation without permission", "Check logs and responses for secrets"], "expected": ["A user without permission is refused", "No secret appears in a log or response"], "automatable": false }
+    ] },
+    { "id": "parser-algorithm", "label": "Parsers, algorithms and calculations", "match": ["(^|/)(parser|parsers|parse|algo|algorithms?|calc|calculation|pricing|nesting|optimi[sz]er?|engine|core|lib)/", "(parse|parser|calc|price|nest|optimi[sz]e)[^/]*\\.[a-z]+$"], "riskWeight": 3, "ui": false, "service": false, "cases": [
+      { "type": "functional", "priority": "P0", "title": "{area}: known inputs still give the known outputs", "preconditions": ["A set of real or representative inputs with known results"], "steps": ["Run each known input through the changed code", "Compare with the expected output"], "expected": ["Every known input gives the same output as before, unless the change says otherwise"], "automatable": false },
+      { "type": "edge", "priority": "P1", "title": "{area}: boundary and malformed input", "preconditions": ["Representative inputs"], "steps": ["Try empty input", "Try the smallest and largest valid values", "Try malformed or truncated input"], "expected": ["No crash", "A clear message or a safe result for each"], "automatable": false },
+      { "type": "performance", "priority": "P2", "title": "{area}: time and memory on a large input", "preconditions": ["A large representative input"], "steps": ["Run the changed code on the large input and note time and memory"], "expected": ["No large slowdown compared with before the change"], "automatable": false }
+    ] },
+    { "id": "logic", "label": "Application logic", "match": ["\\.(ts|js|mjs|cjs|rs|py|cs|java|go|kt|swift|rb|php|c|cc|cpp|h|hpp)$"], "riskWeight": 2, "ui": false, "service": false, "cases": [
+      { "type": "functional", "priority": "P0", "title": "{area}: the changed behaviour works as intended", "preconditions": ["A test environment", "Data that reaches the changed code"], "steps": ["Do the user action or call that reaches the changed code", "Check the result against what the change says it should do"], "expected": ["The result matches the intended behaviour"], "automatable": false },
+      { "type": "negative", "priority": "P1", "title": "{area}: wrong input or a failing dependency is handled", "preconditions": ["A test environment"], "steps": ["Give the changed code invalid input", "Make a dependency fail or time out if you can"], "expected": ["A clear error, no crash, no partial save"], "automatable": false }
+    ] },
+    { "id": "other", "label": "Other files", "match": [".*"], "riskWeight": 1, "ui": false, "service": false, "cases": [
+      { "type": "functional", "priority": "P1", "title": "{area}: the changed files do what the change says", "preconditions": ["A test environment"], "steps": ["Read the change", "Exercise the feature it touches"], "expected": ["The feature works as described"], "automatable": false }
+    ] }
+  ],
+  "requirementCases": [
+    { "type": "functional", "priority": "P0", "title": "{area}: the main path works as the requirement says", "preconditions": ["A test environment with representative data"], "steps": ["Follow the requirement from start to finish as a user would", "Check each result against the requirement text"], "expected": ["Each statement in the requirement is true in the running product"], "automatable": false },
+    { "type": "negative", "priority": "P1", "title": "{area}: wrong or missing input is refused clearly", "preconditions": ["A test environment"], "steps": ["Leave each required input empty", "Give each input a wrong type or an out-of-range value"], "expected": ["A plain message says what to fix", "Nothing is saved for a refused input"], "automatable": false },
+    { "type": "edge", "priority": "P1", "title": "{area}: boundaries, empty states and very large values", "preconditions": ["A test environment"], "steps": ["Try zero items, one item and the largest realistic number of items", "Try very long text"], "expected": ["No crash, no cut-off text, no wrong total"], "automatable": false },
+    { "type": "regression", "priority": "P1", "title": "{area}: what worked before still works", "preconditions": ["A test environment"], "steps": ["Repeat the previous main flows that touch the same data or screens"], "expected": ["The previous behaviour is unchanged unless the requirement changes it"], "automatable": false }
+  ],
+  "regression": [
+    "The main task of the product still works from start to finish in the test environment",
+    "Nothing in the changed area saves, creates, sends or deletes data you did not intend",
+    "The app starts, shows no new error, and logs no new warnings you cannot explain"
+  ],
+  "notCovered": [
+    "This plan was designed from the change and the stored context, without running the product. Nothing here has been executed.",
+    "Performance under real load, long-running behaviour and other machines are not covered unless a case says so."
+  ]
+}

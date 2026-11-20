@@ -5,6 +5,9 @@ import { auditOutgoing } from "../mask/audit.ts";
 import { unmask } from "../mask/mask.ts";
 import { anthropicApiBackend, claudeCliBackend } from "./backends.ts";
 import type { Backend, BackendOptions, BackendStatus } from "./backends.ts";
+import { createKeyStore } from "./keystore.ts";
+import type { SecretBackend } from "./keystore.ts";
+import { effectiveBrain, machineDataDir } from "./settings.ts";
 import { maskAll } from "./client.ts";
 import type { CompleteFn, CompleteRequest, CompleteResult } from "./client.ts";
 
@@ -24,21 +27,26 @@ export class NoBackendError extends Error {
 
 export interface SelectOptions extends BackendOptions {
   now?: () => Date;
+  /** Replaces the OS secure store for the saved API key (tests). */
+  secrets?: SecretBackend;
 }
 
+/** Backend and model come from env > settings.json > guard.config.local.json > default (settings.ts). */
 export function buildBackends(cfg: GuardConfig, opts: SelectOptions = {}): Backend[] {
-  const m = cfg.brain?.models ?? {};
-  const api = m["anthropic-api"];
-  const cli = m["claude-cli"];
+  const eff = effectiveBrain(cfg, opts.env ?? process.env);
+  const keys = createKeyStore({ dataDir: machineDataDir(cfg), ...(opts.env ? { env: opts.env } : {}), ...(opts.secrets ? { backend: opts.secrets } : {}) });
+  const storedKey = { exists: () => keys.hasStored(), get: async () => (await keys.resolve())?.key ?? null };
+  const rest = { ...opts };
+  delete rest.secrets;
   return [
-    anthropicApiBackend({ ...opts, ...(api ? { model: api } : {}) }),
-    claudeCliBackend({ ...opts, ...(cli ? { model: cli } : {}) }),
+    anthropicApiBackend({ ...rest, model: eff.models["anthropic-api"].id, storedKey }),
+    claudeCliBackend({ ...rest, model: eff.models["claude-cli"].id }),
   ];
 }
 
-/** The wanted backend: env AURA_GUARD_BRAIN wins over config brain.backend; default "auto". */
+/** The wanted backend (see effectiveBrain): env QSB_BRAIN / AURA_GUARD_BRAIN, settings.json, config, else "auto". */
 export function wantedBackend(cfg: GuardConfig, env: Record<string, string | undefined> = process.env): string {
-  return (env.AURA_GUARD_BRAIN || cfg.brain?.backend || "auto").trim();
+  return effectiveBrain(cfg, env).backend.trim();
 }
 
 export interface Picked { backend: Backend; status: BackendStatus }

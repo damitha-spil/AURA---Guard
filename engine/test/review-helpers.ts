@@ -35,7 +35,7 @@ export function fixture(): Fixture {
   git(repo, ["config", "user.name", "T"]);
   let n = 0;
   const cfg: GuardConfig = {
-    department: "dev", dataDir: join(root, "data"), vaultDir: join(root, "vault"),
+    dataDir: join(root, "data"), vaultDir: join(root, "vault"),
     repos: [{ id: "demo", path: repo }], busyProcesses: [], root,
   };
   return {

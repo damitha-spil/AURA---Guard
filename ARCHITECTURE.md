@@ -1,4 +1,4 @@
-# SPIL Quality Support Bot architecture
+# SPIL AURA QA Bot architecture
 
 Status: draft, 2026-11-20. Open decisions are marked **OPEN**.
 
@@ -9,7 +9,7 @@ Status: draft, 2026-11-20. Open decisions are marked **OPEN**.
    daily routine.
 3. Later, use that knowledge in roles: Scribe, Code Reviewer, QA Planner, and a
    source of checked support knowledge for Aura.
-4. Later, serve other departments with the same engine.
+4. Stay focused on one project: SPIL Aura.
 
 ## 2. Principles
 
@@ -23,8 +23,8 @@ Status: draft, 2026-11-20. Open decisions are marked **OPEN**.
   earn that.
 - **Simple checks before AI checks.** Anything a fixed check can prove is done
   by a fixed check. The paid model is kept for judgment.
-- **One engine, many departments.** Each department is a configuration: its own
-  knowledge folder, roles and permissions. No copies of the engine.
+- **One project.** SPIL AURA QA Bot works on SPIL Aura and the repositories it depends on.
+  Repositories are listed in the local config.
 - **No secrets leave the machine.** Every outgoing model call goes through a
   local masking step.
 - **Respect this PC.** It runs out of memory. Background work pauses during
@@ -83,7 +83,6 @@ id: rule-desk-routing-by-sign
 type: rule            # adr | rule | pattern | incident | domain | diary | choice
 status: active        # proposed | shadow | active | stale | deprecated
 audience: [internal_dev, qa_internal]   # who may see it (see 4.4)
-department: dev
 source: owner-answer  # owner-answer | commit | pr-comment | session | evidence
 code_anchors:
   - repo: spil-aura
@@ -245,23 +244,18 @@ for a self-run office machine; check first that it supports Azure DevOps.
 
 Gates use measured results, not the model's own confidence.
 
-## 12. Departments (built: see section 15)
+## 12. One project
 
-```
-engine/              one engine
-departments/
-  dev/               vault, roles, audiences, connections
-  finance/           later: read-only ERP, report roles
-  hr/                later: strict privacy, policy questions
-```
-
-A department never reads another department's vault.
+The bot works on one project, SPIL Aura, and the repositories listed in `guard.config.local.json`.
+There is one vault (`vault/`), one index (`data/guard.db`) and one set of chats (`data/chats/`).
+(An earlier multi-department design was tried and removed on 2026-11-20: the owner decided the bot only
+needs to focus on SPIL Aura.)
 
 ## 13. Repository layout (planned)
 
 ```
 engine/       ingest, index, search, router, masking, MCP, CLI
-vault/        Obsidian vault (dev department first)
+vault/        Obsidian vault 
 roles/        role config files
 evals/        quiz, PR replay set, masking test set
 ui/           control screen
@@ -280,24 +274,18 @@ docs/         ADRs
 5. **Repo name and remote**: folder is `D:\AURA - Guard`; suggested slug
    `aura-guard`; Azure DevOps remote not created yet.
 
-## 15. Departments, the landing page and developer capture (built 2026-11-20)
+## 15. Developer capture, the QA agent and settings (built 2026-11-20)
 
-The product is no longer only for one project. It is **SPIL Quality Support Bot**: one engine,
-many departments.
-
-- **Departments.** A department has modules, sub-modules and sources (a git repository or a folder of
-  documents), a template (engineering, knowledge, support, analysis, custom) and role switches. The
-  registry is local (`data/departments/registry.json`). Departments are added and edited in the app.
-- **Isolation.** Each department has its own vault, SQLite index and chats folder. Every request goes
-  through `resolveDepartment`, which returns the only config and paths it may use. Tests prove that
-  search, chat, inbox, reports and documents never cross departments.
-- **Landing page.** The app opens on "Choose your department". Choosing one opens that department's
-  chat, inbox, reports and department page. Four full themes (Noir default, Pulse, Dots, Aurora).
 - **Developer capture.** A VS Code extension, opt-in per developer and per workspace, records masked
   activity (commits, saves as counts, tasks, allowlisted terminal commands, diagnostics counts, ideas,
   decisions, corrections, `@guard` chats) to a local spool. "Summarize my day" asks the engine for
   draft ai-log entries (using the developer's own Claude plan or key, plus their local Claude Code
-  transcripts). The developer reviews a diff and applies it. Guard learns from the `ai-log` the team
-  commits. See `docs/capture-privacy.md`: this is activity monitoring and needs the team's agreement.
+  transcripts). The developer reviews a diff and applies it. See `docs/capture-privacy.md`: this is
+  activity monitoring and needs the team's agreement.
+- **QA agent.** In the chat, asking to QA something starts a QA sub-agent that resolves the target,
+  reads the change, and returns a risk level, test cases, a regression checklist and the evidence
+  needed. It is read-only. See `docs/qa-agent.md`.
+- **Model and key settings.** The Claude backend (plan or API key) and model are chosen in the app;
+  the API key is stored encrypted by Windows and never shown again. See `docs/brain-settings.md`.
 - **Data contract.** `docs/capture-events.md`; the extension and engine share `repoKey`, with test
   vectors checked on both sides.

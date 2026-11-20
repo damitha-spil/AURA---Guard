@@ -209,7 +209,7 @@ test("guardHome validation", () => {
   try {
     assert.match(validateGuardHome("")!, /Set auraGuard/);
     assert.match(validateGuardHome(join(home, "nope"))!, /does not exist/);
-    assert.match(validateGuardHome(home)!, /not an SPIL Quality Support Bot clone/);
+    assert.match(validateGuardHome(home)!, /not an SPIL AURA QA Bot clone/);
     mkdirSync(join(home, "engine", "src", "cli"), { recursive: true });
     mkdirSync(join(home, "bin"));
     writeFileSync(join(home, "engine", "src", "cli", "main.ts"), "");

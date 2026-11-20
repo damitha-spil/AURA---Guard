@@ -38,7 +38,7 @@ function setup(opts: { consent?: boolean } = {}): Env {
   }
   const vault = join(root, "vault");
   mkdirSync(vault, { recursive: true });
-  const cfg: GuardConfig = { department: "dev", dataDir: join(root, "data"), vaultDir: vault, repos: [], busyProcesses: [], root: GUARD_ROOT };
+  const cfg: GuardConfig = { dataDir: join(root, "data"), vaultDir: vault, repos: [], busyProcesses: [], root: GUARD_ROOT };
   return { spool, repo, key, cfg, vault };
 }
 

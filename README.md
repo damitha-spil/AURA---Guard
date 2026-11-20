@@ -1,14 +1,13 @@
-# SPIL Quality Support Bot
+# SPIL AURA QA Bot
 
-SPIL Quality Support Bot is SPIL's internal engineering assistant. It learns what Aura is,
+SPIL AURA QA Bot is SPIL's internal engineering assistant. It learns what Aura is,
 how the owner builds it, and how features are added day to day. Later it acts
 as a code reviewer, a QA planner and a source of support knowledge.
 
 It is **not** part of the Aura product that fabricators install. It reads
 Aura's repositories and suggests; people decide and commit.
 
-The same engine is meant to serve other departments later, each with its own
-knowledge and permissions: SPIL Quality Support Bot Dev, SPIL Quality Support Bot Finance, SPIL Quality Support Bot HR.
+It is built for one project: SPIL Aura.
 
 ## Documents
 
@@ -36,12 +35,6 @@ npm run ui                      # open the chat window
 npm run guard -- help           # every command
 ```
 
-## Departments and the chat app
-
-The app opens on a landing page where you choose a department. Add departments, modules,
-sub-modules and sources from the app (or `aura-guard dept ...`). Each department's knowledge
-is separate. See [docs/departments.md](docs/departments.md).
-
 ## Developer activity capture (VS Code)
 
 An opt-in VS Code extension records masked activity locally and drafts reviewable ai-log
@@ -50,7 +43,7 @@ entries. See [docs/vscode-extension.md](docs/vscode-extension.md) and
 
 ## Names
 
-The product name is **SPIL Quality Support Bot**. The command is still `aura-guard`, and the
+The product name is **SPIL AURA QA Bot**. The command is still `aura-guard`, and the
 plugin and extension ids still start with `aura-guard`, so existing setups keep working. These
 identifiers will be renamed together with the GitHub repository.
 

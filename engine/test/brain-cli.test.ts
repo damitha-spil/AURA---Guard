@@ -32,7 +32,7 @@ function setup(extraEnv: Record<string, string | undefined> = {}) {
   const script = join(root, "fake-claude.cjs");
   writeFileSync(script, FAKE);
   const record = join(root, "record.json");
-  const cfg = { department: "dev", dataDir: root, vaultDir: root, repos: [], busyProcesses: [], root } as GuardConfig;
+  const cfg = { dataDir: root, vaultDir: root, repos: [], busyProcesses: [], root } as GuardConfig;
   const env: Record<string, string | undefined> = { ...process.env, RECORD: record };
   delete env.ANTHROPIC_API_KEY;
   delete env.AURA_GUARD_BRAIN;

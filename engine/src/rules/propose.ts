@@ -116,7 +116,6 @@ export function proposeRules(
       type: "pattern",
       status: "proposed",
       audience: ["internal_dev"],
-      department: "dev",
       source: "commit",
       title,
       code_anchors: f.files.map((p, i) => ({ repo, path: p, ...(i === 0 ? { verified_sha: f.sha } : {}) })),

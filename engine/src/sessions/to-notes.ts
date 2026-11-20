@@ -73,7 +73,6 @@ export function writeCandidates(
       type: "choice",
       status: "proposed",
       audience: ["internal_dev"],
-      department: "dev",
       source: "session",
       title,
       created: new Date().toISOString().slice(0, 10),

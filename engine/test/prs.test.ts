@@ -126,7 +126,7 @@ const creds = async () => ({ username: "user", password: FAKE_PASSWORD });
 
 function tmpCfg(): GuardConfig {
   const root = mkdtempSync(join(tmpdir(), "guard-prs-"));
-  return { department: "dev", dataDir: join(root, "data"), vaultDir: join(root, "vault"), repos: [], busyProcesses: [], root };
+  return { dataDir: join(root, "data"), vaultDir: join(root, "vault"), repos: [], busyProcesses: [], root };
 }
 
 function allFiles(dir: string): string[] {

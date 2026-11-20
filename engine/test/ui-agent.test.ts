@@ -226,7 +226,7 @@ test("static: favicon and the new UI modules are served; the CSP still forbids i
 });
 
 test("UI source never sets an inline style attribute or loads anything from outside", () => {
-  for (const f of ["app.js", "review.js", "marks.js", "theme.js", "index.html", "styles.css", "themes.css"]) {
+  for (const f of ["app.js", "review.js", "marks.js", "theme.js", "titles.js", "brand.js", "index.html", "styles.css", "themes.css"]) {
     const t = readFileSync(join(uiDir, f), "utf8");
     assert.ok(!/setAttribute\(\s*["']style["']/.test(t), `${f}: no style attribute`);
     assert.ok(!/https?:\/\/(?!www\.w3\.org)/.test(t.replace(/\/\/ .*$/gm, "")), `${f}: no external address`);
@@ -299,7 +299,7 @@ test("marks and style descriptors: every style has its own mark, rule set and de
   assert.equal(d["noir"]!["messages"], "rows");
   assert.deepEqual(new Set(m.STYLES.map((s) => d[s]!["empty"])).size, 4);
   assert.deepEqual(new Set(m.STYLES.map((s) => d[s]!["messages"])).size, 4);
-  assert.equal(d["noir"]!["columnPx"], 900);
+  assert.equal(d["noir"]!["columnPx"], 800);
   assert.equal(d["pulse"]!["columnPx"], 680);
   assert.equal(d["dots"]!["columnPx"], 760);
   for (const s of m.STYLES) {
@@ -359,4 +359,65 @@ test("preferences: Noir is the default; bad or throwing storage never breaks; sa
   const html = readFileSync(join(uiDir, "index.html"), "utf8");
   assert.match(html, /<html lang="en" data-style="noir"/);
   assert.ok(html.indexOf('src="/theme.js"') < html.indexOf('href="/styles.css"'), "theme script runs before the stylesheet paints");
+});
+
+test("chat list helpers: Today / Yesterday / Earlier by local date, plain relative times, search only in long lists", async () => {
+  const m = await ui<{ groupChats: Function; relativeTime: Function; showChatSearch: (n: number) => boolean; filterChats: Function; daysAgo: Function }>("titles.js");
+  const now = new Date(2026, 10, 20, 15, 30); // 20 Nov 2026, local time
+  const at = (d: number, h: number, mi = 0): string => new Date(2026, 10, d, h, mi).toISOString();
+  const chats = [
+    { id: "old", title: "Old one", updated: at(2, 9) },
+    { id: "late", title: "Late yesterday", updated: at(19, 23, 59) },
+    { id: "now", title: "This morning", updated: at(20, 8) },
+    { id: "early", title: "Early today", updated: at(20, 0, 1) },
+    { id: "bad", title: "No date", updated: "not a date" },
+  ];
+  const groups = m.groupChats(chats, now) as { label: string; chats: { id: string }[] }[];
+  assert.deepEqual(groups.map((g) => g.label), ["Today", "Yesterday", "Earlier"]);
+  assert.deepEqual(groups[0]!.chats.map((c) => c.id), ["now", "early"], "newest first");
+  assert.deepEqual(groups[1]!.chats.map((c) => c.id), ["late"]);
+  assert.deepEqual(groups[2]!.chats.map((c) => c.id).sort(), ["bad", "old"]);
+  assert.deepEqual((m.groupChats([chats[2]], now) as unknown[]).length, 1, "empty groups are left out");
+  assert.deepEqual(m.groupChats([], now), []);
+  assert.equal(m.daysAgo(at(20, 1), now), 0);
+  assert.equal(m.daysAgo(at(19, 23, 59), now), 1, "calendar days, not 24-hour spans");
+  assert.equal(m.relativeTime(at(20, 15, 30), now), "Just now");
+  assert.equal(m.relativeTime(at(20, 15, 5), now), "25 min ago");
+  assert.equal(m.relativeTime(at(20, 8), now), "7 h ago");
+  assert.equal(m.relativeTime(at(19, 23, 59), now), "Yesterday");
+  assert.equal(m.relativeTime(at(16, 12), now), "4 d ago");
+  assert.equal(m.relativeTime(at(3, 12), now), "Nov 3");
+  assert.equal(m.relativeTime("nonsense", now), "");
+  assert.equal(m.showChatSearch(8), false);
+  assert.equal(m.showChatSearch(9), true);
+  assert.deepEqual((m.filterChats(chats, "  LATE ") as { id: string }[]).map((c) => c.id), ["late"]);
+  assert.equal((m.filterChats(chats, "") as unknown[]).length, 5);
+});
+
+test("Show work toggle and error cards: the click flips what is shown; failures get a plain title", async () => {
+  const m = await ui<{ flipWork: Function; currentWork: Function; errorInfo: Function; initialOf: Function }>("titles.js");
+  assert.equal(m.currentWork("auto", true), true);
+  assert.equal(m.currentWork("auto", false), false);
+  assert.equal(m.currentWork("on", false), true);
+  assert.equal(m.currentWork("off", true), false);
+  assert.equal(m.flipWork("auto", true), "off", "a style that shows work by default turns it off");
+  assert.equal(m.flipWork("auto", false), "on");
+  assert.equal(m.flipWork("on", false), "off");
+  assert.equal(m.flipWork("off", true), "on");
+  assert.deepEqual(m.errorInfo("Your message looks like it contains a secret (HIGH_ENTROPY x2). Nothing was sent."), { title: "Message not sent", retry: false });
+  assert.deepEqual(m.errorInfo("Stopped waiting. If the answer arrives..."), { title: "Stopped waiting", retry: true });
+  assert.deepEqual(m.errorInfo("Could not reach AURA QA. Is its window still running?"), { title: "Cannot reach AURA QA", retry: true });
+  assert.deepEqual(m.errorInfo("The model said no."), { title: "AURA QA could not answer", retry: true });
+  assert.equal(m.initialOf("  alex"), "A");
+  assert.equal(m.initialOf(""), "?");
+});
+
+test("chat screen markup: the new workspace controls exist and nothing inline sneaks in", () => {
+  const html = readFileSync(join(uiDir, "index.html"), "utf8");
+  for (const id of ["brand-tile", "new-chat", "tab-inbox", "tab-reports", "chat-search", "status-toggle", "status-detail", "backend-name", "pill-work", "pill-notes", "top-work", "send", "stop"]) assert.ok(html.includes(id), `${id} is in the page`);
+  assert.match(html, /id="top-work" role="switch" aria-checked="false"/);
+  assert.match(html, /id="send"[^>]*disabled/, "send starts disabled until there is text");
+  const css = readFileSync(join(uiDir, "styles.css"), "utf8");
+  assert.match(css, /prefers-color-scheme|data-style/);
+  assert.ok(!/\.sidebar[^{]*\{[^}]*font:[^}]*var\(--mono\)/.test(css), "no monospace in the sidebar");
 });

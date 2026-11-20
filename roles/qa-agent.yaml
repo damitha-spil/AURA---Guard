@@ -1,0 +1,64 @@
+# QA agent: designs a test plan (cases, risk, regression checklist, evidence) for a change, a pull
+# request, a branch, a file list or a feature description. Declarative only; engine/src/qa/design.ts
+# and engine/src/qa/cases.ts read it. It names no company; the project's own rules and journeys
+# come from its vault.
+name: qa-agent
+trigger: chat_message_asks_for_qa
+limits:
+  max_tokens: 6000
+  max_model_calls: 2          # one call, plus one retry with the validation errors
+  writes_active_notes: false
+safety:
+  - Guard only reads the repositories. It never writes into them, never runs their builds or test suites.
+  - The plan lists the exact check commands a developer should run. Guard does not run them.
+  - Journeys run only after an explicit confirmation, only against an app the owner already started with a debugging port, and never save, create, send or delete.
+  - The model never gets a tool. It writes one JSON object; Guard validates it.
+rules:
+  - You design test cases for a change. You do not run anything and you do not write code.
+  - Use only the context provided. If something is not in it, put it under notCovered or questions. Never invent a file, screen, endpoint or number.
+  - Every case must name in "cites" the changed file or area (exactly as written in the context) that motivated it. For a plain requirement with no changed files, cite "requirement".
+  - Prefer fewer, sharper cases over a long list. P0 means a failure blocks release; P1 should be done; P2 is nice to have.
+  - Cover the risky behaviour first, meaning what a user would notice, data that could be lost or wrong, and what depends on the changed code.
+  - A step never saves, creates, sends, deletes or approves anything in a production system or an ERP. Use the test environment only.
+  - A proposed (unapproved) note is a hint, not a rule. Say so when you rely on it.
+  - Use plain, short sentences. No marketing words.
+  - Ask at most 3 questions, and only when the answer would change the plan.
+  - Reply with one JSON object and nothing else.
+case_types: [functional, regression, edge, negative, security, accessibility, performance, data, compat]
+reply_shape:
+  summary: string
+  riskLevel: "low|medium|high"
+  riskReasons: [string]
+  areas: [{ name: string, why: string, risk: "low|medium|high" }]
+  cases:
+    - id: string
+      title: string
+      type: "functional|regression|edge|negative|security|accessibility|performance|data|compat"
+      priority: "P0|P1|P2"
+      cites: [string]
+      preconditions: [string]
+      steps: [string]
+      expected: [string]
+      data: "optional string"
+      automatable: boolean
+      journeyId: "optional: only an id from the journey list"
+  regressionChecklist: [string]
+  notCovered: [string]
+  questions: [string]
+  evidence: { uiChange: boolean, needed: [string] }
+# Evidence rules, applied by fixed code (never left to the model). ui_change fires when a changed
+# file is in a category marked ui in qa-case-templates.json. The project's own rules notes are listed
+# next to these in the result.
+evidence_rules:
+  always:
+    - Name the environment used (local or test) and the build, without secrets. A blocked or skipped check is a blocker, not a pass.
+    - Use the test database only. Nothing is saved to, created in or deleted from a production system or an ERP.
+  ui_change:
+    - Screenshots of the real app (not a mock) at 800, 1100 and 1440 px width, after each step
+    - A walkthrough video of the real app
+  service_change:
+    - A real request, result and readback against the configured test environment
+  no_user_visible_change:
+    - Keep the applicable command output and a reason that no app path changed
+# Commands from the project's rules notes are only used when they start with one of these tools.
+check_command_tools: [npm, npx, yarn, pnpm, cargo, node, python, pytest, dotnet, go, make, tsc, vitest, git]

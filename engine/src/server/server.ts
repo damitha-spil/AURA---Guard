@@ -8,10 +8,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PRODUCT_NAME } from "../brand.ts";
-import { DepartmentHost, handleDepartmentApi } from "./departments.ts";
-import type { DeptContext } from "./departments.ts";
-import { HttpError, MAX_BODY_BYTES, peekJson, readJson, sendJson } from "./http.ts";
-import { UnknownDepartmentError } from "../departments/registry.ts";
+import { handleBrainRoute } from "./brain.ts";
+import type { BrainRouteOptions } from "./brain.ts";
+import { HttpError, MAX_BODY_BYTES, readJson, sendJson } from "./http.ts";
+import { projectSummary, suggestions } from "./project.ts";
+import { ChatStore } from "../chat/store.ts";
+import { openDb } from "../index/db.ts";
+import { dbPath } from "../config.ts";
 import type { Db } from "../index/db.ts";
 import { getDoc } from "../index/search.ts";
 import { loadVault } from "../vault/load.ts";
@@ -26,6 +29,8 @@ import { answer, MAX_QUESTION_CHARS } from "../chat/answer.ts";
 import type { AnswerResult, ChatTurn, Step } from "../chat/answer.ts";
 import { recordFeedback } from "../chat/feedback.ts";
 import { isChatId } from "../chat/store.ts";
+import { decideRoute, lastQaResult, routeQa } from "../chat/qa-route.ts";
+import type { RouteMode } from "../chat/qa-route.ts";
 import { COMMANDS, HeavyLock, loadCommandTable, parseSlash, runMainProcess } from "../chat/commands.ts";
 import type { RunProcess } from "../chat/commands.ts";
 
@@ -55,11 +60,11 @@ export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/reveal.js": { file: "reveal.js", type: "text/javascript; charset=utf-8" },
   "/titles.js": { file: "titles.js", type: "text/javascript; charset=utf-8" },
   "/brand.js": { file: "brand.js", type: "text/javascript; charset=utf-8" },
-  "/departments.js": { file: "departments.js", type: "text/javascript; charset=utf-8" },
-  "/wizard.js": { file: "wizard.js", type: "text/javascript; charset=utf-8" },
-  "/deptapi.js": { file: "deptapi.js", type: "text/javascript; charset=utf-8" },
-  "/depts.js": { file: "depts.js", type: "text/javascript; charset=utf-8" },
-  "/depts.css": { file: "depts.css", type: "text/css; charset=utf-8" },
+  "/qa.js": { file: "qa.js", type: "text/javascript; charset=utf-8" },
+  "/qa-view.js": { file: "qa-view.js", type: "text/javascript; charset=utf-8" },
+  "/qa.css": { file: "qa.css", type: "text/css; charset=utf-8" },
+  "/settings.js": { file: "settings.js", type: "text/javascript; charset=utf-8" },
+  "/settings.css": { file: "settings.css", type: "text/css; charset=utf-8" },
 };
 
 export const CSP = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'";
@@ -75,6 +80,8 @@ export interface ServerDeps {
   runProcess?: RunProcess;
   commandTable?: () => Promise<Set<string>>;
   backendInfo?: () => Promise<BackendInfo>;
+  /** Model and API key settings: tests inject a fake environment, secret store and model call. */
+  brain?: BrainRouteOptions;
 }
 
 export function backendLabel(id: string | null): string {
@@ -108,14 +115,26 @@ export function newToken(): string {
 
 export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
   const uiDir = deps.uiDir ?? DEFAULT_UI_DIR;
-  const host = new DepartmentHost(cfg, deps.openIndex);
+  const store = new ChatStore(cfg.dataDir);
+  // One lazily opened index handle for the one project.
+  let cached: { file: string; db: Db } | null = null;
+  const openIndex = (): { db: Db; release: () => void } | null => {
+    if (deps.openIndex) return deps.openIndex();
+    const file = dbPath(cfg);
+    if (!existsSync(file)) return null;
+    if (!cached || cached.file !== file) {
+      cached?.db.close();
+      cached = { file, db: openDb(file) };
+    }
+    return { db: cached.db, release: () => {} };
+  };
   const lock = new HeavyLock();
   const runProcess = deps.runProcess ?? runMainProcess;
   const commandTable = deps.commandTable ?? loadCommandTable;
   const backendInfo = deps.backendInfo ?? (() => defaultBackendInfo(cfg));
   let backendCache: { at: number; value: BackendInfo } | null = null;
-  const withIndex = async <T>(ctx: DeptContext, fn: (db: Db) => Promise<T> | T): Promise<T | null> => {
-    const h = ctx.openIndex();
+  const withIndex = async <T>(fn: (db: Db) => Promise<T> | T): Promise<T | null> => {
+    const h = openIndex();
     if (!h) return null;
     try {
       return await fn(h.db);
@@ -125,10 +144,10 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
   };
 
   // What this server session changed, so Undo can put a note back. Memory only; text of notes stays here.
-  const changed = new Map<string, StatusSnapshot>(); // key: "<department>/<note id>"
+  const changed = new Map<string, StatusSnapshot>(); // key: note id
   const MAX_UNDO = 100;
-  const reindex = async (ctx: DeptContext): Promise<void> => {
-    await withIndex(ctx, (db) => indexVault(db, ctx.cfg.vaultDir));
+  const reindex = async (): Promise<void> => {
+    await withIndex((db) => indexVault(db, cfg.vaultDir));
   };
 
   const json = sendJson;
@@ -150,35 +169,12 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     return value;
   }
 
-  /** Which department a request is for: `dept` in the query, or in the JSON body of a POST. Default: the registry default. */
-  async function deptOf(req: IncomingMessage, method: string): Promise<{ id: string | undefined; explicit: boolean }> {
-    const q = new URL(req.url ?? "/", "http://x").searchParams.get("dept");
-    if (q) return { id: q, explicit: true };
-    if (method === "POST" || method === "PUT" || method === "DELETE") {
-      const body = await peekJson(req);
-      const v = body?.["dept"];
-      if (typeof v === "string" && v) return { id: v, explicit: true };
-    }
-    return { id: undefined, explicit: false };
-  }
-
   async function api(req: IncomingMessage, res: ServerResponse, path: string, method: string): Promise<void> {
-    if (await handleDepartmentApi(host, req, res, path, method)) return;
-    const reg = host.registry();
-    const sel = await deptOf(req, method);
-    let ctx: DeptContext;
-    try {
-      ctx = host.context(reg, sel.id);
-    } catch (e) {
-      if (e instanceof UnknownDepartmentError) throw new HttpError(404, e.message);
-      throw e;
-    }
-    // A department that was archived can be read, not changed.
-    if (method !== "GET" && method !== "HEAD" && ctx.archived) throw new HttpError(410, "This department is archived.");
-    const dcfg = ctx.cfg;
-    const store = ctx.store;
+    // Model and key settings are machine-wide. A stray `dept` parameter from an older page is ignored.
+    if (await handleBrainRoute({ req, res, path, method, cfg, ...(deps.brain ? { options: deps.brain } : {}) })) return;
+    const dcfg = cfg;
     if (path === "/api/status" && method === "GET") {
-      const index = await withIndex(ctx, (db) => {
+      const index = await withIndex((db) => {
         const rows = db.prepare("SELECT kind, COUNT(*) AS n FROM docs GROUP BY kind").all() as { kind: string; n: number }[];
         const counts: Record<string, number> = {};
         for (const r of rows) counts[r.kind] = r.n;
@@ -190,10 +186,20 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         vault: { notes: notes.length, problems: problems.length },
         backend: await cachedBackend().catch(() => ({ wanted: "auto", picked: null, label: "No model" })),
         running: lock.running,
-        department: { id: ctx.department.id, name: ctx.department.name },
         productName: PRODUCT_NAME,
       });
     }
+
+    if (path === "/api/project" && method === "GET") {
+      const h = openIndex();
+      try {
+        return json(res, 200, projectSummary(dcfg, h?.db ?? null));
+      } finally {
+        h?.release();
+      }
+    }
+
+    if (path === "/api/suggestions" && method === "GET") return json(res, 200, { suggestions: suggestions(dcfg) });
 
     if (path === "/api/commands" && method === "GET") {
       const table = await commandTable();
@@ -206,7 +212,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     if (path === "/api/doc" && method === "GET") {
       const ref = new URL(req.url ?? "/", "http://x").searchParams.get("ref") ?? "";
       if (!ref || ref.length > 500) throw new HttpError(400, "Missing ref.");
-      const doc = await withIndex(ctx, (db) => getDoc(db, ref, "internal_dev"));
+      const doc = await withIndex((db) => getDoc(db, ref, "internal_dev"));
       if (!doc) throw new HttpError(404, "Not found.");
       return json(res, 200, doc);
     }
@@ -247,7 +253,34 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
           if (i >= 0) trace[i] = step; else trace.push(step);
           live?.({ type: "step", step });
         };
-        const r: AnswerResult | null = await withIndex(ctx, (db) => answer(dcfg, db, { history, question, notesOnly }, { complete: deps.complete, onStep, backend }));
+        // QA requests go to the QA sub-agent (deterministic routing, no model call to decide).
+        const modeIn = body["mode"] === "qa" || body["mode"] === "ask" ? (body["mode"] as RouteMode) : undefined;
+        const runJourneys = body["runJourneys"] === true;
+        if (decideRoute(question, history, { mode: modeIn, runJourneys }).intent === "qa") {
+          live?.({ type: "agent", agent: "qa", label: "QA agent", state: "started" });
+          const h = openIndex();
+          let out;
+          try {
+            out = await routeQa(
+              { cfg: dcfg, db: h?.db ?? null, complete: deps.complete, backend, onStep: (s) => onStep(s) },
+              { message: question, history, runJourneys, lastQa: lastQaResult(chat.messages) },
+            );
+          } finally {
+            h?.release();
+          }
+          const qa = out.kind === "result" ? out.result : undefined;
+          const needsInput = out.kind === "needs-input" ? { question: out.question, options: out.options } : undefined;
+          const stored = store.append(id, { role: "assistant", text: out.text, sources: [], trace, ...(qa ? { qa } : {}), ...(needsInput ? { needsInput } : {}), ...(out.ok ? {} : { error: true }) });
+          if (live) {
+            live({ type: "agent", agent: "qa", label: "QA agent", state: out.ok ? "done" : "error" });
+            if (out.kind === "result") live({ type: "qa", result: out.result });
+            if (out.kind === "needs-input") live({ type: "needs-input", question: out.question, options: out.options });
+            live(out.ok ? { type: "answer", text: out.text, sources: [], chat: stored } : { type: "error", message: out.text, kind: out.kind === "blocked" ? "blocked" : "qa", chat: stored });
+            return void res.end();
+          }
+          return json(res, 200, { ok: out.ok, text: out.text, sources: [], agent: "qa", trace, ...(qa ? { qa } : {}), ...(needsInput ? { needsInput } : {}), ...(out.ok ? {} : { error: out.kind === "blocked" ? "blocked" : "qa" }), chat: stored });
+        }
+        const r: AnswerResult | null = await withIndex((db) => answer(dcfg, db, { history, question, notesOnly }, { complete: deps.complete, onStep, backend }));
         const result: AnswerResult = r ?? { ok: false, text: "The index is not built yet. Type /index to build it.", sources: [] };
         const updated = store.append(id, { role: "assistant", text: result.text, sources: result.sources, trace, ...(result.ok ? {} : { error: true }) });
         if (live) {
@@ -264,9 +297,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       const chatId = typeof body["chatId"] === "string" && isChatId(body["chatId"]) ? body["chatId"] : null;
       const parsed = parseSlash(line, await commandTable());
       if (!parsed.ok) return json(res, 400, { ok: false, error: parsed.error });
-      // The child process works on this department only. A user-typed --dept is refused.
-      if (parsed.argv.includes("--dept")) return json(res, 400, { ok: false, error: "Choose the department from the department picker." });
-      const argv = reg.synthesized && !sel.explicit ? parsed.argv : [...parsed.argv, "--dept", ctx.department.id];
+      const argv = parsed.argv;
       if (parsed.heavy && !lock.tryAcquire(parsed.spec.name)) {
         return json(res, 409, { ok: false, busy: true, error: `/${lock.running ?? "another command"} is still running. Wait for it to finish.` });
       }
@@ -323,12 +354,12 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       const body = await readJson(req);
       if (!loadVault(dcfg.vaultDir).notes.some((n) => n.meta.id === id)) throw new HttpError(404, "No such note.");
       if (nm[2] === "undo") {
-        const snap = changed.get(`${ctx.department.id}/${id}`);
+        const snap = changed.get(id);
         if (!snap) throw new HttpError(409, "Nothing to undo for this note.");
         const r = revertNoteStatus(dcfg, snap, "chat");
         if (!r.ok) throw new HttpError(409, `Could not undo: ${r.reason}`);
-        changed.delete(`${ctx.department.id}/${id}`);
-        await reindex(ctx);
+        changed.delete(id);
+        await reindex();
         return json(res, 200, { ok: true, id, status: snap.from });
       }
       const to = body["to"];
@@ -342,10 +373,10 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         throw new HttpError(status, r.reason ?? "That change was refused.");
       }
       if (r.snapshot) {
-        changed.set(`${ctx.department.id}/${id}`, r.snapshot);
+        changed.set(id, r.snapshot);
         if (changed.size > MAX_UNDO) changed.delete(changed.keys().next().value as string);
       }
-      await reindex(ctx);
+      await reindex();
       return json(res, 200, { ok: true, id, from: r.from, to: r.to, fields: r.changes.map((c) => c.field), undoable: !!r.snapshot });
     }
 
@@ -415,7 +446,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       }
     })();
   });
-  // Close every department's index handle with the server.
-  server.on("close", () => host.closeAll());
+  // Close the index handle with the server.
+  server.on("close", () => { try { cached?.db.close(); } catch { /* already closed */ } cached = null; });
   return server;
 }

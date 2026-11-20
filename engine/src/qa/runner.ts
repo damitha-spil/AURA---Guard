@@ -141,7 +141,7 @@ export function writeDefectNote(cfg: GuardConfig, r: RunResult, d: Defect, n: nu
   const id = `incident-qa-${slug(r.journey.replace(/^journey-/, ""))}-${stamp(when).slice(0, 8)}-${n}`;
   const file = join(dir, `${id}.md`);
   const meta = {
-    id, type: "incident", status: "proposed", audience: ["qa_internal", "internal_dev"], department: "dev", source: "evidence",
+    id, type: "incident", status: "proposed", audience: ["qa_internal", "internal_dev"], source: "evidence",
     created: when.toISOString().slice(0, 10), title: `QA defect: ${d.step}`,
   };
   const body = [

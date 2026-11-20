@@ -1,4 +1,4 @@
-# AI handoff: SPIL Quality Support Bot
+# AI handoff: SPIL AURA QA Bot
 
 Keep this file current. Update it after every meaningful change, test,
 decision or blocker, and before stopping. Never record credentials, tokens or
@@ -283,7 +283,7 @@ other secrets.
 
 ## Departments, capture, extension and rename (2026-11-20, main session + Sonnet agents)
 
-- Product renamed to **SPIL Quality Support Bot** in all user-facing text. Identifiers stay
+- Product renamed to **SPIL AURA QA Bot** in all user-facing text. Identifiers stay
   (`aura-guard`, `AURA_GUARD_*` with `QSB_*` aliases, plugin id, extension id) until the GitHub repo is
   renamed. To finish the rename: rename the GitHub repo (Settings > General), then
   `git remote set-url origin <new url>`, update the marketplace repo in Aura's
@@ -304,3 +304,38 @@ other secrets.
 - Owner actions: make the GitHub repo private; install the extension to try it
   (`code --install-extension <vsix>`), delete the stray empty folder `D:\tmp`; tell the team before
   rolling out capture.
+
+## Fix: false "looks like a secret" on a normal question (2026-11-20)
+
+- Symptom: asking "hi what do you know about aura" showed "Your message looks like it contains a
+  secret (HIGH_ENTROPY x2)". Cause: the masking step checks the whole prompt, and two retrieved
+  proposed rule notes have ids like `pattern-cochange-0829e6e17ce2` (words plus a 12-character hex
+  tail), which the entropy detector read as random keys. The message wrongly blamed the user.
+- Fixes: (1) `engine/src/mask/detectors.ts` treats lower-case words plus a 6-16 character hex tail as
+  an identifier (named key formats are still caught by their own detectors; masking gate still 100%,
+  0 false positives in 121 clean cases, 3 new clean cases for these id shapes). (2)
+  `engine/src/chat/answer.ts` masks each retrieved source on its own: a source that looks like it holds a
+  secret is left out and named in the "found" step detail, instead of failing the whole question.
+  (3) When a block is not caused by the question (for example an earlier chat message) the message
+  says "Something in this chat ... looked like a secret".
+- Evidence: 3 new tests in `engine/test/chat-withhold.test.ts`; full suite 274 pass; the exact question
+  now answers through the Claude plan in 11.6 s with citations. Restart the app (`npm run ui`) to get it.
+- Not committed.
+
+## Departments removed; SPIL AURA QA Bot (2026-11-20, main session + Sonnet agents)
+
+- The multi-department design described in the sections above was REMOVED on the owner's request
+  (engine, server, CLI and UI). The bot is one project, SPIL Aura, and opens straight into chat.
+  Treat any earlier text about departments, `dept`, a landing page or a registry as history.
+- Product name: **SPIL AURA QA Bot** (short "AURA QA"). Identifiers unchanged: `aura-guard`
+  command, `AURA_GUARD_*` env vars (with `QSB_*` aliases), plugin id `aura-guard`, extension id
+  `aura-guard-companion`.
+- Local config (git-ignored): `guard.config.local.json` lists the repos: spil-aura, pdf-svg-parser,
+  shapes-core, shapes-service, erp-mcp (edit to trim). Old department data was moved aside to
+  `data/_departments-removed-2026-11-20/` (indexes, two test chats, QA test artifacts): delete it when
+  you like. Vault, index and chats are the same files as before.
+- Repo rename checklist: rename the GitHub repo (suggested `spil-aura-qa-bot`) in Settings, then
+  `git remote set-url origin <new url>`, update the marketplace repo in Aura's `.claude/settings.json`
+  and in `README.md`, then rename the folder (close VS Code first). Then rename the `aura-guard`
+  identifiers together.
+- Evidence: see the test and real-run numbers in the commit message and STATUS.md section 11.

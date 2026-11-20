@@ -8,7 +8,7 @@ import type { GuardConfig } from "../src/types.ts";
 
 export function tmpCfg(): GuardConfig {
   const root = mkdtempSync(join(tmpdir(), "guard-chat-"));
-  return { department: "dev", dataDir: join(root, "data"), vaultDir: join(root, "vault"), repos: [], busyProcesses: [], root };
+  return { dataDir: join(root, "data"), vaultDir: join(root, "vault"), repos: [], busyProcesses: [], root };
 }
 
 /** A secret built at run time so no literal secret sits in the source. */

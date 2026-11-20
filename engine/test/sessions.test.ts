@@ -50,7 +50,6 @@ function makeSessions(): { root: string; repo: string; cfg: GuardConfig } {
   const vault = join(root, "vault");
   mkdirSync(vault, { recursive: true });
   const cfg: GuardConfig = {
-    department: "dev",
     dataDir: join(root, "data"),
     vaultDir: vault,
     repos: [],

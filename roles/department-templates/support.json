@@ -1,8 +1,0 @@
-{
-  "id": "support",
-  "name": "Support",
-  "description": "A team that helps customers. Reads help documents and drafts support articles for people to review.",
-  "hint": "Add the folders with help articles and known issues. Nothing here is sent to customers without review.",
-  "sourceKind": "docs",
-  "roles": { "scribe": false, "reviewer": false, "refactor": false, "qa": false, "rules": false, "prs": false, "supportWriter": true, "quiz": true, "daily": true }
-}

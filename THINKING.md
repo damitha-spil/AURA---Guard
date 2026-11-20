@@ -108,3 +108,19 @@ Bot** (short: SPIL QSB). Decisions that followed:
 - Identifiers (`aura-guard` command, env vars, plugin and extension ids) keep working until the
   GitHub repository is renamed; they are renamed together later.
 - The repository is public, so department names, local paths and staff names stay in local data.
+
+## Departments removed; the bot is now "SPIL AURA QA Bot" (2026-11-20)
+
+A few hours after the multi-department design was built (registry, landing page, wizard, isolation,
+seeded departments), the owner reversed it: "we don't need department-wise things; this bot now only
+focuses on SPIL Aura, so name it SPIL AURA QA Bot." What changed:
+
+- The whole department layer was deleted from the engine, server, CLI and UI. The bot opens straight
+  into chat. One vault, one index, one set of chats (the files the old "legacy" department used, so
+  nothing existing moved).
+- The repositories it reads are listed in the local `guard.config.local.json`: Aura and the repositories it
+  depends on (PDF reader, shapes core and service, ERP connector).
+- Kept: chat, inbox, reports, the QA agent, model and key settings, developer capture, the VS Code
+  extension and the plugin.
+- Lesson: a platform for many departments was built before asking whether the owner wanted one.
+  Check the scope of a big feature with the owner before building it.

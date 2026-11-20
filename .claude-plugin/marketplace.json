@@ -6,7 +6,7 @@
     {
       "name": "aura-guard",
       "source": "./plugin/aura-guard",
-      "description": "SPIL Quality Support Bot knowledge tools and AI activity logging."
+      "description": "SPIL AURA QA Bot knowledge tools and AI activity logging."
     }
   ]
 }

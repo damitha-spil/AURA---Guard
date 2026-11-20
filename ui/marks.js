@@ -95,7 +95,7 @@ export function setMarkState(el, state) {
  * Keep the two in step: the tests check every style has a descriptor and a mark.
  */
 export const DESCRIPTORS = {
-  noir: { id: "noir", mark: "squares", columnPx: 900, density: "dense", messages: "rows", workLive: true, workExpanded: true, topbar: true, sidebarDefault: "open", composer: "docked", reveal: "typewriter", entry: "instant", empty: "terminal", inbox: "table" },
+  noir: { id: "noir", mark: "squares", columnPx: 800, density: "dense", messages: "rows", workLive: true, workExpanded: true, topbar: true, sidebarDefault: "open", composer: "docked", reveal: "typewriter", entry: "instant", empty: "terminal", inbox: "table" },
   pulse: { id: "pulse", mark: "dot", columnPx: 680, density: "airy", messages: "airy", workLive: false, workExpanded: false, topbar: false, sidebarDefault: "collapsed", composer: "floating-large", reveal: "none", entry: "fade-up", empty: "single", inbox: "list" },
   dots: { id: "dots", mark: "grid", columnPx: 760, density: "comfortable", messages: "flat-avatar", workLive: true, workExpanded: false, topbar: true, sidebarDefault: "open", composer: "floating", reveal: "words", entry: "words", empty: "hero-cards", inbox: "cards" },
   aurora: { id: "aurora", mark: "orb", columnPx: 780, density: "roomy", messages: "cards", workLive: true, workExpanded: false, topbar: true, sidebarDefault: "open", composer: "floating-large", reveal: "none", entry: "rise-blur", empty: "orb-cards", inbox: "glass-cards" },

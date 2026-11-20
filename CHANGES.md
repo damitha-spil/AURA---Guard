@@ -2,6 +2,18 @@
 
 Newest first.
 
+## 2026-11-20: departments removed, SPIL AURA QA Bot, QA agent, settings, redesign (uncommitted)
+
+- REMOVED the multi-department layer (registry, landing page, wizard, isolation, `dept` commands). The
+  bot is one project, SPIL Aura, and opens straight into chat.
+- Renamed to SPIL AURA QA Bot (command and plugin/extension ids unchanged for now).
+- QA agent in the chat: asking to QA something returns a read-only plan with risk, test cases,
+  checklist and evidence needed.
+- Model and API key settings: screen and `brain` commands; the key is encrypted by Windows.
+- Chat, inbox, reports and settings redesigned in four themes.
+- Fixed: a normal question refused as "looks like a secret".
+- New read endpoints: `GET /api/project`, `GET /api/suggestions`.
+
 ## 2026-11-20: departments, landing page, capture, VS Code extension, rename (uncommitted)
 
 - Product renamed to SPIL Quality Support Bot (identifiers unchanged for now).

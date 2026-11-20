@@ -11,7 +11,7 @@ test("refreshGraph skips plainly when the repo is unknown or graphify is missing
   const dir = mkdtempSync(join(tmpdir(), "guard-refresh-"));
   try {
     const cfg: GuardConfig = {
-      department: "dev", dataDir: dir, vaultDir: dir, busyProcesses: [], root: dir,
+      dataDir: dir, vaultDir: dir, busyProcesses: [], root: dir,
       repos: [{ id: "r", path: dir }],
     };
     const db = openDb(":memory:");

@@ -243,6 +243,11 @@ const WORDLIKE_SEGMENT = new RegExp(
  * Real random keys have digits and capitals scattered inside the pieces.
  */
 function identifierLike(tok: string): boolean {
+  // Guard's own ids: lower-case words then a short hex tail, e.g. a note id
+  // ("pattern-cochange-0829e6e17ce2") or a repo key ("my-repo-3c875a"). Real keys are
+  // not lower-case words plus <=16 hex characters, and named key formats (sk-..., ghp_...)
+  // are caught by their own detectors before this one.
+  if (/^[a-z]+(?:-[a-z]+)+-[0-9a-f]{6,16}$/.test(tok)) return true;
   const segs = tok.split(/[-_/+=]+/).filter((s) => s.length > 0);
   return segs.length >= 2 && segs.every((s) => WORDLIKE_SEGMENT.test(s));
 }

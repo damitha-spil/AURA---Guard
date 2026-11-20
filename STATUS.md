@@ -1,4 +1,4 @@
-# SPIL Quality Support Bot: current status (for brainstorming)
+# SPIL AURA QA Bot: current status (for brainstorming)
 
 Snapshot: 2026-11-20, end of day. Written to be pasted whole into another AI
 so it has the full picture. It holds no secrets, server addresses or personal
@@ -9,7 +9,7 @@ THINKING.md, AI_HANDOFF.md, CHANGES.md, docs/adr/001-foundations.md.
 
 ## 1. What this is
 
-**SPIL Quality Support Bot** is an internal engineering assistant for a glass-fabrication
+**SPIL AURA QA Bot** is an internal engineering assistant for a glass-fabrication
 software company. It learns one product, **Aura**, and the way its owner builds
 it, then helps as Scribe, Code Reviewer, QA Planner and a writer of support
 knowledge.
@@ -24,8 +24,7 @@ knowledge.
 - **Guard** is separate from the product. It **reads** Aura's repositories and
   **suggests**. People decide and commit. Guard never writes to the ERP or to
   Aura's repo.
-- Long term the same engine serves other departments (Finance, HR), each with
-  its own knowledge folder and permissions.
+- The bot is built for one project: SPIL Aura.
 
 ## 2. Principles (agreed)
 
@@ -59,7 +58,7 @@ measured defect-finding ability yet.
 | 3 Reviewer + QA in shadow mode, UI | ~70% | reviewer: no measured bug-finding yet; QA: never run live against Aura |
 | 4 Go live, local model, support, ACP | ~15% | support draft pipeline proven on one topic; nothing live; no local model |
 
-Tests: 271 in 29 files in the engine plus 22 in the VS Code extension, all passing; typecheck (src and tests) clean.
+Tests: 341 in 37 files in the engine plus 22 in the VS Code extension, all passing; typecheck (src and tests) clean.
 
 ## 4. Architecture as built
 
@@ -201,7 +200,7 @@ now reported separately.
    (`rules export` writes them; the reviewer does not read them yet).
 6. First real diaries every day (`daily`, optionally scheduled).
 7. Later: embeddings, small local model after 300-500 approved examples, ACP
-   interface, other departments, PR hooks once gates pass.
+   interface, PR hooks once gates pass.
 
 ## 8. Ideas considered and where they landed
 
@@ -233,8 +232,6 @@ now reported separately.
 6. How to keep notes from rotting beyond code anchors (wrong, not just stale)?
 7. Which embedding model and runtime fit a memory-limited Windows PC that also
    compiles Rust, and is it needed at all given 90% word-search recall?
-8. How to separate departments (Finance, HR) so data cannot cross, including
-   inside the shared index?
 9. When is Guard allowed to comment on real PRs, and who decides?
 10. Best use of the AI activity log: coverage check, learning source, or both?
 
@@ -249,27 +246,26 @@ now reported separately.
 
 ---
 
-## 11. Update: departments, the landing page and developer capture
+## 11. Update: single project, QA agent, settings and redesign (2026-11-20)
 
-Added after the sections above were written.
+Added after the sections above were written. A multi-department design (registry, landing page,
+wizard, isolation) was built and then REMOVED the same day: the owner decided the bot should only
+focus on SPIL Aura. It is now **SPIL AURA QA Bot** and opens straight into chat.
 
-- **Multi-department platform.** Departments, modules, sub-modules and sources are created and edited
-  in the app (wizard, landing page, department page) or with `dept ...`. Each department has its own
-  vault, index and chats; isolation is tested across every API endpoint. The registry and the starting
-  set are local files (`data/departments/`), never in git.
-- **Landing page.** The app always opens on "Choose your department" (tiles or an overview table),
-  in all four themes. Noir is the default.
-- **Developer capture (opt-in).** A VS Code extension (own package in `extension/`, 22 tests, packaged
-  as a 20 KB `.vsix`) records masked activity to a local spool; the engine drafts ai-log entries;
-  the developer reviews a diff before anything is written to their repo.
-- **Measured.** End to end with the extension's own code and the real CLI: 7 events written, read,
-  summarised through the Claude plan in 4.4 s into a faithful draft, purged; the repo stayed clean. A
-  `repoKey` mismatch between the extension and the engine was found by the shared test vectors and
-  fixed. Departments indexed read-only for real (for example 290 commits for the project department,
-  737 for the two repositories of the shapes department).
-- **Still unproven.** The extension has never run in a live VS Code window (consent dialog, status
-  bar, `@guard`, diff view); installing works into a throwaway profile only. Only the Claude Code
-  transcripts are read for AI prompts and replies; Copilot Chat or Cursor chats cannot be read.
-- **Decisions to make.** The project department no longer indexes the ERP connector repository;
-  add it as a second source of that department if cross-repo contract checks matter. Rename the GitHub
-  repository and the identifiers (`aura-guard`) together, then update Aura's `.claude/settings.json`.
+- **QA agent in the chat.** Asking to QA something ("Can you QA it", "QA PR 123") starts a read-only
+  QA sub-agent with visible steps; it states what it assumed, then returns a risk level, test cases by
+  priority, a regression checklist, the evidence needed and check commands. It can offer to run
+  read-only journeys only with explicit confirmation and a running, debuggable app.
+- **Model and key settings.** A "Model & keys" screen (and `brain` commands) chooses the backend
+  (Claude plan or API key) and the model; the API key is encrypted by Windows (DPAPI) and never shown
+  again.
+- **Redesign.** Chat workspace, inbox, reports and settings were redesigned in all four themes (Noir
+  default). Project status (repos, index age, notes, inbox) is a popover, with an Index now button.
+- **Fixes.** A normal question was refused as "looks like a secret" because Guard's own note ids
+  looked random to the detector; fixed in the detector and by leaving out only the offending source.
+- **Developer capture** and the **VS Code extension** are as described above (opt-in, local, masked).
+- **Still unproven.** The extension has never run in a live VS Code window. The QA agent's plan quality
+  is judged by reading, not measured; real journey runs need Aura started with a debugging port.
+  The reviewer has no measured bug-finding ability.
+- **Decision still open.** Rename the GitHub repository (suggested: `spil-aura-qa-bot`) and the
+  identifiers (`aura-guard`) together, then update Aura's `.claude/settings.json`.

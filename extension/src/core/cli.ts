@@ -54,9 +54,9 @@ export interface AnswerResult {
 
 /** The guard folder must be a real Guard clone. Returns an error message, or null when fine. */
 export function validateGuardHome(home: string, exists: (p: string) => boolean = existsSync): string | null {
-  if (!home.trim()) return "Set auraGuard.guardHome to the folder of your SPIL Quality Support Bot clone.";
-  if (!exists(home)) return "The SPIL Quality Support Bot folder does not exist.";
-  if (!exists(join(home, "engine", "src", "cli", "main.ts"))) return "That folder is not an SPIL Quality Support Bot clone (engine/src/cli/main.ts is missing).";
+  if (!home.trim()) return "Set auraGuard.guardHome to the folder of your SPIL AURA QA Bot clone.";
+  if (!exists(home)) return "The SPIL AURA QA Bot folder does not exist.";
+  if (!exists(join(home, "engine", "src", "cli", "main.ts"))) return "That folder is not an SPIL AURA QA Bot clone (engine/src/cli/main.ts is missing).";
   if (!exists(join(home, "bin", "aura-guard.mjs"))) return "That folder is missing bin/aura-guard.mjs.";
   return null;
 }
@@ -81,16 +81,16 @@ export class GuardCli {
     try {
       ({ stdout } = await this.run(this.nodePath || "node", this.argv(args), { cwd: this.guardHome, timeout, maxBuffer: OUT_CAP }));
     } catch (e) {
-      throw new GuardError(`Could not run SPIL Quality Support Bot: ${(e as Error).message.split("\n")[0]}`);
+      throw new GuardError(`Could not run SPIL AURA QA Bot: ${(e as Error).message.split("\n")[0]}`);
     }
     let j: unknown;
     try {
       j = JSON.parse(stdout.trim());
     } catch {
-      throw new GuardError("SPIL Quality Support Bot did not return JSON.");
+      throw new GuardError("SPIL AURA QA Bot did not return JSON.");
     }
     const o = j as { ok?: boolean; error?: string };
-    if (!o || o.ok !== true) throw new GuardError(o?.error ? String(o.error) : "SPIL Quality Support Bot reported a failure.");
+    if (!o || o.ok !== true) throw new GuardError(o?.error ? String(o.error) : "SPIL AURA QA Bot reported a failure.");
     return j as T;
   }
 

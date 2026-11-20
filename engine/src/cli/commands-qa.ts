@@ -9,9 +9,10 @@ import { join } from "node:path";
 import { dbPath } from "../config.ts";
 import { ApiError, BlockedError, MissingKeyError } from "../brain/client.ts";
 import { CliError } from "../brain/backends.ts";
-import { createBrain, NoBackendError } from "../brain/select.ts";
+import { createBrain, describeBackends, NoBackendError } from "../brain/select.ts";
 import { openDb } from "../index/db.ts";
 import type { Db } from "../index/db.ts";
+import { runQaAgent } from "../qa/agent.ts";
 import { generateSpec, isRejectedSpec } from "../qa/generate.ts";
 import { CDP_ENV, cdpHowTo, probeCdp } from "../qa/harness.ts";
 import { journeyProblems, loadJourneys } from "../qa/journeys.ts";
@@ -21,7 +22,7 @@ import { checkSpec, describeFindings, loadForbidden } from "../qa/safety.ts";
 import type { CommandContext } from "./main.ts";
 
 const copy = {
-  usage: "qa <plan [repo] [--base ref] [--head ref] [--no-model] | generate <journey-id> | check <spec> | run <spec|journey-id> [--widths 800,1100,1440] [--video] [--note] | status>",
+  usage: "qa <agent \"<request>\" [--no-model] [--json] | plan [repo] [--base ref] [--head ref] [--no-model] | generate <journey-id> | check <spec> | run <spec|journey-id> [--widths 800,1100,1440] [--video] [--note] | status>",
   needArgs: (what: string) => `Missing argument. Usage: ${what}`,
   noRepo: (id: string, known: string) => `Unknown repo "${id}". Configured repos: ${known || "(none)"}.`,
   planWritten: (path: string, n: number, gaps: number, model: string) =>
@@ -65,6 +66,41 @@ export const qaCommands: Record<string, (ctx: CommandContext) => Promise<number>
     const { rest, flags, out, cfg } = ctx;
     const sub = rest[0];
     const arg = rest[1];
+
+    if (sub === "agent") {
+      const request = rest.slice(1).join(" ").trim();
+      if (!request) { out(copy.needArgs('qa agent "<request>" [--no-model] [--json]')); return 2; }
+      const json = flags["json"] === true;
+      const noModel = flags["no-model"] === true;
+      const db = openDbIfAny(cfg);
+      try {
+        let complete;
+        let backend: string | null = null;
+        if (!noModel) {
+          try {
+            complete = createBrain(cfg).complete;
+            const d = await describeBackends(cfg);
+            backend = d.picked === "claude-cli" ? "Claude plan" : d.picked === "anthropic-api" ? "API key" : null;
+          } catch { complete = undefined; }
+        }
+        const o = await runQaAgent({ cfg, db, complete, backend }, { message: request, history: [], noModel });
+        if (o.kind === "result") {
+          out(json ? JSON.stringify({ kind: "result", result: o.result }) : o.markdown.trimEnd());
+          return 0;
+        }
+        if (o.kind === "needs-input") {
+          out(json ? JSON.stringify({ kind: "needs-input", question: o.question, options: o.options }) : o.text);
+          return 2;
+        }
+        out(json ? JSON.stringify({ kind: o.kind, text: o.text }) : o.text);
+        return 1;
+      } catch (e) {
+        out(json ? JSON.stringify({ kind: "error", text: (e as Error).message }) : (e as Error).message);
+        return 1;
+      } finally {
+        db?.close();
+      }
+    }
 
     if (sub === "plan") {
       const repoId = arg ?? cfg.repos.find((r) => r.id === "spil-aura")?.id ?? cfg.repos[0]?.id ?? "";

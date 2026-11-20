@@ -382,7 +382,7 @@ function extractJson(text: string): unknown {
 export function buildPrompt(role: Role, date: string, developer: string, units: Unit[]): { system: string[]; user: string } {
   const rules = role.rules.map((r) => `- ${r}`).join("\n");
   const stable =
-    `You are the capture summarizer for SPIL Quality Support Bot. You turn one developer's day into draft ai-log entries.\n\nRules:\n${rules}\n\n` +
+    `You are the capture summarizer for SPIL AURA QA Bot. You turn one developer's day into draft ai-log entries.\n\nRules:\n${rules}\n\n` +
     `Reply with JSON: {"entries": [{"cites": string[], "what": string, "why"?: string, "decided"?: string, ` +
     `"correction"?: string, "notVerified"?: string, "ideas"?: string[]}], "ideas": string[], "questions": string[]}. ` +
     `At most ${role.limits.maxEntries} entries, ${role.limits.maxIdeas} ideas and ${role.limits.maxQuestions} questions. ` +

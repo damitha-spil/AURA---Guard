@@ -9,8 +9,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import type { CommandContext } from "./main.ts";
-import { runChild } from "./commands-dept.ts";
-import { listDepartments, loadRegistry } from "../departments/registry.ts";
 
 const StepSchema = z.object({
   id: z.string(),
@@ -18,9 +16,7 @@ const StepSchema = z.object({
   timeoutMin: z.number().positive().default(10),
   optional: z.boolean().default(false),
   needsModel: z.boolean().default(false),
-  /** Department helper that must be switched on for this step (see departments/model.ts). */
-  role: z.string().optional(),
-  /** Skipped when the department has no git source. */
+  /** Skipped when the project has no git source. */
   needsRepo: z.boolean().default(false),
 });
 const FileSchema = z.object({ steps: z.array(StepSchema).min(1) });
@@ -44,7 +40,6 @@ const copy = {
   line: (id: string, status: Status, secs: number, note: string) =>
     `  ${status.padEnd(7)} ${id} (${secs} s)${note ? ` - ${note}` : ""}`,
   reportAt: (path: string) => `Report: ${path}`,
-  off: (name: string) => `The daily routine is switched off for ${name}.`,
   badFile: (why: string) => `roles/daily.json is not valid: ${why}`,
 };
 
@@ -71,28 +66,7 @@ function runStep(mainTs: string, cwd: string, step: Step): Promise<{ code: numbe
 }
 
 export const dailyCommands: Record<string, (ctx: CommandContext) => Promise<number> | number> = {
-  daily: async ({ flags, out, cfg, base }) => {
-    // `daily --all`: each department runs its own routine in its own process.
-    if (flags["all"] === true) {
-      const reg = loadRegistry(base ?? cfg);
-      const pass = [...(flags["no-model"] === true ? ["--no-model"] : []), ...(typeof flags.skip === "string" ? ["--skip", flags.skip] : [])];
-      let failed = 0;
-      for (const d of listDepartments(reg)) {
-        if (!d.roles.daily) {
-          out(`== ${d.name} (${d.id}): daily routine is off, skipped ==`);
-          continue;
-        }
-        out(`== ${d.name} (${d.id}) ==`);
-        const r = await runChild(cfg.root, ["daily", "--dept", d.id, ...pass], 120);
-        if (r.text) out(r.text);
-        if (r.code !== 0) failed++;
-      }
-      return failed ? 1 : 0;
-    }
-    if (cfg.roles && cfg.roles["daily"] === false) {
-      out(copy.off(cfg.departmentName ?? "this department"));
-      return 0;
-    }
+  daily: async ({ flags, out, cfg }) => {
     const file = join(cfg.root, "roles", "daily.json");
     let steps: Step[];
     try {
@@ -112,11 +86,10 @@ export const dailyCommands: Record<string, (ctx: CommandContext) => Promise<numb
       const t0 = Date.now();
       let r: StepResult;
       if (skip.has(step.id)) r = { id: step.id, status: "skipped", seconds: 0, note: "skipped by --skip", lines: [] };
-      else if (step.role && cfg.roles && cfg.roles[step.role] === false) r = { id: step.id, status: "skipped", seconds: 0, note: `helper "${step.role}" is off for this department`, lines: [] };
-      else if (step.needsRepo && cfg.departmentId !== undefined && cfg.repos.length === 0) r = { id: step.id, status: "skipped", seconds: 0, note: "needs a git source", lines: [] };
+      else if (step.needsRepo && cfg.repos.length === 0) r = { id: step.id, status: "skipped", seconds: 0, note: "needs a git source", lines: [] };
       else if (step.needsModel && noModel) r = { id: step.id, status: "skipped", seconds: 0, note: "needs the model (--no-model)", lines: [] };
       else {
-        const { code, text } = await runStep(mainTs, cfg.root, cfg.departmentId !== undefined ? { ...step, argv: [...step.argv, "--dept", cfg.departmentId] } : step);
+        const { code, text } = await runStep(mainTs, cfg.root, step);
         const secs = Math.round((Date.now() - t0) / 1000);
         const unknown = /Unknown command/i.test(text);
         const lines = text.split(/\r?\n/).filter(Boolean);

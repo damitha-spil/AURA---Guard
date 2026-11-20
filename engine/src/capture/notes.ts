@@ -47,7 +47,7 @@ export function proposeChoiceNotes(vaultDir: string, events: CaptureEvent[], tod
     const title = `Developer ${ev.kind} on ${day} (${h.slice(0, 6)})`;
     const id = `choice-capture-${h}`;
     const meta = {
-      id, type: "choice", status: "proposed", audience: ["internal_dev"], department: "dev",
+      id, type: "choice", status: "proposed", audience: ["internal_dev"],
       source: "session", title, created: today,
     };
     const v = validateMeta(meta, `inbox/${id}.md`);

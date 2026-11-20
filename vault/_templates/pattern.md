@@ -3,7 +3,6 @@ id: pattern-replace-with-kebab-id
 type: pattern
 status: proposed
 audience: [internal_dev]
-department: dev
 source: owner-answer
 created: {{date:YYYY-MM-DD}}
 title: "{{title}}"

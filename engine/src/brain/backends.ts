@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, join } from "node:path";
+import { envValue } from "../config.ts";
 import { buildPayload, DEFAULT_MODEL, postMessages } from "./client.ts";
 import type { CompleteResult, Usage } from "./client.ts";
 
@@ -70,7 +71,7 @@ const CLAUDE_SIGN_IN_HELP =
  *                          instructions go on stdin so they are not limited by the command line length.
  * And as a runtime guard parseClaudeStream refuses the run if init reports any tool or MCP server.
  */
-const CLAUDE_SYSTEM = "You are a text-only language model inside SPIL Quality Support Bot. You have no tools and no files. Follow the instructions in the user's text and reply with only what they ask for.";
+const CLAUDE_SYSTEM = "You are a text-only language model inside SPIL AURA QA Bot. You have no tools and no files. Follow the instructions in the user's text and reply with only what they ask for.";
 const DENIED_TOOLS = "Bash PowerShell Edit Write NotebookEdit WebFetch WebSearch Task Agent";
 
 export function claudeArgs(model: string): string[] {
@@ -263,24 +264,29 @@ export interface BackendOptions {
   /** Replaces discovery (tests). */
   launcher?: Launcher | null;
   home?: string;
+  /** A key kept in the secure store (keystore.ts). Used only when ANTHROPIC_API_KEY is not set. */
+  storedKey?: { exists(): Promise<boolean>; get(): Promise<string | null> };
   cliTimeoutMs?: number;
   onCwd?: (cwd: string) => void;
 }
 
 export function anthropicApiBackend(o: BackendOptions = {}): Backend {
   const env = o.env ?? process.env;
-  const model = (): string => env.AURA_GUARD_MODEL || o.model || DEFAULT_MODEL;
+  const model = (): string => envValue("MODEL", env) || o.model || DEFAULT_MODEL;
   return {
     id: "anthropic-api",
     kind: "api",
     async available() {
-      return env.ANTHROPIC_API_KEY
-        ? { ok: true, detail: `ANTHROPIC_API_KEY is set (model ${model()})` }
-        : { ok: false, detail: "ANTHROPIC_API_KEY is not set" };
+      if (env.ANTHROPIC_API_KEY) return { ok: true, detail: `ANTHROPIC_API_KEY is set (model ${model()})` };
+      if (o.storedKey && (await o.storedKey.exists().catch(() => false))) {
+        return { ok: true, detail: `a key saved in Guard is set (model ${model()})` };
+      }
+      return { ok: false, detail: "ANTHROPIC_API_KEY is not set and no key is saved in Guard" };
     },
     async complete(req) {
-      const key = env.ANTHROPIC_API_KEY;
-      if (!key) throw new CliError("ANTHROPIC_API_KEY is not set. Set it in the environment to use the paid model.");
+      // The stored key is read for this one call and not kept.
+      const key = env.ANTHROPIC_API_KEY || (o.storedKey ? await o.storedKey.get() : null);
+      if (!key) throw new CliError("No API key is set. Set ANTHROPIC_API_KEY, or save a key in Guard.");
       const payload = buildPayload(model(), req.maxTokens, req.system, req.user);
       req.audit(payload, model());
       return postMessages({

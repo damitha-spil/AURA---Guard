@@ -1,0 +1,13 @@
+{
+  "$comment": "The models Guard offers in its model picker. Model ids change over time: edit this file to add or rename one. Any id that matches ^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$ can also be typed in by hand. backends: anthropic-api (your own API key) and claude-cli (your Claude plan through Claude Code).",
+  "version": 1,
+  "models": [
+    { "id": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5", "note": "Balanced speed, quality and cost. The default.", "backends": ["anthropic-api"], "default": true },
+    { "id": "claude-opus-5-5", "label": "Claude Opus 5.5", "note": "Most capable. Slower and costs more.", "backends": ["anthropic-api"] },
+    { "id": "claude-haiku-5-5", "label": "Claude Haiku 5.5", "note": "Fastest and cheapest. Good for short, simple jobs.", "backends": ["anthropic-api"] },
+    { "id": "claude-fable-5-2", "label": "Claude Fable 5.2", "note": "Another Anthropic model line. Use it if your key can access it.", "backends": ["anthropic-api"] },
+    { "id": "sonnet", "label": "Sonnet (plan)", "note": "Balanced. The default for the Claude plan.", "backends": ["claude-cli"], "default": true },
+    { "id": "opus", "label": "Opus (plan)", "note": "Most capable. Slower, and uses more of your plan allowance.", "backends": ["claude-cli"] },
+    { "id": "haiku", "label": "Haiku (plan)", "note": "Fastest, and uses the least of your plan allowance.", "backends": ["claude-cli"] }
+  ]
+}

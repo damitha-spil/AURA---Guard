@@ -216,6 +216,9 @@ export function buildCases() {
     "Bearer tokens are described in RFC 6750.",
     "Use a Bearer scheme in the Authorization header.",
     "dotnet add package Microsoft.Extensions.Logging.Abstractions --version 8.0.2",
+    "Related notes: pattern-cochange-0829e6e17ce2 and choice-session-5444780fa8c8 (proposed).",
+    "Repo key orders-app-540daa lives in the spool folder; see also my-repo-3c875a.",
+    "See rule-no-hard-coding and pattern-cochange-091c8ef8f99f for the details.",
   ];
   clean.forEach((t) => add("clean", t));
   const gits = Array.from({ length: 6 }, () => pick(HEX, 40));

@@ -14,6 +14,8 @@ export const MAX_STEP_TEXT = 300;
 export const MAX_STORED_MESSAGES = 200;
 export const MAX_TITLE_CHARS = 60;
 export const WITHHELD = "[text withheld: it looked like a secret]";
+/** A stored sub-agent result larger than this is dropped (the Markdown text is still kept). */
+export const MAX_STORED_AGENT_CHARS = 250_000;
 
 export interface StoredMessage {
   role: "user" | "assistant";
@@ -23,6 +25,10 @@ export interface StoredMessage {
   error?: boolean;
   /** What Guard did to produce this answer (labels and timings only), so the "Worked for" line survives a reload. */
   trace?: Step[];
+  /** The structured result of a sub-agent (the QA agent), masked and capped, so it survives a reload. */
+  qa?: unknown;
+  /** A question the QA agent asked, with its answer chips. */
+  needsInput?: { question: string; options: { id: string; label: string; value: string }[] };
 }
 
 export interface Chat {
@@ -42,6 +48,24 @@ export const isChatId = (s: string): boolean => ID_RE.test(s);
 export function maskForStorage(text: string): string {
   const r = maskOutgoing(text);
   return r.ok ? r.text : WITHHELD;
+}
+
+/** Keys whose string values are ids, paths or hashes; they are left as they are. */
+const STRUCT_KEYS = new Set([
+  "id", "sha", "baseSha", "headSha", "repo", "path", "file", "journeyId", "markdownPath", "jsonPath", "reportPath", "screenshot",
+  "rangeLabel", "kind", "type", "priority", "status", "state", "risk", "riskLevel", "department", "version", "generatedAt", "source", "backend",
+]);
+
+/** Masks every string in a JSON-like value. A string that looks like a secret is replaced, never kept. */
+export function maskDeep<T>(value: T, key = ""): T {
+  if (typeof value === "string") return (STRUCT_KEYS.has(key) ? value : maskForStorage(value)) as T;
+  if (Array.isArray(value)) return value.map((v) => maskDeep(v, key)) as T;
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = maskDeep(v, k);
+    return out as T;
+  }
+  return value;
 }
 
 export class ChatStore {
@@ -100,7 +124,7 @@ export class ChatStore {
   }
 
   /** Appends a message (masked) and keeps the title in step with the first question. */
-  append(id: string, m: { role: "user" | "assistant"; text: string; sources?: ChatSource[]; error?: boolean; trace?: Step[] }): Chat | null {
+  append(id: string, m: { role: "user" | "assistant"; text: string; sources?: ChatSource[]; error?: boolean; trace?: Step[]; qa?: unknown; needsInput?: StoredMessage["needsInput"] }): Chat | null {
     const chat = this.get(id);
     if (!chat) return null;
     const text = maskForStorage(m.text);
@@ -109,12 +133,17 @@ export class ChatStore {
     if (m.error) msg.error = true;
     if (m.trace?.length) {
       msg.trace = m.trace.slice(0, MAX_TRACE_STEPS).map((t) => ({
-        id: t.id, kind: t.kind, status: t.status,
+        id: t.id, kind: t.kind, status: t.status, ...(t.agent ? { agent: t.agent } : {}),
         label: maskForStorage(t.label).slice(0, MAX_STEP_TEXT),
         ...(t.detail ? { detail: maskForStorage(t.detail).slice(0, MAX_STEP_TEXT) } : {}),
         ...(typeof t.ms === "number" ? { ms: t.ms } : {}),
       }));
     }
+    if (m.qa !== undefined) {
+      const safe = maskDeep(m.qa);
+      if (JSON.stringify(safe).length <= MAX_STORED_AGENT_CHARS) msg.qa = safe;
+    }
+    if (m.needsInput) msg.needsInput = maskDeep(m.needsInput);
     chat.messages.push(msg);
     if (chat.messages.length > MAX_STORED_MESSAGES) chat.messages.splice(0, chat.messages.length - MAX_STORED_MESSAGES);
     if (m.role === "user" && chat.title === "New chat") {

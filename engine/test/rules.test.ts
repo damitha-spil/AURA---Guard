@@ -47,7 +47,7 @@ function setup() {
   for (let i = 0; i < 30; i++) bulk[`bulk/f${i}.txt`] = "x\n";
   commit(repo, bulk, "bulk", "2026-02-10T10:00:00");
   const cfg: GuardConfig = {
-    department: "dev", dataDir: join(root, "data"), vaultDir: join(root, "vault"),
+    dataDir: join(root, "data"), vaultDir: join(root, "vault"),
     repos: [{ id: "demo", path: repo }], busyProcesses: [], root,
   };
   const db = openDb(":memory:");

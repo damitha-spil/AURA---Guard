@@ -13,6 +13,7 @@ import type { CompleteFn } from "../brain/client.ts";
 import { ApiError, BlockedError, MissingKeyError } from "../brain/client.ts";
 import { CliError } from "../brain/backends.ts";
 import { NoBackendError } from "../brain/select.ts";
+import { maskOutgoing } from "../mask/mask.ts";
 
 // Token budget (about 4 characters per token): the sources block stays under roughly 5,000 tokens
 // and the conversation under 2,000, so one answer is cheap and the stable rules stay cached.
@@ -29,7 +30,7 @@ export const MAX_CONTEXT_ROWS = 8;
 export const ANSWER_MAX_TOKENS = 900;
 
 export const RULES = [
-  "You are SPIL Quality Support Bot's chat, an internal engineering assistant for the Aura product.",
+  "You are SPIL AURA QA Bot's chat, an internal engineering assistant for the Aura product.",
   "Rules:",
   "- Answer only from the sources provided below. Do not use outside knowledge about this codebase.",
   "- Cite sources as [ref], using the exact ref shown for each source. Never invent a ref.",
@@ -39,11 +40,9 @@ export const RULES = [
   "- Use plain words. Keep the answer short.",
 ].join("\n");
 
-/** The rules text for a department. The plain default config keeps the original first line. */
-export function rulesFor(cfg: GuardConfig): string {
-  if (!cfg.departmentName || cfg.departmentId === "default") return RULES;
-  const first = `You are ${PRODUCT_SHORT}, an internal assistant for the ${cfg.departmentName} department. Use only this department's knowledge.`;
-  return first + RULES.slice(RULES.indexOf("\n"));
+/** The rules text for the one project. */
+export function rulesFor(_cfg: GuardConfig): string {
+  return RULES;
 }
 
 export interface ChatTurn { role: "user" | "assistant"; text: string }
@@ -69,7 +68,9 @@ export interface AnswerResult {
 export interface AnswerInput { history: ChatTurn[]; question: string; /** Only vault notes may be used as sources. */ notesOnly?: boolean }
 
 /** One real thing the pipeline did. The screen shows these live; nothing here is a timer or a guess. */
-export type StepKind = "search" | "found" | "context" | "model" | "verify" | "done";
+export type StepKind = "search" | "found" | "context" | "model" | "verify" | "done"
+  // Steps of a sub-agent (the QA agent): see engine/src/qa/agent.ts.
+  | "understand" | "target" | "design" | "safety" | "run" | "report";
 export interface Step {
   /** Same id again updates the same row (running, then done). */
   id: StepKind;
@@ -79,6 +80,8 @@ export interface Step {
   detail?: string;
   /** Milliseconds since this step started; set when it ends. */
   ms?: number;
+  /** Which sub-agent did this step ("qa"); absent for the normal answer pipeline. */
+  agent?: string;
 }
 export interface AnswerDeps {
   complete: CompleteFn;
@@ -90,7 +93,8 @@ export interface AnswerDeps {
 
 const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n) + "..." : s);
 
-interface Collected { sources: ChatSource[]; blocks: string[] }
+/** `withheld` lists sources left out of the prompt because their text looked like a secret. */
+interface Collected { sources: ChatSource[]; blocks: string[]; withheld: string[] }
 
 /** Paths in a question that the index really knows, as {repo, path}. */
 export function pathsInQuestion(db: Db, question: string): { repo: string; path: string }[] {
@@ -108,10 +112,18 @@ export function pathsInQuestion(db: Db, question: string): { repo: string; path:
 export function collect(db: Db, question: string, notesOnly = false): Collected {
   const sources: ChatSource[] = [];
   const blocks: string[] = [];
+  const withheld: string[] = [];
   let used = 0;
   const seen = new Set<string>();
   const add = (s: ChatSource, text: string): void => {
     if (seen.has(s.ref) || used + text.length > MAX_SOURCES_CHARS) return;
+    // A retrieved source that looks like it holds a secret is left out of the prompt. The question
+    // must still be answerable from the rest; one odd note must never block the whole call.
+    if (!maskOutgoing(text).ok) {
+      seen.add(s.ref);
+      withheld.push(s.ref);
+      return;
+    }
     seen.add(s.ref);
     used += text.length;
     sources.push(s);
@@ -124,7 +136,7 @@ export function collect(db: Db, question: string, notesOnly = false): Collected 
     const label = h.status && h.status !== "active" ? `note, status ${h.status}${h.status === "proposed" ? ", UNAPPROVED" : ""}` : "note";
     add({ ref: h.ref, kind: "note", title: h.title, status: h.status ?? null }, `[${h.ref}] (${label}) ${h.title}\n${body}`);
   }
-  if (notesOnly) return { sources, blocks };
+  if (notesOnly) return { sources, blocks, withheld };
   for (const h of search(db, question, { audience: "internal_dev", limit: MAX_OTHER_SOURCES, kinds: ["commit", "file"] })) {
     add({ ref: h.ref, kind: h.kind, title: h.title, status: null }, `[${h.ref}] (${h.kind}) ${h.title}\n${clip(h.snippet, MAX_SNIPPET_CHARS)}`);
   }
@@ -143,7 +155,7 @@ export function collect(db: Db, question: string, notesOnly = false): Collected 
     const text = lines.join("\n");
     add({ ref, kind: "context", title: `History and links for ${repo}:${path}`, status: null, text }, `[${ref}] (context) ${repo}:${path}\n${text}`);
   }
-  return { sources, blocks };
+  return { sources, blocks, withheld };
 }
 
 /** Removes [ref]-shaped citations that are not in the provided sources. */
@@ -203,9 +215,12 @@ export async function answer(_cfg: GuardConfig, db: Db, input: AnswerInput, deps
   };
   const t0 = Date.now();
   emit({ id: "search", kind: "search", status: "running", label: input.notesOnly ? "Searching vault notes" : "Searching notes, commits and files" });
-  const { sources, blocks } = collect(db, question, input.notesOnly === true);
+  const { sources, blocks, withheld } = collect(db, question, input.notesOnly === true);
   emit({ id: "search", kind: "search", status: "done", label: input.notesOnly ? "Searched vault notes" : "Searched notes, commits and files", ms: Date.now() - t0 });
-  emit({ id: "found", kind: "found", status: "done", label: describeFound(sources), ms: 0 });
+  emit({
+    id: "found", kind: "found", status: "done", label: describeFound(sources), ms: 0,
+    ...(withheld.length ? { detail: `${withheld.length} left out because ${withheld.length === 1 ? "it looked" : "they looked"} like a secret: ${withheld.join(", ")}` } : {}),
+  });
   if (sources.length === 0) {
     emit({ id: "done", kind: "done", status: "done", label: "Nothing found", ms: Date.now() - t0 });
     return { ok: true, text: NOTHING_FOUND, sources: [] };
@@ -240,7 +255,13 @@ export async function answer(_cfg: GuardConfig, db: Db, input: AnswerInput, deps
     return { ok: true, text, sources: cited.length ? cited : sources };
   } catch (e) {
     const d = describeError(e);
-    emit({ id: "model", kind: "model", status: "error", label: d?.error === "blocked" ? "Stopped: the message looked like a secret" : "Could not get an answer", ms: Date.now() - tm });
+    // Say what was actually blocked: the user's own words, or text around them (earlier turns).
+    const blamesQuestion = !maskOutgoing(question).ok;
+    const blockedText = blamesQuestion
+      ? "Your message looks like it contains a secret"
+      : "Something in this chat (an earlier message or a source) looked like a secret";
+    if (d?.error === "blocked") d.text = d.text.replace("Your message looks like it contains a secret", blockedText);
+    emit({ id: "model", kind: "model", status: "error", label: d?.error === "blocked" ? (blamesQuestion ? "Stopped: the message looked like a secret" : "Stopped: something in the chat looked like a secret") : "Could not get an answer", ms: Date.now() - tm });
     if (!d) throw e;
     return { ok: false, sources: [], ...d };
   }

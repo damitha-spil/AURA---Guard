@@ -3,23 +3,24 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GuardConfig } from "./types.ts";
 
-/** SPIL Quality Support Bot's own root folder (two levels above engine/src). */
+/** SPIL AURA QA Bot's own root folder (two levels above engine/src). */
 export const GUARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /**
  * Reads guard.config.local.json (per machine, not committed), falling back to
- * guard.config.example.json. Relative dirs resolve against GUARD_ROOT.
+ * guard.config.example.json. Relative dirs resolve against GUARD_ROOT. One project only:
+ * a leftover data/departments/ folder is ignored.
  */
 export function loadConfig(root: string = GUARD_ROOT): GuardConfig {
   const local = join(root, "guard.config.local.json");
   const file = existsSync(local) ? local : join(root, "guard.config.example.json");
   const raw = JSON.parse(readFileSync(file, "utf8")) as Partial<GuardConfig>;
   return {
-    department: raw.department ?? "dev",
     dataDir: resolve(root, raw.dataDir ?? "data"),
     vaultDir: resolve(root, raw.vaultDir ?? "vault"),
     repos: raw.repos ?? [],
     busyProcesses: raw.busyProcesses ?? [],
+    ...(Array.isArray(raw.docSources) ? { docSources: raw.docSources } : {}),
     ...(raw.brain ? { brain: raw.brain } : {}),
     root,
   };

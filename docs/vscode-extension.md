@@ -1,8 +1,8 @@
-# SPIL Quality Support Bot Companion (VS Code extension)
+# SPIL AURA QA Bot Companion (VS Code extension)
 
 The companion records what you do in the editor into a folder on your own PC,
 lets you log ideas, decisions and corrections, adds an `@guard` chat helper,
-and asks your own copy of SPIL Quality Support Bot to turn the day into ai-log entries you
+and asks your own copy of SPIL AURA QA Bot to turn the day into ai-log entries you
 review before anything is added.
 
 It is in `extension/`. It needs VS Code 1.93 or newer and Node 24 or newer on
@@ -22,7 +22,7 @@ the PC (for Guard itself).
    This writes `.artifacts/extension/aura-guard-companion-0.1.0.vsix`.
 2. Install it: `code --install-extension <path to the .vsix>`, or in VS Code open
    Extensions, the `...` menu, **Install from VSIX**.
-3. Run **Guard: Set up**. Pick the folder of your own SPIL Quality Support Bot clone. It checks Node and runs `capture status`.
+3. Run **Guard: Set up**. Pick the folder of your own SPIL AURA QA Bot clone. It checks Node and runs `capture status`.
 
 ## First run and consent
 

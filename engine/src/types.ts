@@ -20,7 +20,6 @@ export interface NoteMeta {
   type: NoteType;
   status: NoteStatus;
   audience: Audience[];
-  department: string;
   source: NoteSource;
   code_anchors?: CodeAnchor[];
   created: string; // YYYY-MM-DD
@@ -43,7 +42,7 @@ export interface NoteProblem {
 export interface RepoConfig {
   id: string;
   path: string;
-  /** Where the source sits in its department, for display. Optional. */
+  /** Where the source sits in the project, for display. Optional. */
   module?: string;
   sub?: string;
 }
@@ -58,22 +57,15 @@ export interface DocSourceConfig {
 }
 
 export interface GuardConfig {
-  department: string;
   dataDir: string;
   vaultDir: string;
   repos: RepoConfig[];
   busyProcesses: string[];
   /** Which model backend roles use. Optional; default is auto. */
   brain?: { backend?: string; models?: Record<string, string> };
-  root: string; // absolute repo root of SPIL Quality Support Bot, filled in by loadConfig
-  /** Set when the config was derived from a department (see departments/registry.ts). */
-  departmentId?: string;
-  departmentName?: string;
-  productName?: string;
-  /** Plain Markdown/text folders of the department. */
+  root: string; // absolute repo root of SPIL AURA QA Bot, filled in by loadConfig
+  /** Plain Markdown/text folders of the project. */
   docSources?: DocSourceConfig[];
-  /** Which helpers the department has switched on (departments/model.ts RoleKey). */
-  roles?: Record<string, boolean>;
 }
 
 export interface CommitRecord {

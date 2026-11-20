@@ -98,7 +98,6 @@ export function writeSupportNote(
     type: "domain",
     status: "proposed",
     audience: ["customer_support"],
-    department: "dev",
     source: "evidence",
     title,
     created: localToday(now),

@@ -42,7 +42,7 @@ function setup() {
   const c2 = commit(dir, { "src/a.ts": "a2\n", "src/my file.ts": "x\n" }, "second", "2026-01-02T10:00:00Z");
   const c3 = commit(dir, { "src/a.ts": "a3\n", "src/b.ts": "b3\n" }, "third", "2026-01-03T10:00:00Z");
   const cfg: GuardConfig = {
-    department: "dev", dataDir: dir, vaultDir: dir, busyProcesses: [], root: dir,
+    dataDir: dir, vaultDir: dir, busyProcesses: [], root: dir,
     repos: [{ id: "r", path: dir }, { id: "gone", path: join(dir, "nope") }],
   };
   return { dir, cfg, c1, c2, c3 };

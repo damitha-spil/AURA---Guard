@@ -1,8 +1,0 @@
-{
-  "id": "analysis",
-  "name": "Analysis",
-  "description": "A business analysis team. Reads requirement and process documents and keeps a diary of decisions.",
-  "hint": "Add the folders with requirements, specs and process notes.",
-  "sourceKind": "docs",
-  "roles": { "scribe": true, "reviewer": false, "refactor": false, "qa": false, "rules": false, "prs": false, "supportWriter": false, "quiz": true, "daily": false }
-}

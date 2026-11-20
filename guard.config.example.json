@@ -1,6 +1,5 @@
 {
   "$comment": "Copy to guard.config.local.json and edit. Paths are per machine and are never committed.",
-  "department": "dev",
   "dataDir": "data",
   "vaultDir": "vault",
   "repos": [

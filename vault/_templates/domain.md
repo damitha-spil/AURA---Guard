@@ -3,7 +3,6 @@ id: domain-replace-with-kebab-id
 type: domain
 status: proposed
 audience: [internal_dev]
-department: dev
 source: owner-answer
 created: {{date:YYYY-MM-DD}}
 title: "{{title}}"

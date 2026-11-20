@@ -101,6 +101,7 @@ export function inboxNote(cfg: GuardConfig, id: string): { id: string; title: st
 export const REPORT_DIRS: { dir: string; kind: string }[] = [
   { dir: "reviews", kind: "review" },
   { dir: "qa/plans", kind: "qa-plan" },
+  { dir: "qa/runs", kind: "qa-run" },
   { dir: "daily", kind: "daily" },
   { dir: "quiz", kind: "quiz" },
   { dir: "logcheck", kind: "logcheck" },

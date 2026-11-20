@@ -24,7 +24,7 @@ export interface Env {
   now?: () => Date;
 }
 
-export const CONSENT_TITLE = "SPIL Quality Support Bot wants to record your work in this workspace";
+export const CONSENT_TITLE = "SPIL AURA QA Bot wants to record your work in this workspace";
 export const CONSENT_DETAIL = [
   "WHAT IS CAPTURED (only in this workspace, only on this PC):",
   "- git commits: message, file names and line counts",
@@ -87,7 +87,7 @@ export class Session {
     this.env.log(msg);
     if (this.warned) return;
     this.warned = true;
-    void this.vsc.window.showWarningMessage(`SPIL Quality Support Bot: ${msg}`);
+    void this.vsc.window.showWarningMessage(`SPIL AURA QA Bot: ${msg}`);
   }
 
   /** Workspace opt-in: ai-log/README.md at the root, or listed in auraGuard.workspaces. */

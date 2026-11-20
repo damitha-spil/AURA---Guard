@@ -3,7 +3,6 @@ id: journey-shell-navigation
 type: journey
 status: proposed
 audience: [qa_internal, internal_dev]
-department: dev
 source: owner-answer
 code_anchors:
   - repo: spil-aura

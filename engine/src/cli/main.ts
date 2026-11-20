@@ -1,4 +1,4 @@
-// SPIL Quality Support Bot command line. Small hand-written argument parser, no extra deps.
+// SPIL AURA QA Bot command line. Small hand-written argument parser, no extra deps.
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -8,7 +8,7 @@ import { openDb } from "../index/db.ts";
 import type { Db } from "../index/db.ts";
 import { search } from "../index/search.ts";
 import { indexVault } from "../index/notes.ts";
-import { ingestDocSources, ingestRepos, pruneRemovedSources } from "../ingest/index.ts";
+import { ingestDocSources, ingestRepos } from "../ingest/index.ts";
 import { historyFor } from "../index/history.ts";
 import { coChanged } from "../index/cochange.ts";
 import { findStale } from "../index/stale.ts";
@@ -23,9 +23,9 @@ import { CliError } from "../brain/backends.ts";
 import { createBrain, describeBackends, NoBackendError } from "../brain/select.ts";
 import { draftDiary } from "../roles/scribe.ts";
 import { mineSessions } from "../sessions/mine.ts";
+import { BRAIN_SETTINGS_SUBS, runBrainSettings } from "./commands-brain.ts";
 import { captureCommands } from "./commands-capture.ts";
 import { dailyCommands } from "./commands-daily.ts";
-import { DeptSelectionError, deptCommands, indexAll, selectConfig } from "./commands-dept.ts";
 import { learnCommands } from "./commands-learn.ts";
 import { prCommands } from "./commands-prs.ts";
 import { qaCommands } from "./commands-qa.ts";
@@ -38,17 +38,15 @@ interface Parsed {
   flags: Record<string, string | true>;
 }
 
-const VALUE_FLAGS = new Set(["dept", "name", "template", "description", "owner", "color", "path", "kind", "module", "sub", "label", "max", "audience", "limit", "since", "min-score", "port", "base", "head", "widths", "status", "skip", "repo", "date", "before"]);
+const VALUE_FLAGS = new Set(["name", "path", "kind", "max", "audience", "limit", "since", "min-score", "port", "base", "head", "widths", "status", "skip", "repo", "date", "before"]);
 
 /** What an extra command receives. */
 export interface CommandContext {
   rest: string[];
   flags: Record<string, string | true>;
   out: (s: string) => void;
-  /** The selected department's config (see --dept). */
+  /** The project config. */
   cfg: GuardConfig;
-  /** The machine config the department registry hangs on. Set by the main entry point. */
-  base?: GuardConfig;
 }
 
 /**
@@ -106,7 +104,8 @@ EXTRA_COMMANDS.brain = async ({ rest, out, cfg }) => {
       throw e;
     }
   }
-  out(copy.needArgs("brain", "status | test"));
+  if ((BRAIN_SETTINGS_SUBS as readonly string[]).includes(sub ?? "")) return runBrainSettings(sub as never, { rest, out, cfg });
+  out(copy.needArgs("brain", "status | test | models | backend | model | key"));
   return 2;
 };
 
@@ -128,7 +127,7 @@ EXTRA_COMMANDS.mine = ({ rest, flags, out, cfg }) => {
 };
 
 // Command sets from the feature modules. Each one exports a name -> handler map.
-Object.assign(EXTRA_COMMANDS, uiCommands, qaCommands, prCommands, reviewCommands, dailyCommands, learnCommands, deptCommands, captureCommands);
+Object.assign(EXTRA_COMMANDS, uiCommands, qaCommands, prCommands, reviewCommands, dailyCommands, learnCommands, captureCommands);
 
 function localToday(): string {
   const d = new Date();
@@ -184,26 +183,9 @@ export async function run(argv: string[]): Promise<number> {
   }
   // QSB_ROOT (or AURA_GUARD_ROOT) points at another config folder; used by tests and copies.
   const base = loadConfig(envValue("ROOT"));
-  // The department registry hangs on the machine config; `dept` works on the registry itself.
-  if (cmd === "dept") return deptCommands["dept"]!({ rest, flags, out, cfg: base, base });
-  if (cmd === "index" && flags["all"] === true) return indexAll(base, flags, out);
-  let cfg: GuardConfig;
-  try {
-    const sel = selectConfig(base, flags);
-    cfg = sel.cfg;
-    if (sel.archived && (cmd === "index" || cmd === "daily")) {
-      out(copy.archived(cfg.departmentId ?? ""));
-      return 1;
-    }
-  } catch (e) {
-    if (e instanceof DeptSelectionError) {
-      out(e.message);
-      return 2;
-    }
-    throw e;
-  }
+  const cfg: GuardConfig = base;
   const extra = EXTRA_COMMANDS[cmd];
-  if (extra) return extra({ rest, flags, out, cfg, base });
+  if (extra) return extra({ rest, flags, out, cfg });
 
   if (cmd === "check") {
     const { notes, problems } = loadVault(cfg.vaultDir);
@@ -227,9 +209,6 @@ export async function run(argv: string[]): Promise<number> {
       }
     }
     const db = openDb(dbPath(cfg));
-    if (cfg.departmentName && cfg.departmentId !== "default") out(copy.department(cfg.departmentName, cfg.departmentId ?? ""));
-    const pruned = pruneRemovedSources(db, cfg);
-    if (pruned > 0) out(copy.pruned(pruned));
     const notes = indexVault(db, cfg.vaultDir);
     out(copy.indexed(notes.added, notes.updated, notes.removed));
     for (const p of notes.problems) out(copy.problemLine(p.file, p.message));
@@ -365,7 +344,6 @@ export async function run(argv: string[]): Promise<number> {
       return 0;
     }
     case "status": {
-      if (cfg.departmentName && cfg.departmentId !== "default") out(copy.department(cfg.departmentName, cfg.departmentId ?? ""));
       out(`Index: ${dbPath(cfg)}`);
       const kinds = db.prepare("SELECT kind, COUNT(*) AS n FROM docs GROUP BY kind ORDER BY kind").all() as {
         kind: string;

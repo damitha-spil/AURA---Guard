@@ -52,7 +52,6 @@ export function newNote(
     type: partial.type,
     status: "proposed",
     audience: partial.audience ?? ["internal_dev"],
-    department: "dev",
     source: partial.source ?? "session",
     title: partial.title,
   };

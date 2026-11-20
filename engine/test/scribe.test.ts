@@ -33,7 +33,7 @@ function setup() {
   writeFileSync(join(repo, "AI_HANDOFF.md"), "start\nHANDOFF-LINE\n");
   git(repo, ["commit", "-q", "-am", "Update handoff"], `${DATE}T11:00:00`);
   const cfg: GuardConfig = {
-    department: "dev", dataDir: join(root, "data"), vaultDir: join(root, "vault"),
+    dataDir: join(root, "data"), vaultDir: join(root, "vault"),
     repos: [{ id: "demo", path: repo }], busyProcesses: [], root,
   };
   return { root, cfg, cleanup: () => rmSync(root, { recursive: true, force: true }) };

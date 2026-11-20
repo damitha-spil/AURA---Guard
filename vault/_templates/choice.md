@@ -3,7 +3,6 @@ id: choice-replace-with-kebab-id
 type: choice
 status: proposed
 audience: [internal_dev]
-department: dev
 source: owner-answer
 created: {{date:YYYY-MM-DD}}
 title: "{{title}}"

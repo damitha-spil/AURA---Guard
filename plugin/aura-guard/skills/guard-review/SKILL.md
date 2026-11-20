@@ -1,9 +1,9 @@
 ---
 name: guard-review
-description: Run SPIL Quality Support Bot's change review and QA plan before opening or updating a pull request, or when asked to review a branch. Gives fixed-rule findings, model findings on the changed lines, files that usually change together, and which test journeys the change affects. Reports only; it posts nothing and changes no repo.
+description: Run SPIL AURA QA Bot's change review and QA plan before opening or updating a pull request, or when asked to review a branch. Gives fixed-rule findings, model findings on the changed lines, files that usually change together, and which test journeys the change affects. Reports only; it posts nothing and changes no repo.
 ---
 
-# SPIL Quality Support Bot review and QA plan
+# SPIL AURA QA Bot review and QA plan
 
 Guard's commands run from the developer's own Guard folder:
 `${user_config.guard_home}`. Use the launcher with a quoted path (it contains

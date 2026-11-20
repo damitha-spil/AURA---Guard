@@ -18,7 +18,7 @@ function status(code: number): Response {
 
 function setup() {
   const root = mkdtempSync(join(tmpdir(), "guard-brain-"));
-  const cfg = { department: "dev", dataDir: root, vaultDir: root, repos: [], busyProcesses: [], root } as GuardConfig;
+  const cfg = { dataDir: root, vaultDir: root, repos: [], busyProcesses: [], root } as GuardConfig;
   const calls: { url: string; init: RequestInit }[] = [];
   const queue: Response[] = [];
   const fakeFetch = (async (url: string, init: RequestInit) => {
