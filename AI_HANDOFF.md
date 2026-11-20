@@ -61,10 +61,9 @@ other secrets.
 - Trade-off to review: the "obviously fake key" rule (`looksFake`,
   `looksFakeKey` in `detectors.ts`) would let a real key with an `abcdef` or
   `123456` run through.
-- **Owner to check (values not printed anywhere):** key-shaped strings in Aura at
-  `agent-core/src/secrets.rs:238` and `:240` (Anthropic shape),
-  `applog.rs:46`, `backup.rs:558` and `knowledge.rs:1338` (GitHub/OpenAI
-  shapes). Probably test fixtures; not judged safe by Guard.
+- **Owner to check:** a few key-shaped strings in Aura's own source (locations
+  kept out of this public repo; ask the assistant to re-run the scan). Probably
+  test fixtures; not judged safe by Guard.
 - The Aura folder was switched to `feat/order-entry-rebase-by-nisal` during
   this session (not by Guard), so later scans see a different file set.
 
@@ -140,3 +139,144 @@ other secrets.
   placeholders). `cases.jsonl` is git-ignored; run the generator to inspect it.
   The first 187 generated cases are byte-identical to the old file; 238 total;
   the gate is unchanged. GitHub's "allow secret" links were not used.
+
+## Deeper layer (2026-11-20, three Sonnet agents + main session)
+
+- Built: `engine/src/brain/client.ts` (Claude client behind masking),
+  `engine/src/roles/scribe*.ts` + `roles/scribe.yaml`, `engine/src/sessions/*`
+  (session mining), `bin/aura-guard.mjs`, `bin/run-tests.mjs`,
+  `engine/src/graph/refresh.ts`, `engine/tsconfig.test.json`.
+- Main session wired `diary` and `mine` into `EXTRA_COMMANDS` in
+  `engine/src/cli/main.ts`, made choice-note titles neutral (owner words only
+  in the body), regenerated the 9 inbox notes, fixed the `mine` summary counts.
+- Evidence: `npm run typecheck` clean; `npm test` 12 files, 65 pass.
+  `mine` real run: 14 sessions, 405 owner messages, 73 candidates, 0 blocked,
+  9 written; re-run wrote 0 (dedupe). `diary` without a key prints the plain
+  "not set" message; a no-commit date writes nothing. `graph refresh
+  spil-aura`: 21,109 nodes / 55,843 edges in 58 s; second run skipped.
+- Not verified: any real Claude API call (no key in this environment); Scribe
+  prompt quality; mining recall.
+- The hardening agent ran `git stash` + `pop` by accident; checked afterwards:
+  no stash left, all new files present.
+- agent-qa (vostride) researched read-only: FSL license, web/mobile only;
+  adopt ideas (journeys as files, lesson retirement, evidence per run), no code.
+- Next: owner sets `ANTHROPIC_API_KEY` and runs `npm run guard -- diary`;
+  owner reviews `vault/inbox/` choice notes and the 12 seed notes; then build
+  journeys + QA Planner in shadow mode. Not committed; owner decides.
+
+## Claude Code plugin (2026-11-20, main session)
+
+- Guard repo is now a plugin marketplace: `.claude-plugin/marketplace.json`
+  (`spil-aura-tools`) → `plugin/aura-guard/` (plugin.json with `guard_home`
+  user setting, `.mcp.json`, `bin/mcp-launch.mjs`, `hooks/hooks.json` +
+  `hooks/log-commit.mjs`, skills `ask-guard` and `ai-log`).
+- Aura (`feature/QA-Agent`, uncommitted): `.claude/settings.json` registers the
+  marketplace from GitHub and enables `aura-guard@spil-aura-tools`.
+- Evidence: `claude plugin validate . --strict` and on `plugin/aura-guard`:
+  passed. Commit hook tested in a temp repo: one entry, no duplicate on rerun,
+  ignores non-commit commands and bad input. MCP launcher: missing folder →
+  plain message, exit 1; with Guard folder → 7 tools listed.
+- Not verified: a real install through `/plugin`, the trust prompt, and the
+  hook firing inside a live Claude Code session; PostToolUse `tool_response`
+  fields not used on purpose (hook checks HEAD instead).
+- Parallel work: a Sonnet agent is porting Aura FineTune's subscription-CLI
+  brain (Claude Code / other plan CLIs instead of an API key) into
+  `engine/src/brain/`.
+
+## Subscription brain (2026-11-20, Sonnet agent + main session)
+
+- Ported from Aura `aura/stable/FineTune` (read via `git show`, no checkout):
+  `engine/src/brain/backends.ts` (`anthropic-api`, `claude-cli`),
+  `engine/src/brain/select.ts` (`createBrain` picks a backend: config
+  `brain.backend` auto|anthropic-api|claude-cli, env `AURA_GUARD_BRAIN`;
+  auto = API key if set, else Claude Code on the user's plan).
+- Claude Code runs as a text-only model: `--tools ""`, `--disallowedTools ...`,
+  `--permission-mode dontAsk`, `--strict-mcp-config`, `--setting-sources ""`,
+  `--disable-slash-commands`, `--no-session-persistence`; prompt on stdin; empty
+  temp cwd; API key env removed so the plan is used. A run whose init event
+  lists any tool or MCP server is rejected. Masking + audit apply as for the API.
+- Left out: Codex, Antigravity, Cursor (cannot be locked to no tools); `.cmd`
+  npm shims (would need a shell).
+- New commands: `brain status`, `brain test`; `diary` prints the backend used.
+- Evidence: `brain status` → claude-cli available (2.1.327), no API key.
+  `brain test` → ok, about 2.9 s. Real `diary 2026-11-20` written through
+  claude-cli. Main session fixed the doubled id (`diary-diary-...` →
+  `diary-2026-11-20`) in `vault/new.ts` and renamed the note.
+  `npm run typecheck` clean; `npm test` 72 pass.
+- Not verified: logged-out behaviour, `.cmd`-only installs, real `claude.exe`
+  timeout kill.
+
+## Chat app (2026-11-20, Sonnet agent + main session)
+
+- `npm run ui` / `node bin/aura-guard.mjs ui [--port N] [--no-open]`: local
+  server on 127.0.0.1 (random port, per-launch token → HttpOnly SameSite=Strict
+  cookie; Host/Origin checks; strict CSP; body cap; static allowlist) opened in
+  an Edge/Chrome `--app` window with its own profile (`data/ui-profile/`); the
+  server stops when the window closes. Files: `engine/src/server/*`,
+  `engine/src/chat/*`, `engine/src/cli/commands-ui.ts`, `ui/*`,
+  `bin/create-shortcut.ps1` (Desktop shortcut; tested only with `-OutDir`).
+- Answers: search → one model call (Claude plan) → citations kept only if they
+  are real sources; proposed notes labelled UNAPPROVED; "I don't know" when
+  nothing matches. Slash commands are an allowlist run as child processes
+  (never a shell; `--force` refused; one heavy command at a time).
+- Evidence: 20 new tests (135 total at the time). Real answers through
+  claude-cli (about 4 s each), correct citation, honest "I don't know" on an
+  off-topic question. Headless screenshots at 800 and 1440 px looked at; no
+  overflow or console errors. Real app window opened and server stopped on
+  close. Main session merged `uiCommands` into `main.ts` and checked the real
+  command: 401 without cookie, 403 wrong Host, 302 token page, status JSON ok.
+- Known: off-topic questions still show loose keyword chips; the token is
+  visible in the Edge command line to other local processes; Chrome fallback
+  and the shortcut's launch are untested; index was stale (12 notes vs 29 in
+  the vault) until `index` is re-run.
+
+## End of day 2026-11-20: whole system built (main session + Sonnet/Haiku agents)
+
+- Read STATUS.md first: it has the full picture, measured results and open
+  questions. This section lists what to do next.
+- Built and merged into the CLI: ui, review, refactor, replay, qa, prs, quiz,
+  rules, logcheck, support, daily (see `help`). 201 tests in 25 files pass;
+  `npm run typecheck` clean; vault check clean (32 notes); index current.
+- Honest state: the reviewer has NO measured defect-finding ability (replay on
+  15 past fixes: 0 of 210 later-fixed lines, 3 model runs, 1 finding, 0
+  matches). Noise was cut (rule-compliance reported separately, top-5 cap,
+  unwrap-in-rust off by default). Keep it in shadow mode.
+- Aura's 12 PRs have 0 human review comments (122 system threads), so PR mining
+  has no data.
+- QA has never run live. To run: start Aura from a shell with
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`, set
+  `AURA_CDP_URL=http://127.0.0.1:9222`, then `qa status`, `qa run
+  journey-orders-list`.
+- Owner actions waiting: review the 50 draft quiz questions
+  (`evals/quiz/questions.json`), approve or dismiss the inbox in the chat window
+  (`npm run ui` > Inbox), confirm the key-shaped strings in Aura listed earlier,
+  decide on committing and pushing (Guard first, so the plugin link works),
+  optionally `powershell -File bin\schedule-daily.ps1 -Install`.
+- Known small issues: off-topic chat questions show loose source chips; the chat
+  token is visible on the Edge command line; `rules export` is not read by the
+  reviewer yet; `replay` excludes the co-change rule; `new-css-file` flagged 5
+  files in replay that were not examined.
+- Nothing is committed since `95abf04`. Aura repo (`feature/QA-Agent`)
+  uncommitted: `ai-log/`, `AGENTS.md` rule, `AI_HANDOFF.md` note,
+  `.claude/settings.json`.
+
+## Chat window redesign (2026-11-20, Sonnet agent + main session)
+
+- Themes in `ui/themes.css` (generated colour sets) and `ui/styles.css`
+  (structure), marks in `ui/marks.js`, early apply in `ui/theme.js`. Default is
+  **Noir**. Each theme changes layout, message shape, typography, mark, motion,
+  work-steps default and empty state; Inbox and Reports follow the theme.
+- Streaming: `POST /api/chats/:id/ask` with `Accept: application/x-ndjson`
+  emits `step` events then `answer` or `error`; `POST /api/command` can stream
+  `started`/`output`/`done`; without the header the old JSON replies remain.
+- Feedback: `POST /api/feedback` appends ids, rating and a masked short note.
+- Evidence: 214 tests (13 new); screenshots in `.artifacts/ui/v2-*` looked at
+  by the agent and by the main session (Noir answer view, Aurora thinking view);
+  one real question through the Claude plan took 3.7 s; real app window opened
+  with the new icon and title.
+- Not verified in a browser: keyboard shortcuts, picker focus order, pulsing
+  dots on a running chat, Regenerate and the thumbs-down prompt. Pulse is the
+  weakest theme (plain sources/actions; inbox badge overlaps the collapsed
+  icon). Contrast checked for 8 colour sets; Aurora measured against
+  approximated opaque backgrounds. `themes.css` reduced-motion block comes from
+  a script that is not in the repo.

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en" data-style="noir" data-mode="system" data-motion="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>AURA Guard</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/themes.css">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar" aria-label="Chats and status">
+      <div class="side-top">
+        <div class="brand">
+          <span class="brand-mark" data-mark="noir" data-state="idle"></span>
+          <span class="brand-name side-text">AURA Guard</span>
+        </div>
+        <button type="button" class="icon-btn" id="sidebar-toggle" aria-label="Collapse sidebar (Ctrl+B)" aria-expanded="true" title="Collapse sidebar (Ctrl+B)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4V5Zm5 0v14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <button type="button" class="new-chat" id="new-chat" title="New chat (Ctrl+K)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span class="side-text">New chat</span>
+      </button>
+      <div class="switcher" role="tablist" aria-label="Views">
+        <button type="button" role="tab" class="switch active" id="tab-chat" data-view="chat" aria-selected="true" title="Chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4V5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Chat</span></button>
+        <button type="button" role="tab" class="switch" id="tab-inbox" data-view="inbox" aria-selected="false" title="Inbox"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-7h11L20 13v5H4v-5Zm0 0h5l1 2h4l1-2h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Inbox</span><span class="badge" id="inbox-count" hidden></span></button>
+        <button type="button" role="tab" class="switch" id="tab-reports" data-view="reports" aria-selected="false" title="Reports"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6V3Zm8 0v5h5M9 13h7M9 17h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Reports</span></button>
+      </div>
+      <h2 class="side-heading chat-only side-text">Chats</h2>
+      <nav class="chat-list chat-only side-text" id="chat-list" aria-label="Chat history"></nav>
+      <div class="side-foot">
+        <section class="status-detail side-text" id="status-detail" aria-label="Status" hidden>
+          <div class="quick-row chat-only">
+            <button type="button" class="btn btn-quiet" data-cmd="/index">/index</button>
+            <button type="button" class="btn btn-quiet" data-cmd="/check">/check</button>
+            <button type="button" class="btn btn-quiet" data-cmd="/stale">/stale</button>
+          </div>
+          <div class="chips" id="status" aria-live="polite"></div>
+        </section>
+        <button type="button" class="foot-btn" id="status-toggle" aria-expanded="false" aria-controls="status-detail" title="Status">
+          <span class="status-dot" id="status-dot" aria-hidden="true"></span>
+          <span class="status-line side-text" id="status-line">Checking...</span>
+          <svg class="chev side-text" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button" class="foot-btn" id="appearance-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="appearance" title="Appearance">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.4 0 2-.9 2-1.8 0-1-.8-1.4-.8-2.4 0-1 .8-1.8 1.9-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="8" cy="11" r="1.1" fill="currentColor"/><circle cx="12" cy="7.5" r="1.1" fill="currentColor"/><circle cx="16" cy="10" r="1.1" fill="currentColor"/></svg>
+          <span class="status-line side-text">Appearance</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main" id="view-chat">
+      <header class="topbar">
+        <h1 class="chat-title" id="chat-title">New chat</h1>
+        <span class="busy" id="busy" hidden>Running a command...</span>
+        <button type="button" class="top-work" id="top-work" aria-pressed="false" title="Show the steps Guard takes while it works">Show work</button>
+      </header>
+      <div class="messages" id="messages" role="log" aria-label="Conversation" aria-live="polite" tabindex="-1"></div>
+      <div class="composer-wrap">
+        <form class="composer" id="composer" autocomplete="off">
+          <div class="slash-menu" id="slash-menu" role="listbox" aria-label="Commands" hidden></div>
+          <label class="sr-only" for="input">Message</label>
+          <textarea id="input" rows="1" maxlength="4000" placeholder="Ask about Aura, or type / for commands"></textarea>
+          <div class="composer-bar">
+            <div class="pills">
+              <button type="button" class="pill" id="pill-work" aria-pressed="false" title="Show the steps Guard takes while it works">Show work</button>
+              <button type="button" class="pill" id="pill-notes" aria-pressed="false" title="Only use vault notes as sources">Notes only</button>
+              <span class="backend-chip" id="backend-chip" title="The model that answers">No model</span>
+            </div>
+            <button type="button" class="stop-btn" id="stop" hidden aria-label="Stop waiting" title="Stop waiting">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/></svg>
+              <span class="stop-text">Stop waiting</span>
+            </button>
+            <button type="submit" class="send-btn" id="send" aria-label="Send" title="Send (Enter)">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V6M6.5 11.5 12 6l5.5 5.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </form>
+        <p class="hint">Enter sends, Shift+Enter adds a line, Esc clears. Guard reads and suggests; it never writes to the ERP.</p>
+      </div>
+    </main>
+
+    <main class="main" id="view-inbox" hidden>
+      <header class="topbar">
+        <h1 class="chat-title">Review inbox</h1>
+        <span class="topbar-note" id="inbox-total"></span>
+        <button type="button" class="btn btn-quiet topbar-btn" id="inbox-refresh">Refresh</button>
+      </header>
+      <div class="scroll" id="inbox-body" tabindex="-1"></div>
+      <p class="hint inbox-keys">Keys: J and K move, A approves, D dismisses (press twice), Enter opens. Guard only changes the status line of a note; you can undo for 8 seconds.</p>
+    </main>
+
+    <main class="main" id="view-reports" hidden>
+      <header class="topbar">
+        <h1 class="chat-title">Reports</h1>
+        <span class="topbar-note" id="reports-total"></span>
+        <button type="button" class="btn btn-quiet topbar-btn" id="reports-refresh">Refresh</button>
+      </header>
+      <div class="reports">
+        <nav class="report-list" id="report-list" aria-label="Report files"></nav>
+        <article class="reader" aria-label="Report">
+          <header class="reader-head">
+            <div class="reader-titles">
+              <h2 class="reader-title" id="reader-title">Pick a report</h2>
+              <code class="panel-ref" id="reader-path"></code>
+            </div>
+            <button type="button" class="btn btn-quiet" id="reader-copy" hidden>Copy</button>
+          </header>
+          <div class="reader-body" id="reader-body" tabindex="0"></div>
+        </article>
+      </div>
+    </main>
+
+    <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+    <div class="popover" id="appearance" role="dialog" aria-label="Appearance" hidden></div>
+
+    <aside class="panel" id="panel" aria-label="Source" hidden>
+      <header class="panel-head">
+        <div class="panel-titles">
+          <span class="panel-kind" id="panel-kind"></span>
+          <h2 class="panel-title" id="panel-title"></h2>
+          <code class="panel-ref" id="panel-ref"></code>
+        </div>
+        <button type="button" class="btn btn-icon" id="panel-close" aria-label="Close source">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+      </header>
+      <div class="panel-body" id="panel-body" tabindex="0"></div>
+    </aside>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

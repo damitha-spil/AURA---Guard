@@ -1,0 +1,4 @@
+{
+  "$comment": "Words that must never appear in customer-facing support text, on top of the built-in list. Add customer names, staff names and server names here.",
+  "terms": []
+}

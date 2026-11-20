@@ -57,6 +57,8 @@ export function ensureGraphTables(db: Db): void {
     );
     CREATE INDEX IF NOT EXISTS graph_edges_src ON graph_edges(repo, src);
     CREATE INDEX IF NOT EXISTS graph_edges_dst ON graph_edges(repo, dst);
+    -- HEAD sha of the repo when its graph was last built, so index can skip an unchanged repo.
+    CREATE TABLE IF NOT EXISTS graph_state (repo TEXT PRIMARY KEY, sha TEXT NOT NULL);
   `);
 }
 

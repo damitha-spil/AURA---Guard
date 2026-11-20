@@ -23,7 +23,7 @@ test("the shipped templates are valid note frontmatter once the placeholders are
   const { splitFrontmatter } = await import("../src/vault/frontmatter.ts");
   const dir = join(GUARD_ROOT, "vault", "_templates");
   const files = readdirSync(dir).filter((f) => f.endsWith(".md"));
-  assert.equal(files.length, 7);
+  assert.equal(files.length, 8);
   for (const f of files) {
     const text = readFileSync(join(dir, f), "utf8")
       .replace("{{date:YYYY-MM-DD}}", "2026-11-20")

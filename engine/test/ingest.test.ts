@@ -71,7 +71,10 @@ test("ingest is incremental; file docs added and removed; unknown repo skipped",
   try {
     const db = openDb(":memory:");
     let res = ingestRepos(db, cfg);
-    assert.deepEqual(res[0], { repo: "r", commits: 3, files: 1 });
+    assert.deepEqual(res[0], {
+      repo: "r", commits: 3, files: 1,
+      commitDocs: { added: 3, changed: 0, removed: 0 }, fileDocs: { added: 1, changed: 0, removed: 0 },
+    });
     assert.equal(res[1]!.skipped, "path not found");
     res = ingestRepos(db, cfg);
     assert.equal(res[0]!.commits, 0);
@@ -80,14 +83,21 @@ test("ingest is incremental; file docs added and removed; unknown repo skipped",
     res = ingestRepos(db, cfg);
     assert.equal(res[0]!.commits, 1);
     assert.equal(res[0]!.files, 3);
+    assert.deepEqual(res[0]!.commitDocs, { added: 1, changed: 0, removed: 0 });
+    assert.deepEqual(res[0]!.fileDocs, { added: 2, changed: 0, removed: 0 });
     const refs = () => (db.prepare("SELECT ref FROM docs WHERE kind='file' ORDER BY ref").all() as { ref: string }[]).map((r) => r.ref);
     assert.deepEqual(refs(), ["r:README.md", "r:desk.json", "r:docs/guide.md"]);
     assert.equal((db.prepare("SELECT COUNT(*) n FROM docs WHERE kind='commit'").get() as { n: number }).n, 4);
 
     git(dir, ["rm", "-q", "docs/guide.md"]);
     git(dir, ["commit", "-m", "fifth"], "2026-01-05T10:00:00Z");
-    ingestRepos(db, cfg);
+    res = ingestRepos(db, cfg);
     assert.deepEqual(refs(), ["r:README.md", "r:desk.json"]);
+    assert.deepEqual(res[0]!.fileDocs, { added: 0, changed: 0, removed: 1 });
+    writeFileSync(join(dir, "README.md"), "# changed\n");
+    git(dir, ["commit", "-qam", "sixth"], "2026-01-06T10:00:00Z");
+    res = ingestRepos(db, cfg);
+    assert.deepEqual(res[0]!.fileDocs, { added: 0, changed: 1, removed: 0 });
     db.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -123,5 +133,21 @@ test("coChanged, historyFor, findStale", () => {
     assert.equal(byId["n-unverified"], undefined);
     assert.match(byId["n-unknown"]!.reason!, /not in the index/);
     db.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("merge commits list their files against the first parent", () => {
+  const dir = mkdtempSync(join(tmpdir(), "guard-merge-"));
+  try {
+    git(dir, ["init", "-q", "-b", "main"]);
+    commit(dir, { "base.txt": "b\n" }, "base", "2026-02-01T10:00:00Z");
+    git(dir, ["checkout", "-q", "-b", "side"]);
+    commit(dir, { "side.txt": "s\n" }, "side work", "2026-02-02T10:00:00Z");
+    git(dir, ["checkout", "-q", "main"]);
+    commit(dir, { "main.txt": "m\n" }, "main work", "2026-02-03T10:00:00Z");
+    git(dir, ["merge", "--no-ff", "-m", "merge side", "side"], "2026-02-04T10:00:00Z");
+    const cs = readCommits(dir, "r");
+    const merge = cs.find((c) => c.subject === "merge side")!;
+    assert.deepEqual(merge.files.map((f) => f.path), ["side.txt"]);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

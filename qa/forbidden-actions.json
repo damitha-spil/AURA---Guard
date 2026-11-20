@@ -1,0 +1,22 @@
+{
+  "$comment": "AURA Guard QA safety list. DATA, not code: a company extends it in qa/forbidden-actions.local.json (same shape; lists are added to these, never replaced). A word matches whole words after lower-casing and dropping punctuation; a word ending in * matches any word that starts with it. A test never clicks, fills or presses anything that matches. Tests only READ.",
+  "names": [
+    "save", "save draft", "create", "new", "add", "submit", "send", "reply", "delete", "remove", "clear list",
+    "forget", "approve", "post", "confirm", "confirm order", "publish", "to spil glass", "send to spil glass",
+    "save to spil glass", "it s an order", "not an order", "read it", "read it anyway", "check inbox now",
+    "answer", "settle", "stop", "disconnect", "connect", "sign in as admin", "restore", "reset", "import",
+    "upload", "test", "apply", "update", "pay", "place order", "checkout"
+  ],
+  "selectors": [
+    "type\\s*=\\s*[\"']?submit",
+    "data-(?:action|testid)\\s*=\\s*[\"']?[\\w-]*(?:save|submit|delete|send|approve|confirm)",
+    "#(?:save|submit|delete|send|approve|confirm)\\b",
+    "\\.(?:btn-)?(?:save|submit|delete|send|approve|confirm)\\b"
+  ],
+  "keys": [
+    "control+s", "meta+s", "control+shift+s", "control+enter", "meta+enter", "control+p", "control+d", "control+delete",
+    "delete", "shift+delete"
+  ],
+  "allowedHosts": ["127.0.0.1", "localhost", "tauri.localhost"],
+  "allowedUploadDirs": ["qa/fixtures/"]
+}

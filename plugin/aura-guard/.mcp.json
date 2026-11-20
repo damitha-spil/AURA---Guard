@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "aura-guard": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/mcp-launch.mjs"],
+      "env": {
+        "AURA_GUARD_HOME": "${user_config.guard_home}",
+        "AURA_GUARD_SCOPE": "dev"
+      }
+    }
+  }
+}

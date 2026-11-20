@@ -5,7 +5,7 @@ const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD");
 
 const schema = z.object({
   id: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "id must be kebab-case"),
-  type: z.enum(["adr", "rule", "pattern", "incident", "domain", "diary", "choice"]),
+  type: z.enum(["adr", "rule", "pattern", "incident", "domain", "diary", "choice", "journey"]),
   status: z.enum(["proposed", "shadow", "active", "stale", "deprecated"]),
   audience: z
     .array(z.enum(["internal_dev", "qa_internal", "customer_support"]))

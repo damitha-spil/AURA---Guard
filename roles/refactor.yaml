@@ -1,0 +1,28 @@
+# Refactor advisor: suggests up to 3 safe refactors for one file. Declarative only; code reads it.
+name: refactor
+trigger: command
+inputs:
+  - file_at_head       # the file as committed at HEAD
+  - cochange           # files that usually change with it
+  - blast_radius       # what uses it, from the code graph
+  - rules              # active rules first; proposed notes are marked
+limits:
+  max_refactors: 3
+  max_tokens: 4000
+  max_file_chars: 40000
+  max_context_notes: 4
+  note_chars: 500
+  posts_anywhere: false
+output:
+  json_shape:
+    refactors: [{ title: string, why: string, risk: string, affected: [string], patch: "unified diff" }]
+rules:
+  - Suggest at most 3 refactors. Each one must be small, safe and worth doing.
+  - No renaming for taste and no formatting changes.
+  - Keep behaviour the same. Say what could go wrong in the risk field.
+  - List the callers from the blast radius that the change could affect.
+  - Give each patch as a unified diff against the file at HEAD, with a/ and b/ paths exactly as given.
+  - Keep Aura's rules: no company facts in code, no new layer for one caller, words for screens in copy.ts.
+  - Only state what the file and context show. Do not guess about code you cannot see.
+  - Never repeat secrets, addresses or customer names.
+  - Reply with one JSON object and nothing else.

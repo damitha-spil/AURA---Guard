@@ -8,17 +8,19 @@
     "node": ">=24"
   },
   "bin": {
-    "aura-guard": "engine/dist/cli/main.js"
+    "aura-guard": "bin/aura-guard.mjs"
   },
   "scripts": {
     "build": "tsc -p engine",
-    "typecheck": "tsc -p engine --noEmit",
-    "test": "node --test --experimental-strip-types \"engine/test/**/*.test.ts\"",
-    "guard": "node --experimental-strip-types engine/src/cli/main.ts",
-    "mcp": "node --experimental-strip-types engine/src/mcp/server.ts"
+    "typecheck": "tsc -p engine --noEmit && tsc -p engine/tsconfig.test.json",
+    "test": "node bin/run-tests.mjs",
+    "guard": "node bin/aura-guard.mjs",
+    "mcp": "node --experimental-strip-types engine/src/mcp/server.ts",
+    "ui": "node bin/aura-guard.mjs ui"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "playwright-core": "^1.65.1",
     "typescript": "^7.0.2"
   },
   "dependencies": {

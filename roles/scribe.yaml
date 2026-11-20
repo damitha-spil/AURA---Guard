@@ -1,0 +1,28 @@
+# Scribe: writes a daily diary draft. Declarative only; code reads it.
+name: scribe
+trigger: end_of_day
+inputs:
+  - commits            # subjects and bodies, per configured repo
+  - changed_files      # paths and diff stats only
+  - handoff_diff       # the day's diff of AI_HANDOFF.md, if the repo has one
+limits:
+  max_questions_per_day: 3
+  writes_active_notes: false
+  max_tokens: 2000
+output:
+  note_type: diary
+  status: proposed
+  audience: [internal_dev]
+  source: commit
+  title: "Diary {date}"
+  json_shape:
+    summary: string
+    built: [string]
+    decisions: [{ what: string, why: string }]
+    questions: [string]
+rules:
+  - Write plain, short sentences. No marketing words.
+  - Only state what the commits and handoff diff show. Do not guess.
+  - Ask a question only when the reason for a change is not clear. At most 3.
+  - Never repeat secrets, addresses or customer names.
+  - Reply with one JSON object and nothing else.

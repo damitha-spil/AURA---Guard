@@ -22,5 +22,42 @@ knowledge and permissions: AURA Guard Dev, AURA Guard Finance, AURA Guard HR.
 
 ## Status
 
-Design stage. No code yet. Four decisions are still open; see
-[AI_HANDOFF.md](AI_HANDOFF.md).
+Working engine, chat window, reviewer, QA planner and Claude Code plugin, all
+read-only and advisory. About 65% of the plan is built; much less is proven
+(the reviewer has no measured bug-finding yet). See [STATUS.md](STATUS.md) for
+the full picture.
+
+## Quick start
+
+```
+npm install
+npm run guard -- index          # read the vault and repos (about 5 s)
+npm run ui                      # open the chat window
+npm run guard -- help           # every command
+```
+
+## Use it from Claude Code (plugin)
+
+This repo is a Claude Code plugin marketplace (`spil-aura-tools`) with one
+plugin, `aura-guard`. It gives Claude Code:
+
+- the `aura-guard` MCP server (read-only): `search_knowledge`, `get_doc`,
+  `trace_history`, `co_changed`, `get_blast_radius`, `list_rules`,
+  `stale_notes`
+- skills: `ask-guard` (consult Guard before changing code) and `ai-log`
+  (write the repo's AI activity log)
+- a commit hook that adds an entry to `ai-log/` after every `git commit` in
+  repos that have `ai-log/README.md`
+
+Setup, once per developer:
+
+1. Clone this repo, then in it: `npm install` and `npm run guard -- index`.
+2. Aura's `.claude/settings.json` already lists the marketplace and enables
+   the plugin. Open Aura in Claude Code, accept the folder trust prompt, then:
+   `claude plugin install aura-guard@spil-aura-tools --scope project`
+   (or `/plugin install aura-guard --marketplace damitha-spil/AURA---Guard`).
+3. Set your Guard folder: `claude plugin configure aura-guard@spil-aura-tools`
+   (`guard_home`), then restart Claude Code.
+
+You need read access to this GitHub repo with working git credentials (SSH
+agent or `gh auth setup-git`). Check with `claude plugin validate . --strict`.

@@ -126,8 +126,9 @@ test("newNote writes a proposed note and never overwrites", () => {
   rmSync(dir, { recursive: true });
 });
 
-test("every note in the real vault is valid", () => {
+test("every note in the local vault is valid", () => {
+  // The vault holds knowledge derived from private repos, so it is not in git:
+  // a fresh clone has none, and any notes present must still validate.
   const r = loadVault(join(GUARD_ROOT, "vault"));
   assert.deepEqual(r.problems, []);
-  assert.ok(r.notes.length >= 8);
 });

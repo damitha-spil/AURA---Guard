@@ -1,0 +1,14 @@
+{
+  "$comment": "Steps of `aura-guard daily`, in order. Product default: a company can edit this file. needsModel steps are skipped with --no-model. optional steps are skipped quietly when the command does not exist or its service is unreachable.",
+  "steps": [
+    { "id": "index", "argv": ["index"], "timeoutMin": 20 },
+    { "id": "check", "argv": ["check"], "timeoutMin": 2 },
+    { "id": "prs-sync", "argv": ["prs", "sync"], "timeoutMin": 10, "optional": true },
+    { "id": "mine-sessions", "argv": ["mine", "--min-score", "0.7", "--max", "15"], "timeoutMin": 5 },
+    { "id": "mine-prs", "argv": ["prs", "mine", "--min-score", "0.7", "--max", "15"], "timeoutMin": 5, "optional": true },
+    { "id": "rules-propose", "argv": ["rules", "propose"], "timeoutMin": 5, "optional": true },
+    { "id": "logcheck", "argv": ["logcheck"], "timeoutMin": 5, "optional": true },
+    { "id": "stale", "argv": ["stale"], "timeoutMin": 2 },
+    { "id": "diary", "argv": ["diary"], "timeoutMin": 10, "needsModel": true }
+  ]
+}

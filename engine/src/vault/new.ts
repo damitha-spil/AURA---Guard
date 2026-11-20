@@ -11,6 +11,7 @@ const FOLDERS: Record<NoteType, string> = {
   diary: "diary",
   choice: "choices",
   incident: "incidents",
+  journey: "journeys",
 };
 
 export function slugify(s: string): string {
@@ -37,7 +38,9 @@ export function newNote(
 ): string {
   const dir = join(vaultDir, FOLDERS[partial.type]);
   mkdirSync(dir, { recursive: true });
-  const baseId = `${partial.type}-${slugify(partial.title)}`;
+  // Drop a leading type word from the title so "Diary 2026-11-20" gives diary-2026-11-20, not diary-diary-...
+  const slug = slugify(partial.title).replace(new RegExp(`^${partial.type}-`), "");
+  const baseId = `${partial.type}-${slug}`;
   let id = baseId;
   let file = join(dir, `${id}.md`);
   for (let n = 2; existsSync(file); n++) {

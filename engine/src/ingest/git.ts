@@ -40,9 +40,10 @@ export function readCommits(
 ): CommitRecord[] {
   if (!headSha(repoPath)) return [];
   const range = sinceSha && isAncestor(repoPath, sinceSha) ? [`${sinceSha}..HEAD`] : ["HEAD"];
+  // Merge commits list their files against the first parent (otherwise git shows no diff for them).
   // A record starts with \x1e; fields are NUL separated; numstat lines follow the last NUL.
   const out = git(repoPath, [
-    "log", ...range, `--max-count=${max}`, "--numstat", "--no-renames",
+    "log", "--diff-merges=first-parent", ...range, `--max-count=${max}`, "--numstat", "--no-renames",
     "--format=%x1e%H%x00%an%x00%aI%x00%s%x00%b%x00",
   ]);
   const commits: CommitRecord[] = [];

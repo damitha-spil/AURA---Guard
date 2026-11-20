@@ -1,0 +1,43 @@
+# QA Planner: ranks which user journeys to test for a change, and writes read-only Playwright specs.
+# Declarative only; engine/src/qa/*.ts reads it.
+name: qa-planner
+trigger: pr_ready_for_test
+inputs:
+  - changed_files        # paths and line counts from a read-only git diff (no code is sent)
+  - journeys             # vault notes of type journey
+  - blast_radius         # code graph: what depends on a changed file
+  - aura_words           # selected blocks of Aura's copy.ts, for stable selectors (spec writing only)
+limits:
+  max_tokens: 3000
+  writes_active_notes: false
+  max_spec_retries: 1    # one retry with the safety reasons, then the spec is written as REJECTED
+# HARD SAFETY RULES (enforced in code by engine/src/qa/safety.ts and the runtime guard in harness.ts):
+safety:
+  - Guard never writes into the Aura repo. Generated specs go to qa/generated/ in Guard with status proposed; the owner copies them into Aura if wanted.
+  - Tests never save, create, submit, delete, send or approve anything in the ERP or outside the machine. They only read.
+  - The forbidden words are data in qa/forbidden-actions.json; a company extends them in qa/forbidden-actions.local.json.
+  - No page.request or fetch to a non-local host; no file upload outside qa/fixtures/; no Ctrl+S or other committing keys; Enter only in a named search box.
+  - Runs attach only to an Aura the owner already started with a debugging port (AURA_CDP_URL). Guard never launches the app and never runs cargo.
+  - Tests only read the database. The designated test database rule stays the owner's configuration; Guard never changes Aura settings.
+evidence_rules:
+  - A UI change needs screenshots at 800, 1100 and 1440 px width and a walkthrough video of the real desktop app (not a mock).
+  - A change with no screen needs a real request, result and readback in a test environment.
+  - Name the environment used (local or QA) without secrets. A blocked run is a blocker, not a pass.
+rules:
+  - Rank by user impact first, then by how much changed code the journey touches. No more than 8 journeys.
+  - Explain each pick in one plain sentence that names the changed file.
+  - Only use journey ids from the list you are given.
+  - Never suggest a step that saves, creates, sends or deletes.
+  - Write plain, short sentences. No marketing words.
+  - Reply with one JSON object and nothing else.
+plan_json_shape:
+  ranked: [{ journey: string, risk: "high|medium|low", why: string }]
+  extra_checks: [string]
+spec_rules:
+  - Write one TypeScript file. Import only { journey } from "../helpers/aura.ts" (and types from playwright-core if needed).
+  - Call journey("<journey id>", async ({ page, step, visible, hasText, ok }) => { ... }) once.
+  - Use page.getByRole(role, { name }) and page.getByText with the exact words from Aura's copy.ts. No CSS paths, no XPath.
+  - Move between screens by clicking the sidebar links. Do not use page.goto or external addresses.
+  - Click only to open or navigate. Use fill only in a search box. Never press Enter outside a search box.
+  - One step() per numbered journey step, each with a plain expected result.
+  - End statements with semicolons.

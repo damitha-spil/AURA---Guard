@@ -1,0 +1,12 @@
+{
+  "name": "spil-aura-tools",
+  "description": "SPIL's internal Claude Code plugins for working on Aura.",
+  "owner": { "name": "SPIL" },
+  "plugins": [
+    {
+      "name": "aura-guard",
+      "source": "./plugin/aura-guard",
+      "description": "AURA Guard knowledge tools and AI activity logging."
+    }
+  ]
+}

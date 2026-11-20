@@ -19,3 +19,19 @@ vault/.obsidian/cache
 
 # Built at test time from evals/masking/generate.mjs (fake secrets; never commit).
 evals/masking/cases.jsonl
+# Chat window browser profile and saved chats (also covered by data/).
+data/ui-profile/
+data/chats/
+
+# Knowledge derived from private repos and chats stays on this machine.
+# Only the vault's README, templates and Obsidian settings are shared.
+vault/*
+!vault/README.md
+!vault/_templates/
+!vault/.obsidian/
+!vault/support/
+vault/support/*
+!vault/support/forbidden-terms.json
+evals/quiz/questions.json
+qa/generated/*
+!qa/generated/.gitkeep

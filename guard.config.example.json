@@ -7,5 +7,10 @@
     { "id": "spil-aura", "path": "D:/SPIL AURA" },
     { "id": "erp-mcp", "path": "D:/ERP-MCP-SERVERS" }
   ],
-  "busyProcesses": ["cargo", "rustc", "msbuild", "link", "tsc", "vite"]
+  "busyProcesses": ["cargo", "rustc", "msbuild", "link", "tsc", "vite"],
+  "brain": {
+    "$comment": "backend: auto | anthropic-api | claude-cli. auto = API key if ANTHROPIC_API_KEY is set, else Claude Code on your Claude plan. Env AURA_GUARD_BRAIN overrides. models are optional.",
+    "backend": "auto",
+    "models": { "anthropic-api": "claude-sonnet-5-5", "claude-cli": "sonnet" }
+  }
 }

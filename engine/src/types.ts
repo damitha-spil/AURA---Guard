@@ -2,7 +2,7 @@
 // a note in AI_HANDOFF.md.
 
 export type NoteType =
-  | "adr" | "rule" | "pattern" | "incident" | "domain" | "diary" | "choice";
+  | "adr" | "rule" | "pattern" | "incident" | "domain" | "diary" | "choice" | "journey";
 export type NoteStatus = "proposed" | "shadow" | "active" | "stale" | "deprecated";
 export type Audience = "internal_dev" | "qa_internal" | "customer_support";
 export type NoteSource =
@@ -51,6 +51,8 @@ export interface GuardConfig {
   vaultDir: string;
   repos: RepoConfig[];
   busyProcesses: string[];
+  /** Which model backend roles use. Optional; default is auto. */
+  brain?: { backend?: string; models?: Record<string, string> };
   root: string; // absolute repo root of AURA Guard, filled in by loadConfig
 }
 

@@ -84,7 +84,7 @@ test("neighbours walks both directions and clamps depth", () => {
   importGraphify(db, "aura", file);
   const one = neighbours(db, "aura", "core_route", 1).map((h) => h.id).sort();
   assert.deepEqual(one, ["core_desk", "core_store", "ui_app_render"]);
-  const deep = neighbours(db, "aura", "ui_app", 9).map((h) => h.id);
+  const deep = neighbours(db, "aura", "ui_app", 9 as 2).map((h) => h.id);
   assert.ok(deep.includes("core_route"));
   assert.ok(!deep.includes("core_store"), "depth is capped at MAX_GRAPH_DEPTH");
   rmSync(file, { force: true });

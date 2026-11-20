@@ -1,0 +1,143 @@
+{
+  "$unwrap": "unwrap-in-rust is default_off. Replay on Aura history: the broad rule made 1144 findings with 3 within 3 lines of a later fix (0.3%); restricted to I/O, parse, lock, env, channel and thread results it made 190 with 0. To switch it on, put {\"enable\": [\"unwrap-in-rust\"]} in roles/review-rules.local.json.",
+  "$comment": "Fixed review checks that read only added lines. class=defect is a likely bug and is scored against later fixes; class=policy is one of Aura's written rules (AGENTS.md) and is reported as rule compliance, never as a defect. confidence (0 to 1) only ranks findings. A company can add roles/review-rules.local.json with the same shape: a rule with an existing id replaces it, and {\"id\": \"...\", \"disabled\": true} switches one off. Special checks (secrets, co-change, plico edits, new css files, copy text, nowrap, ERP write tools) live in engine/src/review/tier0.ts; their class is in special_rules.",
+  "version": 2,
+  "cochange_ignore": [
+    "(^|/)(AI_HANDOFF|CHANGELOG|CHANGES|README)\\.md$",
+    "(^|/)ai-log/"
+  ],
+  "special_rules": {
+    "secret-in-code": { "class": "defect", "confidence": 0.95 },
+    "possible-secret-in-code": { "class": "defect", "confidence": 0.3 },
+    "erp-write-tool-for-ai": { "class": "defect", "confidence": 0.5 },
+    "cochange-partner-missing": { "class": "defect", "confidence": 0.5 },
+    "plico-file-edited": { "class": "policy", "confidence": 0.95 },
+    "new-css-file": { "class": "policy", "confidence": 0.7 },
+    "nowrap-without-limit": { "class": "policy", "confidence": 0.5 },
+    "screen-text-not-in-copy": { "class": "policy", "confidence": 0.3 }
+  },
+  "possible_secret_path_skip": "(^|/)(eval|rounds|fixtures?|snapshots?|testdata)/|(^|/)package-lock\\.json$|\\.lock$",
+  "new_css": {
+    "path_match": "^apps/aura-ui/",
+    "allowed": [
+      "^apps/aura-ui/(agent-wizard|helpers-gallery|home-jobs|mesh-views|server-import|settings-extras|shell-extras|uiblocks|aura-ui-[a-z0-9-]+)\\.css$",
+      "^apps/aura-ui/src/styles/(globals|palettes)\\.css$"
+    ]
+  },
+  "line_rules": [
+    {
+      "id": "hardcoded-ipv4",
+      "skipInRustTestModule": true,
+      "class": "policy",
+      "confidence": 0.5,
+      "severity": "risk",
+      "message": "An IP address is written in code. Aura keeps addresses in admin settings, never in code.",
+      "pathMatch": "\\.(ts|tsx|js|mjs|rs|py|cs)$",
+      "pathSkip": "(^|/)(tests?|__tests__|docs?|fixtures?)/|\\.(test|spec|stories)\\.|(^|[/_])tests?\\.rs$|(^|/)copy\\.ts$|(^|/)copy/",
+      "pattern": "(?<![\\d.])(?:(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(?![\\d])",
+      "valueSkip": "^(127\\.|0\\.|255\\.|192\\.0\\.2\\.|198\\.51\\.100\\.|203\\.0\\.113\\.)",
+      "lineSkip": "version|user-?agent|\\bip-?v4\\b|\\b(example|such as|e\\.g\\.|i\\.e\\.|for instance)\\b|placeholder|\\bhint\\b|\\bhelp(?:-?text)?\\b",
+      "skipComments": true
+    },
+    {
+      "id": "hardcoded-hostname",
+      "skipInRustTestModule": true,
+      "class": "policy",
+      "confidence": 0.5,
+      "severity": "risk",
+      "message": "A server address (URL with a host name) is written in code. Connections come from settings.",
+      "pathMatch": "\\.(ts|tsx|js|mjs|rs|py|cs)$",
+      "pathSkip": "(^|/)(tests?|__tests__|docs?|fixtures?)/|\\.(test|spec|stories)\\.|(^|[/_])tests?\\.rs$|(^|/)copy\\.ts$|(^|/)copy/",
+      "pattern": "https?://[a-z0-9-]+(?:\\.[a-z0-9-]+)+(?::\\d+)?",
+      "patternFlags": "i",
+      "valueSkip": "^https?://(localhost|127\\.|0\\.0\\.0\\.0)|example\\.(com|org|net)|\\.(example|invalid)\\b|github\\.com|claude\\.ai|npmjs|docs\\.rs|crates\\.io|w3\\.org|json-schema\\.org|mozilla\\.org|rust-lang\\.org|tauri\\.app|plico-ui|microsoft\\.com|googleapis\\.com|anthropic\\.com|openai\\.com|schemas?\\.",
+      "lineSkip": "\\b(example|such as|e\\.g\\.|i\\.e\\.|for instance)\\b|placeholder|\\bhint\\b|\\bhelp(?:-?text)?\\b|\\byour[-_ ]|<(host|server|url)>",
+      "skipComments": true
+    },
+    {
+      "id": "hardcoded-port",
+      "skipInRustTestModule": true,
+      "class": "policy",
+      "confidence": 0.5,
+      "severity": "risk",
+      "message": "A host and port are written in code. Ports belong in configuration.",
+      "pathMatch": "\\.(ts|tsx|js|mjs|rs|py|cs)$",
+      "pathSkip": "(^|/)(tests?|__tests__|docs?|fixtures?)/|\\.(test|spec|stories)\\.|(^|[/_])tests?\\.rs$|vite\\.config|playwright\\.config|(^|/)copy\\.ts$|(^|/)copy/",
+      "pattern": "(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):\\d{2,5}",
+      "lineSkip": "\\b(example|such as|e\\.g\\.|i\\.e\\.|for instance)\\b|placeholder|\\bhint\\b|\\bhelp(?:-?text)?\\b",
+      "skipComments": true
+    },
+    {
+      "id": "hardcoded-windows-path",
+      "skipInRustTestModule": true,
+      "class": "policy",
+      "confidence": 0.5,
+      "severity": "risk",
+      "message": "An absolute Windows path is written in code. Paths come from settings or are found at run time.",
+      "pathMatch": "\\.(ts|tsx|js|mjs|rs|py|cs)$",
+      "pathSkip": "(^|/)(tests?|__tests__)/|\\.(test|spec)\\.|(^|[/_])tests?\\.rs$|(^|/)copy\\.ts$",
+      "pattern": "[\"'`][A-Za-z]:(?:\\\\{1,2}|/)[A-Za-z0-9_.$][^\"'`]*",
+      "lineSkip": "\\b(example|such as|e\\.g\\.|i\\.e\\.|for instance)\\b|placeholder|\\bhint\\b",
+      "skipComments": true
+    },
+    {
+      "id": "inline-style",
+      "class": "policy",
+      "confidence": 0.7,
+      "severity": "risk",
+      "message": "Inline style in the Aura screen. The screen uses Tailwind classes and theme tokens only.",
+      "pathMatch": "^apps/aura-ui/.*\\.(tsx|jsx|html)$",
+      "pathSkip": "^apps/aura-ui/src/components/plico/|^apps/aura-ui/src/test/",
+      "pattern": "\\bstyle\\s*=\\s*(\\{|\")",
+      "skipComments": true
+    },
+    {
+      "id": "console-log-left-in",
+      "class": "policy",
+      "confidence": 0.4,
+      "severity": "risk",
+      "message": "console.log left in code.",
+      "pathMatch": "\\.(ts|tsx|js|mjs)$",
+      "pathSkip": "(^|/)(tests?|__tests__|scripts|bin|cli)/|\\.(test|spec)\\.|\\.config\\.",
+      "pattern": "\\bconsole\\.log\\s*\\(",
+      "skipComments": true
+    },
+    {
+      "id": "dbg-macro-left-in",
+      "class": "policy",
+      "confidence": 0.4,
+      "severity": "risk",
+      "message": "dbg! left in Rust code.",
+      "pathMatch": "\\.rs$",
+      "pathSkip": "(^|/)tests?/|(^|[/_])tests?\\.rs$",
+      "pattern": "\\bdbg!\\s*\\(",
+      "skipComments": true,
+      "skipInRustTestModule": true
+    },
+    {
+      "id": "println-left-in",
+      "class": "policy",
+      "confidence": 0.2,
+      "severity": "suggestion",
+      "message": "println! in Rust code. Use the app's logging unless this is a command line tool.",
+      "pathMatch": "\\.rs$",
+      "pathSkip": "(^|/)tests?/|(^|[/_])tests?\\.rs$|(^|/)bin/|main\\.rs$",
+      "pattern": "\\bprintln!\\s*\\(",
+      "skipComments": true,
+      "skipInRustTestModule": true
+    },
+    {
+      "id": "unwrap-in-rust",
+      "default_off": true,
+      "class": "defect",
+      "confidence": 0.25,
+      "severity": "suggestion",
+      "message": "unwrap() or expect() on a result that depends on files, parsing, a lock, the environment, a channel or a thread. A failure here stops the whole app; return the error instead.",
+      "pathMatch": "\\.rs$",
+      "pathSkip": "(^|/)tests?/|(^|[/_])tests?\\.rs$",
+      "pattern": "(?:\\.lock\\(\\)|\\.recv\\(\\)|\\.send\\([^)]*\\)|\\.join\\(\\)|\\.parse(?:::<[^>]*>)?\\(\\)|env::var\\([^)]*\\)|read_to_string\\([^)]*\\)|fs::[a-z_]+\\([^)]*\\)|from_str(?:::<[^>]*>)?\\([^)]*\\)|serde_json::[a-z_]+\\([^)]*\\)|File::(?:open|create)\\([^)]*\\)|\\.await)\\s*\\.(?:unwrap\\(\\)|expect\\()",
+      "skipComments": true,
+      "skipInRustTestModule": true
+    }
+  ]
+}

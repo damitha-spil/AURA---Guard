@@ -20,6 +20,7 @@ export function loadConfig(root: string = GUARD_ROOT): GuardConfig {
     vaultDir: resolve(root, raw.vaultDir ?? "vault"),
     repos: raw.repos ?? [],
     busyProcesses: raw.busyProcesses ?? [],
+    ...(raw.brain ? { brain: raw.brain } : {}),
     root,
   };
 }

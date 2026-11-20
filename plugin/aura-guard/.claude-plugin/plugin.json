@@ -1,0 +1,14 @@
+{
+  "name": "aura-guard",
+  "version": "0.1.0",
+  "description": "Connects Claude Code to AURA Guard: read-only knowledge tools (rules, decisions, history, files that change together, blast radius) and automatic AI activity logging for commits.",
+  "author": { "name": "SPIL" },
+  "userConfig": {
+    "guard_home": {
+      "type": "directory",
+      "title": "AURA Guard folder",
+      "description": "Your local clone of the AURA Guard repo (after npm install and npm run guard -- index).",
+      "required": true
+    }
+  }
+}
