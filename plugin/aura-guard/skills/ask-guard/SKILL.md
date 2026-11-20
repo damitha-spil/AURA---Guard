@@ -1,11 +1,11 @@
 ---
 name: ask-guard
-description: Ask AURA Guard what it knows before changing Aura code - the rules that apply, past decisions, files that usually change together, and what depends on a file. Use at the start of a feature or fix, before editing a file you have not touched in this session, and before a code review.
+description: Ask SPIL Quality Support Bot what it knows before changing Aura code - the rules that apply, past decisions, files that usually change together, and what depends on a file. Use at the start of a feature or fix, before editing a file you have not touched in this session, and before a code review.
 ---
 
-# Ask AURA Guard
+# Ask SPIL Quality Support Bot
 
-AURA Guard is SPIL's internal engineering assistant. It has read Aura's history,
+SPIL Quality Support Bot is SPIL's internal engineering assistant. It has read Aura's history,
 docs and rules, and holds the owner's decisions as notes. Its tools come from
 the `aura-guard` MCP server. They are read-only.
 

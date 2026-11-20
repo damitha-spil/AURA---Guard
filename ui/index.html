@@ -4,11 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>AURA Guard</title>
+  <title>SPIL Quality Support Bot</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <script src="/theme.js"></script>
   <link rel="stylesheet" href="/themes.css">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/depts.css">
 </head>
 <body>
   <div class="app" id="app">
@@ -16,10 +17,18 @@
       <div class="side-top">
         <div class="brand">
           <span class="brand-mark" data-mark="noir" data-state="idle"></span>
-          <span class="brand-name side-text">AURA Guard</span>
+          <span class="brand-name side-text" id="brand-name">SPIL QSB</span>
         </div>
         <button type="button" class="icon-btn" id="sidebar-toggle" aria-label="Collapse sidebar (Ctrl+B)" aria-expanded="true" title="Collapse sidebar (Ctrl+B)">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4V5Zm5 0v14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="dept-bar" id="dept-bar" hidden>
+        <span class="dept-bar-label side-text">Department</span>
+        <button type="button" class="dept-current" id="dept-current" title="All departments (Ctrl+Shift+D)">
+          <span class="dot" id="dept-dot" aria-hidden="true"></span>
+          <span class="dept-name side-text" id="dept-name"></span>
+          <span class="dept-all side-text">All departments</span>
         </button>
       </div>
       <button type="button" class="new-chat" id="new-chat" title="New chat (Ctrl+K)">
@@ -29,6 +38,7 @@
       <div class="switcher" role="tablist" aria-label="Views">
         <button type="button" role="tab" class="switch active" id="tab-chat" data-view="chat" aria-selected="true" title="Chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4V5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Chat</span></button>
         <button type="button" role="tab" class="switch" id="tab-inbox" data-view="inbox" aria-selected="false" title="Inbox"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-7h11L20 13v5H4v-5Zm0 0h5l1 2h4l1-2h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Inbox</span><span class="badge" id="inbox-count" hidden></span></button>
+        <button type="button" role="tab" class="switch" id="tab-dept" data-view="dept" aria-selected="false" title="Department"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V8l8-4 8 4v12M9 20v-6h6v6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Department</span></button>
         <button type="button" role="tab" class="switch" id="tab-reports" data-view="reports" aria-selected="false" title="Reports"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6V3Zm8 0v5h5M9 13h7M9 17h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Reports</span></button>
       </div>
       <h2 class="side-heading chat-only side-text">Chats</h2>
@@ -54,8 +64,12 @@
       </div>
     </aside>
 
-    <main class="main" id="view-chat">
+    <main class="main landing" id="view-landing" aria-label="Choose your department"></main>
+    <main class="main" id="view-dept" hidden></main>
+
+    <main class="main" id="view-chat" hidden>
       <header class="topbar">
+        <span class="dept-chip" data-dept-chip></span>
         <h1 class="chat-title" id="chat-title">New chat</h1>
         <span class="busy" id="busy" hidden>Running a command...</span>
         <button type="button" class="top-work" id="top-work" aria-pressed="false" title="Show the steps Guard takes while it works">Show work</button>
@@ -65,7 +79,7 @@
         <form class="composer" id="composer" autocomplete="off">
           <div class="slash-menu" id="slash-menu" role="listbox" aria-label="Commands" hidden></div>
           <label class="sr-only" for="input">Message</label>
-          <textarea id="input" rows="1" maxlength="4000" placeholder="Ask about Aura, or type / for commands"></textarea>
+          <textarea id="input" rows="1" maxlength="4000" placeholder="Ask a question, or type / for commands"></textarea>
           <div class="composer-bar">
             <div class="pills">
               <button type="button" class="pill" id="pill-work" aria-pressed="false" title="Show the steps Guard takes while it works">Show work</button>
@@ -87,6 +101,7 @@
 
     <main class="main" id="view-inbox" hidden>
       <header class="topbar">
+        <span class="dept-chip" data-dept-chip></span>
         <h1 class="chat-title">Review inbox</h1>
         <span class="topbar-note" id="inbox-total"></span>
         <button type="button" class="btn btn-quiet topbar-btn" id="inbox-refresh">Refresh</button>
@@ -97,6 +112,7 @@
 
     <main class="main" id="view-reports" hidden>
       <header class="topbar">
+        <span class="dept-chip" data-dept-chip></span>
         <h1 class="chat-title">Reports</h1>
         <span class="topbar-note" id="reports-total"></span>
         <button type="button" class="btn btn-quiet topbar-btn" id="reports-refresh">Refresh</button>
@@ -116,6 +132,7 @@
       </div>
     </main>
 
+    <div class="wizard" id="wizard" hidden></div>
     <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
     <div class="popover" id="appearance" role="dialog" aria-label="Appearance" hidden></div>
 

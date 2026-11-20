@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { git } from "./git.ts";
@@ -31,6 +31,55 @@ export function readRepoDocs(repoPath: string, _repoId: string): RepoDoc[] {
       docs.push({ path, text, hash: createHash("sha256").update(text).digest("hex") });
     } catch {
       // tracked but missing from the working tree: skip
+    }
+  }
+  return docs;
+}
+
+/* ---------------- plain document folders (no git) ---------------- */
+
+const DOC_EXT = /\.(md|mdx|txt|rst)$/i;
+/** Caps so a huge or odd folder cannot stall an index run. */
+export const MAX_DOC_FILES = 5000;
+export const MAX_DOC_DEPTH = 12;
+
+function* walkDocs(root: string, rel: string, depth: number): Generator<string> {
+  if (depth > MAX_DOC_DEPTH) return;
+  let entries;
+  try {
+    entries = readdirSync(rel ? join(root, rel) : root, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    if (e.name.startsWith(".") || e.isSymbolicLink()) continue;
+    const r = rel ? `${rel}/${e.name}` : e.name;
+    if (e.isDirectory()) {
+      if (SKIP_DIRS.has(e.name)) continue;
+      yield* walkDocs(root, r, depth + 1);
+    } else if (e.isFile() && DOC_EXT.test(e.name)) yield r;
+  }
+}
+
+/** Number of document files in a folder (capped); reads no file contents. */
+export function countFolderDocs(folder: string): number {
+  let n = 0;
+  for (const _ of walkDocs(folder, "", 0)) if (++n >= MAX_DOC_FILES) break;
+  return n;
+}
+
+/** Markdown and text files of a plain folder: size-capped, hidden and node_modules skipped, content-hashed. */
+export function readFolderDocs(folder: string): RepoDoc[] {
+  const docs: RepoDoc[] = [];
+  for (const path of walkDocs(folder, "", 0)) {
+    if (docs.length >= MAX_DOC_FILES) break;
+    const full = join(folder, path);
+    try {
+      if (statSync(full).size > MAX_FILE_BYTES) continue;
+      const text = readFileSync(full, "utf8");
+      docs.push({ path, text, hash: createHash("sha256").update(text).digest("hex") });
+    } catch {
+      // unreadable: skip
     }
   }
   return docs;

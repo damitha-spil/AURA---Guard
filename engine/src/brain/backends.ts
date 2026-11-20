@@ -70,7 +70,7 @@ const CLAUDE_SIGN_IN_HELP =
  *                          instructions go on stdin so they are not limited by the command line length.
  * And as a runtime guard parseClaudeStream refuses the run if init reports any tool or MCP server.
  */
-const CLAUDE_SYSTEM = "You are a text-only language model inside AURA Guard. You have no tools and no files. Follow the instructions in the user's text and reply with only what they ask for.";
+const CLAUDE_SYSTEM = "You are a text-only language model inside SPIL Quality Support Bot. You have no tools and no files. Follow the instructions in the user's text and reply with only what they ask for.";
 const DENIED_TOOLS = "Bash PowerShell Edit Write NotebookEdit WebFetch WebSearch Task Agent";
 
 export function claudeArgs(model: string): string[] {

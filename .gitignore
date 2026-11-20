@@ -35,3 +35,7 @@ vault/support/*
 evals/quiz/questions.json
 qa/generated/*
 !qa/generated/.gitkeep
+
+extension/node_modules/
+extension/dist/
+*.vsix

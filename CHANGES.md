@@ -2,6 +2,15 @@
 
 Newest first.
 
+## 2026-11-20: departments, landing page, capture, VS Code extension, rename (uncommitted)
+
+- Product renamed to SPIL Quality Support Bot (identifiers unchanged for now).
+- Departments: registry, templates, isolation, API, `dept` commands, `index --all`, `daily --all`.
+- UI: landing page ("Choose your department"), overview, department page, Add department wizard.
+- Capture: `capture status|show|summarize|purge`, `answer --json`; VS Code extension in `extension/`.
+- Seed data moved out of code into local `data/departments/seed.json`.
+- Tests use generic fixtures: no real department, project or staff names in tracked files.
+
 ## 2026-11-20: chat window redesign with four themes (uncommitted)
 
 - Chat window rebuilt to feel like an agent: dot/orb marks, live work steps from

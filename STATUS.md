@@ -1,4 +1,4 @@
-# AURA Guard: current status (for brainstorming)
+# SPIL Quality Support Bot: current status (for brainstorming)
 
 Snapshot: 2026-11-20, end of day. Written to be pasted whole into another AI
 so it has the full picture. It holds no secrets, server addresses or personal
@@ -9,7 +9,7 @@ THINKING.md, AI_HANDOFF.md, CHANGES.md, docs/adr/001-foundations.md.
 
 ## 1. What this is
 
-**AURA Guard** is an internal engineering assistant for a glass-fabrication
+**SPIL Quality Support Bot** is an internal engineering assistant for a glass-fabrication
 software company. It learns one product, **Aura**, and the way its owner builds
 it, then helps as Scribe, Code Reviewer, QA Planner and a writer of support
 knowledge.
@@ -47,7 +47,7 @@ knowledge.
 
 ## 3. Progress
 
-Against the 4-phase plan, **about 65% is built, but much less is proven**
+Against the 4-phase plan, **about 75% is built, but much less is proven**
 (see section 5). Built does not mean good: the reviewer in particular has no
 measured defect-finding ability yet.
 
@@ -59,7 +59,7 @@ measured defect-finding ability yet.
 | 3 Reviewer + QA in shadow mode, UI | ~70% | reviewer: no measured bug-finding yet; QA: never run live against Aura |
 | 4 Go live, local model, support, ACP | ~15% | support draft pipeline proven on one topic; nothing live; no local model |
 
-Tests: 214 in 26 files, all passing; typecheck (src and tests) clean.
+Tests: 271 in 29 files in the engine plus 22 in the VS Code extension, all passing; typecheck (src and tests) clean.
 
 ## 4. Architecture as built
 
@@ -246,3 +246,30 @@ now reported separately.
 - Windows 11 dev PC with limited memory; paths contain spaces.
 - Notes become rules only with the owner's approval.
 - Nothing ships to fabricators from Guard directly.
+
+---
+
+## 11. Update: departments, the landing page and developer capture
+
+Added after the sections above were written.
+
+- **Multi-department platform.** Departments, modules, sub-modules and sources are created and edited
+  in the app (wizard, landing page, department page) or with `dept ...`. Each department has its own
+  vault, index and chats; isolation is tested across every API endpoint. The registry and the starting
+  set are local files (`data/departments/`), never in git.
+- **Landing page.** The app always opens on "Choose your department" (tiles or an overview table),
+  in all four themes. Noir is the default.
+- **Developer capture (opt-in).** A VS Code extension (own package in `extension/`, 22 tests, packaged
+  as a 20 KB `.vsix`) records masked activity to a local spool; the engine drafts ai-log entries;
+  the developer reviews a diff before anything is written to their repo.
+- **Measured.** End to end with the extension's own code and the real CLI: 7 events written, read,
+  summarised through the Claude plan in 4.4 s into a faithful draft, purged; the repo stayed clean. A
+  `repoKey` mismatch between the extension and the engine was found by the shared test vectors and
+  fixed. Departments indexed read-only for real (for example 290 commits for the project department,
+  737 for the two repositories of the shapes department).
+- **Still unproven.** The extension has never run in a live VS Code window (consent dialog, status
+  bar, `@guard`, diff view); installing works into a throwaway profile only. Only the Claude Code
+  transcripts are read for AI prompts and replies; Copilot Chat or Cursor chats cannot be read.
+- **Decisions to make.** The project department no longer indexes the ERP connector repository;
+  add it as a second source of that department if cross-repo contract checks matter. Rename the GitHub
+  repository and the identifiers (`aura-guard`) together, then update Aura's `.claude/settings.json`.

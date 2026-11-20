@@ -1,0 +1,8 @@
+{
+  "id": "engineering",
+  "name": "Engineering",
+  "description": "A team that builds software. Reads code repositories, learns how the team works, reviews changes and plans QA.",
+  "hint": "Add the code repositories this team works in. Guard only reads them and never changes them.",
+  "sourceKind": "git",
+  "roles": { "scribe": true, "reviewer": true, "refactor": true, "qa": true, "rules": true, "prs": true, "supportWriter": false, "quiz": true, "daily": true }
+}

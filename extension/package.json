@@ -1,0 +1,71 @@
+{
+  "name": "aura-guard-companion",
+  "displayName": "SPIL Quality Support Bot Companion",
+  "description": "Records your editor activity into a local, masked spool (after you consent), lets you log ideas and decisions, adds an @guard chat participant, and turns your day into reviewable ai-log entries.",
+  "version": "0.1.0",
+  "publisher": "spil",
+  "private": true,
+  "type": "module",
+  "main": "./dist/extension.cjs",
+  "engines": { "vscode": "^1.93.0" },
+  "categories": ["Other"],
+  "extensionKind": ["workspace"],
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": false, "description": "SPIL Quality Support Bot runs a local program and reads your git history, so it needs a trusted workspace." },
+    "virtualWorkspaces": false
+  },
+  "activationEvents": ["workspaceContains:ai-log/README.md", "onStartupFinished", "onChatParticipant:aura-guard.guard"],
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --experimental-strip-types test/*.test.ts",
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license --out ../.artifacts/extension/aura-guard-companion-0.1.0.vsix"
+  },
+  "contributes": {
+    "commands": [
+      { "command": "auraGuard.logIdea", "title": "Guard: Log an idea" },
+      { "command": "auraGuard.logDecision", "title": "Guard: Log a decision" },
+      { "command": "auraGuard.logCorrection", "title": "Guard: Log a correction" },
+      { "command": "auraGuard.showToday", "title": "Guard: Show today's captured events" },
+      { "command": "auraGuard.summarizeDay", "title": "Guard: Summarize my day" },
+      { "command": "auraGuard.togglePause", "title": "Guard: Pause or resume capture" },
+      { "command": "auraGuard.deleteData", "title": "Guard: Delete my data" },
+      { "command": "auraGuard.openChat", "title": "Guard: Open Guard chat window" },
+      { "command": "auraGuard.setup", "title": "Guard: Set up" },
+      { "command": "auraGuard.menu", "title": "Guard: Show menu" }
+    ],
+    "chatParticipants": [
+      {
+        "id": "aura-guard.guard",
+        "name": "guard",
+        "fullName": "SPIL Quality Support Bot",
+        "description": "Ask SPIL Quality Support Bot about how Aura is built and why",
+        "isSticky": false,
+        "commands": [{ "name": "help", "description": "What @guard can do" }]
+      }
+    ],
+    "configuration": {
+      "title": "SPIL Quality Support Bot",
+      "properties": {
+        "auraGuard.guardHome": { "type": "string", "default": "", "scope": "machine", "markdownDescription": "Folder of your own SPIL Quality Support Bot clone (must contain `engine/src/cli/main.ts`). Required." },
+        "auraGuard.nodePath": { "type": "string", "default": "", "scope": "machine", "description": "Path to node (24 or newer). Empty means `node` from PATH." },
+        "auraGuard.spoolDir": { "type": "string", "default": "", "scope": "machine", "markdownDescription": "Local folder for captured events. Empty means the env var `AURA_GUARD_SPOOL`, else `~/.aura-guard/spool`. Network paths are refused." },
+        "auraGuard.workspaces": { "type": "array", "items": { "type": "string" }, "default": [], "scope": "machine", "description": "Absolute paths of workspaces to capture even if they have no ai-log/README.md." },
+        "auraGuard.developerName": { "type": "string", "default": "", "scope": "machine", "description": "Your first name, lower case. Empty means the first word of `git config user.name`." },
+        "auraGuard.capture.commits": { "type": "boolean", "default": true, "description": "Capture git commits (subject, body, file names with line counts)." },
+        "auraGuard.capture.saves": { "type": "boolean", "default": true, "description": "Capture file saves as counts per file per 5 minutes. Never contents." },
+        "auraGuard.capture.tasks": { "type": "boolean", "default": true, "description": "Capture task names, exit codes and duration." },
+        "auraGuard.capture.terminal": { "type": "boolean", "default": true, "description": "Capture allow-listed terminal commands (masked), never their output." },
+        "auraGuard.capture.diagnostics": { "type": "boolean", "default": true, "description": "Capture error and warning counts when a commit is detected." },
+        "auraGuard.capture.chat": { "type": "boolean", "default": true, "description": "Record @guard questions and answers (masked)." }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.93.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}

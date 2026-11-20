@@ -7,8 +7,11 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dbPath } from "../config.ts";
-import { openDb } from "../index/db.ts";
+import { PRODUCT_NAME } from "../brand.ts";
+import { DepartmentHost, handleDepartmentApi } from "./departments.ts";
+import type { DeptContext } from "./departments.ts";
+import { HttpError, MAX_BODY_BYTES, peekJson, readJson, sendJson } from "./http.ts";
+import { UnknownDepartmentError } from "../departments/registry.ts";
 import type { Db } from "../index/db.ts";
 import { getDoc } from "../index/search.ts";
 import { loadVault } from "../vault/load.ts";
@@ -22,12 +25,11 @@ import type { GuardConfig } from "../types.ts";
 import { answer, MAX_QUESTION_CHARS } from "../chat/answer.ts";
 import type { AnswerResult, ChatTurn, Step } from "../chat/answer.ts";
 import { recordFeedback } from "../chat/feedback.ts";
-import { ChatStore, isChatId } from "../chat/store.ts";
+import { isChatId } from "../chat/store.ts";
 import { COMMANDS, HeavyLock, loadCommandTable, parseSlash, runMainProcess } from "../chat/commands.ts";
 import type { RunProcess } from "../chat/commands.ts";
 
-/** JSON bodies larger than this are refused: a question is a few lines of text. */
-export const MAX_BODY_BYTES = 32 * 1024;
+export { MAX_BODY_BYTES };
 /** Streamed command output stops after this many characters (the final result is still complete). */
 export const MAX_STREAM_CHARS = 64 * 1024;
 const NDJSON = "application/x-ndjson";
@@ -52,6 +54,12 @@ export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/steps.js": { file: "steps.js", type: "text/javascript; charset=utf-8" },
   "/reveal.js": { file: "reveal.js", type: "text/javascript; charset=utf-8" },
   "/titles.js": { file: "titles.js", type: "text/javascript; charset=utf-8" },
+  "/brand.js": { file: "brand.js", type: "text/javascript; charset=utf-8" },
+  "/departments.js": { file: "departments.js", type: "text/javascript; charset=utf-8" },
+  "/wizard.js": { file: "wizard.js", type: "text/javascript; charset=utf-8" },
+  "/deptapi.js": { file: "deptapi.js", type: "text/javascript; charset=utf-8" },
+  "/depts.js": { file: "depts.js", type: "text/javascript; charset=utf-8" },
+  "/depts.css": { file: "depts.css", type: "text/css; charset=utf-8" },
 };
 
 export const CSP = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'";
@@ -98,54 +106,16 @@ export function newToken(): string {
   return randomBytes(24).toString("hex");
 }
 
-class HttpError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
-
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const type = (req.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase();
-  if (type !== "application/json") throw new HttpError(415, "Send JSON.");
-  const len = Number(req.headers["content-length"] ?? 0);
-  if (len > MAX_BODY_BYTES) throw new HttpError(413, "That request is too large.");
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const c of req) {
-    size += (c as Buffer).length;
-    if (size > MAX_BODY_BYTES) throw new HttpError(413, "That request is too large.");
-    chunks.push(c as Buffer);
-  }
-  try {
-    const v = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-    if (v === null || typeof v !== "object" || Array.isArray(v)) throw new Error("not an object");
-    return v as Record<string, unknown>;
-  } catch {
-    throw new HttpError(400, "That was not valid JSON.");
-  }
-}
-
 export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
   const uiDir = deps.uiDir ?? DEFAULT_UI_DIR;
-  const store = new ChatStore(cfg.dataDir);
+  const host = new DepartmentHost(cfg, deps.openIndex);
   const lock = new HeavyLock();
   const runProcess = deps.runProcess ?? runMainProcess;
   const commandTable = deps.commandTable ?? loadCommandTable;
   const backendInfo = deps.backendInfo ?? (() => defaultBackendInfo(cfg));
   let backendCache: { at: number; value: BackendInfo } | null = null;
-  const openIndex =
-    deps.openIndex ??
-    (() => {
-      const f = dbPath(cfg);
-      if (!existsSync(f)) return null;
-      const db = openDb(f);
-      return { db, release: () => db.close() };
-    });
-
-  const withIndex = async <T>(fn: (db: Db) => Promise<T> | T): Promise<T | null> => {
-    const h = openIndex();
+  const withIndex = async <T>(ctx: DeptContext, fn: (db: Db) => Promise<T> | T): Promise<T | null> => {
+    const h = ctx.openIndex();
     if (!h) return null;
     try {
       return await fn(h.db);
@@ -155,17 +125,13 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
   };
 
   // What this server session changed, so Undo can put a note back. Memory only; text of notes stays here.
-  const changed = new Map<string, StatusSnapshot>();
+  const changed = new Map<string, StatusSnapshot>(); // key: "<department>/<note id>"
   const MAX_UNDO = 100;
-  const reindex = async (): Promise<void> => {
-    await withIndex((db) => indexVault(db, cfg.vaultDir));
+  const reindex = async (ctx: DeptContext): Promise<void> => {
+    await withIndex(ctx, (db) => indexVault(db, ctx.cfg.vaultDir));
   };
 
-  const json = (res: ServerResponse, status: number, body: unknown): void => {
-    const data = JSON.stringify(body);
-    res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Content-Length": Buffer.byteLength(data) });
-    res.end(data);
-  };
+  const json = sendJson;
 
   const wantsNdjson = (req: IncomingMessage): boolean => (req.headers.accept ?? "").includes(NDJSON);
   /** Starts a newline-delimited JSON reply; each event is flushed as it is written. */
@@ -184,20 +150,48 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     return value;
   }
 
+  /** Which department a request is for: `dept` in the query, or in the JSON body of a POST. Default: the registry default. */
+  async function deptOf(req: IncomingMessage, method: string): Promise<{ id: string | undefined; explicit: boolean }> {
+    const q = new URL(req.url ?? "/", "http://x").searchParams.get("dept");
+    if (q) return { id: q, explicit: true };
+    if (method === "POST" || method === "PUT" || method === "DELETE") {
+      const body = await peekJson(req);
+      const v = body?.["dept"];
+      if (typeof v === "string" && v) return { id: v, explicit: true };
+    }
+    return { id: undefined, explicit: false };
+  }
+
   async function api(req: IncomingMessage, res: ServerResponse, path: string, method: string): Promise<void> {
+    if (await handleDepartmentApi(host, req, res, path, method)) return;
+    const reg = host.registry();
+    const sel = await deptOf(req, method);
+    let ctx: DeptContext;
+    try {
+      ctx = host.context(reg, sel.id);
+    } catch (e) {
+      if (e instanceof UnknownDepartmentError) throw new HttpError(404, e.message);
+      throw e;
+    }
+    // A department that was archived can be read, not changed.
+    if (method !== "GET" && method !== "HEAD" && ctx.archived) throw new HttpError(410, "This department is archived.");
+    const dcfg = ctx.cfg;
+    const store = ctx.store;
     if (path === "/api/status" && method === "GET") {
-      const index = await withIndex((db) => {
+      const index = await withIndex(ctx, (db) => {
         const rows = db.prepare("SELECT kind, COUNT(*) AS n FROM docs GROUP BY kind").all() as { kind: string; n: number }[];
         const counts: Record<string, number> = {};
         for (const r of rows) counts[r.kind] = r.n;
         return counts;
       });
-      const { notes, problems } = loadVault(cfg.vaultDir);
+      const { notes, problems } = loadVault(dcfg.vaultDir);
       return json(res, 200, {
         index: index ?? null,
         vault: { notes: notes.length, problems: problems.length },
         backend: await cachedBackend().catch(() => ({ wanted: "auto", picked: null, label: "No model" })),
         running: lock.running,
+        department: { id: ctx.department.id, name: ctx.department.name },
+        productName: PRODUCT_NAME,
       });
     }
 
@@ -212,7 +206,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     if (path === "/api/doc" && method === "GET") {
       const ref = new URL(req.url ?? "/", "http://x").searchParams.get("ref") ?? "";
       if (!ref || ref.length > 500) throw new HttpError(400, "Missing ref.");
-      const doc = await withIndex((db) => getDoc(db, ref, "internal_dev"));
+      const doc = await withIndex(ctx, (db) => getDoc(db, ref, "internal_dev"));
       if (!doc) throw new HttpError(404, "Not found.");
       return json(res, 200, doc);
     }
@@ -253,7 +247,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
           if (i >= 0) trace[i] = step; else trace.push(step);
           live?.({ type: "step", step });
         };
-        const r: AnswerResult | null = await withIndex((db) => answer(cfg, db, { history, question, notesOnly }, { complete: deps.complete, onStep, backend }));
+        const r: AnswerResult | null = await withIndex(ctx, (db) => answer(dcfg, db, { history, question, notesOnly }, { complete: deps.complete, onStep, backend }));
         const result: AnswerResult = r ?? { ok: false, text: "The index is not built yet. Type /index to build it.", sources: [] };
         const updated = store.append(id, { role: "assistant", text: result.text, sources: result.sources, trace, ...(result.ok ? {} : { error: true }) });
         if (live) {
@@ -270,6 +264,9 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       const chatId = typeof body["chatId"] === "string" && isChatId(body["chatId"]) ? body["chatId"] : null;
       const parsed = parseSlash(line, await commandTable());
       if (!parsed.ok) return json(res, 400, { ok: false, error: parsed.error });
+      // The child process works on this department only. A user-typed --dept is refused.
+      if (parsed.argv.includes("--dept")) return json(res, 400, { ok: false, error: "Choose the department from the department picker." });
+      const argv = reg.synthesized && !sel.explicit ? parsed.argv : [...parsed.argv, "--dept", ctx.department.id];
       if (parsed.heavy && !lock.tryAcquire(parsed.spec.name)) {
         return json(res, 409, { ok: false, busy: true, error: `/${lock.running ?? "another command"} is still running. Wait for it to finish.` });
       }
@@ -284,7 +281,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       };
       let r;
       try {
-        r = await runProcess(parsed.argv, cfg.root, onChunk);
+        r = await runProcess(argv, cfg.root, onChunk);
       } finally {
         if (parsed.heavy) lock.release();
       }
@@ -304,17 +301,17 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
 
     if (path === "/api/feedback" && method === "POST") {
       const body = await readJson(req);
-      const r = recordFeedback(cfg.dataDir, body, (cid) => store.get(cid) !== null);
+      const r = recordFeedback(dcfg.dataDir, body, (cid) => store.get(cid) !== null);
       if (!r.ok) throw new HttpError(r.status, r.error);
       return json(res, 200, { ok: true });
     }
 
-    if (path === "/api/inbox" && method === "GET") return json(res, 200, buildInbox(cfg));
+    if (path === "/api/inbox" && method === "GET") return json(res, 200, buildInbox(dcfg));
 
     if (path === "/api/inbox/note" && method === "GET") {
       const id = new URL(req.url ?? "/", "http://x").searchParams.get("id") ?? "";
       if (!isNoteId(id)) throw new HttpError(400, "That is not a note id.");
-      const n = inboxNote(cfg, id);
+      const n = inboxNote(dcfg, id);
       if (!n) throw new HttpError(404, "No such note.");
       return json(res, 200, n);
     }
@@ -324,14 +321,14 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       const id = nm[1] as string;
       if (!isNoteId(id)) throw new HttpError(400, "That is not a note id.");
       const body = await readJson(req);
-      if (!loadVault(cfg.vaultDir).notes.some((n) => n.meta.id === id)) throw new HttpError(404, "No such note.");
+      if (!loadVault(dcfg.vaultDir).notes.some((n) => n.meta.id === id)) throw new HttpError(404, "No such note.");
       if (nm[2] === "undo") {
-        const snap = changed.get(id);
+        const snap = changed.get(`${ctx.department.id}/${id}`);
         if (!snap) throw new HttpError(409, "Nothing to undo for this note.");
-        const r = revertNoteStatus(cfg, snap, "chat");
+        const r = revertNoteStatus(dcfg, snap, "chat");
         if (!r.ok) throw new HttpError(409, `Could not undo: ${r.reason}`);
-        changed.delete(id);
-        await reindex();
+        changed.delete(`${ctx.department.id}/${id}`);
+        await reindex(ctx);
         return json(res, 200, { ok: true, id, status: snap.from });
       }
       const to = body["to"];
@@ -339,24 +336,24 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       const from = body["from"];
       const FROM = ["proposed", "shadow", "active"];
       if (from !== undefined && (typeof from !== "string" || !FROM.includes(from))) throw new HttpError(400, "Bad from.");
-      const r = setNoteStatus(cfg, id, to, { via: "chat", ...(from ? { from: from as "proposed" | "shadow" | "active" } : {}) });
+      const r = setNoteStatus(dcfg, id, to, { via: "chat", ...(from ? { from: from as "proposed" | "shadow" | "active" } : {}) });
       if (!r.ok) {
         const status = r.code === "not-found" ? 404 : r.code === "invalid" ? 422 : 409;
         throw new HttpError(status, r.reason ?? "That change was refused.");
       }
       if (r.snapshot) {
-        changed.set(id, r.snapshot);
+        changed.set(`${ctx.department.id}/${id}`, r.snapshot);
         if (changed.size > MAX_UNDO) changed.delete(changed.keys().next().value as string);
       }
-      await reindex();
+      await reindex(ctx);
       return json(res, 200, { ok: true, id, from: r.from, to: r.to, fields: r.changes.map((c) => c.field), undoable: !!r.snapshot });
     }
 
-    if (path === "/api/reports" && method === "GET") return json(res, 200, { reports: listReports(cfg) });
+    if (path === "/api/reports" && method === "GET") return json(res, 200, { reports: listReports(dcfg) });
 
     if (path === "/api/report" && method === "GET") {
       const p = new URL(req.url ?? "/", "http://x").searchParams.get("path") ?? "";
-      const hit = safeReportPath(cfg, p);
+      const hit = safeReportPath(dcfg, p);
       if (!hit) throw new HttpError(404, "No such report.");
       const r = readReport(hit.file);
       return json(res, 200, { path: hit.rel, name: hit.rel.split("/").pop(), kind: hit.kind, ...r });
@@ -365,7 +362,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     throw new HttpError(404, "Not found.");
   }
 
-  return createServer((req, res) => {
+  const server = createServer((req, res) => {
     const h = (): void => {
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader("Content-Security-Policy", CSP);
@@ -418,4 +415,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       }
     })();
   });
+  // Close every department's index handle with the server.
+  server.on("close", () => host.closeAll());
+  return server;
 }

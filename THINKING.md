@@ -95,3 +95,16 @@ The owner pointed to two different projects called Crow.
 3. Paid model: Guard's own client (recommended) or Aura's provider layer.
 4. Repos on day one: Aura and ERP-MCP (recommended).
 5. Rename the folder to `aura-guard` and create the Azure DevOps remote?
+
+## Rename to "SPIL Quality Support Bot" (2026-11-20)
+
+The owner decided the bot is not only for Aura: it should serve every department (AI/ML, OPTI,
+ERP, BA, Support, and more added later from the UI). So the product is now **SPIL Quality Support
+Bot** (short: SPIL QSB). Decisions that followed:
+
+- One engine, isolated knowledge per department (separate vault, index, chats).
+- Departments are data created at runtime from the UI, not code.
+- The app opens on a landing page where the user chooses the department.
+- Identifiers (`aura-guard` command, env vars, plugin and extension ids) keep working until the
+  GitHub repository is renamed; they are renamed together later.
+- The repository is public, so department names, local paths and staff names stay in local data.

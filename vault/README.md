@@ -1,4 +1,4 @@
-# AURA Guard vault
+# SPIL Quality Support Bot vault
 
 Open this folder in Obsidian. Each note is a Markdown file that starts with a
 short block of settings between `---` lines. Guard reads these notes and

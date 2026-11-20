@@ -31,7 +31,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$TaskName = "AURA Guard daily"
+$TaskName = "SPIL Quality Support Bot daily"
 $Root = Split-Path -Parent $PSScriptRoot
 $Node = (Get-Command node -ErrorAction Stop).Source
 $Launcher = Join-Path $Root "bin\aura-guard.mjs"
@@ -57,5 +57,5 @@ if (-not $Install) {
 $action = New-ScheduledTaskAction -Execute $Node -Argument $Args -WorkingDirectory $Root
 $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At $Time
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 1) -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Description "AURA Guard end-of-day routine" -Force | Out-Null
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Description "SPIL Quality Support Bot end-of-day routine" -Force | Out-Null
 Write-Host "Created task '$TaskName'. Run it now with: Start-ScheduledTask -TaskName '$TaskName'"

@@ -1,0 +1,8 @@
+{
+  "id": "custom",
+  "name": "Custom",
+  "description": "An empty department. Choose the helpers and sources yourself.",
+  "hint": "Start empty, then switch on only the helpers you need.",
+  "sourceKind": "docs",
+  "roles": { "scribe": false, "reviewer": false, "refactor": false, "qa": false, "rules": false, "prs": false, "supportWriter": false, "quiz": false, "daily": false }
+}

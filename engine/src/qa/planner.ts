@@ -214,7 +214,7 @@ export function buildPlanPrompt(
   const role = loadRole(cfg);
   const rules = (role.rules ?? []).map((r) => `- ${r}`).join("\n");
   const stable =
-    `You are the QA Planner for AURA Guard. You rank which user journeys of a desktop app to test after a code change.\n\nRules:\n${rules}\n\n` +
+    `You are the QA Planner for SPIL Quality Support Bot. You rank which user journeys of a desktop app to test after a code change.\n\nRules:\n${rules}\n\n` +
     `Reply with JSON: {"ranked": [{"journey": string, "risk": "high"|"medium"|"low", "why": string}], "extra_checks": string[]}.`;
   const lines = [`Repo ${repo}, change ${range.base.slice(0, 8)}..${range.head.slice(0, 8)}`, "Changed files (path +added -removed):"];
   for (const f of files.slice(0, MAX_PROMPT_FILES)) lines.push(`- ${f.path} +${f.added} -${f.removed}`);

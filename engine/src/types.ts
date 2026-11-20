@@ -43,6 +43,18 @@ export interface NoteProblem {
 export interface RepoConfig {
   id: string;
   path: string;
+  /** Where the source sits in its department, for display. Optional. */
+  module?: string;
+  sub?: string;
+}
+
+/** A plain folder of Markdown/text read into the index (no git needed). */
+export interface DocSourceConfig {
+  id: string;
+  path: string;
+  label?: string;
+  module?: string;
+  sub?: string;
 }
 
 export interface GuardConfig {
@@ -53,7 +65,15 @@ export interface GuardConfig {
   busyProcesses: string[];
   /** Which model backend roles use. Optional; default is auto. */
   brain?: { backend?: string; models?: Record<string, string> };
-  root: string; // absolute repo root of AURA Guard, filled in by loadConfig
+  root: string; // absolute repo root of SPIL Quality Support Bot, filled in by loadConfig
+  /** Set when the config was derived from a department (see departments/registry.ts). */
+  departmentId?: string;
+  departmentName?: string;
+  productName?: string;
+  /** Plain Markdown/text folders of the department. */
+  docSources?: DocSourceConfig[];
+  /** Which helpers the department has switched on (departments/model.ts RoleKey). */
+  roles?: Record<string, boolean>;
 }
 
 export interface CommitRecord {

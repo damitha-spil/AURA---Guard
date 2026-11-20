@@ -1,5 +1,7 @@
 // Words the CLI shows to people.
 
+import { PRODUCT_NAME, PRODUCT_SHORT } from "../brand.ts";
+
 interface Changes {
   added: number;
   changed: number;
@@ -7,7 +9,15 @@ interface Changes {
 }
 
 export const copy = {
-  help: `AURA Guard
+  help: `${PRODUCT_NAME} (${PRODUCT_SHORT}), command aura-guard
+
+  --dept <id>                 Work on one department (also env QSB_DEPT or AURA_GUARD_DEPT).
+                              Without it, the default department is used.
+  dept list | show <id> | add <id> --name ".." [--template T] | archive <id> | purge <id> --yes | seed
+  dept source add <dept> --path <folder> [--kind git|docs] [--module m] [--sub s] [--label l]
+  dept module add <dept> <name>      dept sub add <dept> <module> <name>
+                              Manage departments, modules and sources (see docs/departments.md)
+  index --all                 Index every department, one after the other
 
   index [--force] [--max N] [--graph]
                               Read the vault and the repos into the index
@@ -55,6 +65,10 @@ export const copy = {
                               Which commits have an AI-log entry
   support draft "<topic>" | support list | support export <id>
                               Customer-safe procedure drafts (leak-checked)
+  capture status|show|summarize|purge
+                              Developer activity capture: see what was recorded, draft ai-log entries, delete it
+  answer "<question>" [--notes-only] [--json]
+                              Ask the knowledge a question (used by the VS Code extension)
   ui [--port N] [--no-open]   Open the chat window
   help                        Show this text`,
   mined: (repo: string, sessions: number, turns: number, candidates: number, blocked: number, written: number, dup: number, dry: boolean) =>
@@ -71,6 +85,9 @@ export const copy = {
   diaryNothing: (date: string) => `No commits on ${date}; no diary written.`,
   busy: "Not indexing now:",
   busyHint: "Use --force to run anyway.",
+  archived: (id: string) => `The department "${id}" is archived. Un-archive it in the app, or pick another with --dept.`,
+  pruned: (n: number) => `Removed ${n} index rows of sources that are no longer in this department.`,
+  department: (name: string, id: string) => `Department: ${name} (${id})`,
   indexed: (added: number, updated: number, removed: number) =>
     `Notes: ${added} added, ${updated} updated, ${removed} removed.`,
   repoLine: (repo: string, commits: number, files: number, c: Changes, f: Changes) =>

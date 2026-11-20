@@ -1,4 +1,4 @@
-# AURA Guard architecture
+# SPIL Quality Support Bot architecture
 
 Status: draft, 2026-11-20. Open decisions are marked **OPEN**.
 
@@ -245,7 +245,7 @@ for a self-run office machine; check first that it supports Azure DevOps.
 
 Gates use measured results, not the model's own confidence.
 
-## 12. Departments
+## 12. Departments (built: see section 15)
 
 ```
 engine/              one engine
@@ -279,3 +279,25 @@ docs/         ADRs
    reader and others.
 5. **Repo name and remote**: folder is `D:\AURA - Guard`; suggested slug
    `aura-guard`; Azure DevOps remote not created yet.
+
+## 15. Departments, the landing page and developer capture (built 2026-11-20)
+
+The product is no longer only for one project. It is **SPIL Quality Support Bot**: one engine,
+many departments.
+
+- **Departments.** A department has modules, sub-modules and sources (a git repository or a folder of
+  documents), a template (engineering, knowledge, support, analysis, custom) and role switches. The
+  registry is local (`data/departments/registry.json`). Departments are added and edited in the app.
+- **Isolation.** Each department has its own vault, SQLite index and chats folder. Every request goes
+  through `resolveDepartment`, which returns the only config and paths it may use. Tests prove that
+  search, chat, inbox, reports and documents never cross departments.
+- **Landing page.** The app opens on "Choose your department". Choosing one opens that department's
+  chat, inbox, reports and department page. Four full themes (Noir default, Pulse, Dots, Aurora).
+- **Developer capture.** A VS Code extension, opt-in per developer and per workspace, records masked
+  activity (commits, saves as counts, tasks, allowlisted terminal commands, diagnostics counts, ideas,
+  decisions, corrections, `@guard` chats) to a local spool. "Summarize my day" asks the engine for
+  draft ai-log entries (using the developer's own Claude plan or key, plus their local Claude Code
+  transcripts). The developer reviews a diff and applies it. Guard learns from the `ai-log` the team
+  commits. See `docs/capture-privacy.md`: this is activity monitoring and needs the team's agreement.
+- **Data contract.** `docs/capture-events.md`; the extension and engine share `repoKey`, with test
+  vectors checked on both sides.

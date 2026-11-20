@@ -4,6 +4,10 @@ import { buildMark, remountMarks, setMarkState, STYLES, STYLE_NAMES, STYLE_BLURB
 import { applyStep, workSteps, summarize, totalMs, formatDuration, stepIcon, splitEvents } from "/steps.js";
 import { planReveal, revealedLength, shouldReveal } from "/reveal.js";
 import { shortTitle } from "/titles.js";
+import { PRODUCT_NAME, PRODUCT_SHORT } from "/brand.js";
+import { initDepartments } from "/depts.js";
+import { withDept } from "/deptapi.js";
+import { saveLast, colorHex } from "/departments.js";
 
 // Suggestions are real questions the vault can answer.
 const EXAMPLES = [
@@ -57,6 +61,7 @@ const svg = (d, sw = 2) => {
 const Prefs = globalThis.GuardPrefs;
 const storage = Prefs ? Prefs.safeStorage() : null;
 const state = {
+  dept: null, depts: [], view: "landing", legacy: false,
   prefs: Prefs ? Prefs.load(storage) : { style: "noir", mode: "system", motion: "auto", showWork: "auto" },
   chats: [], chat: null, commands: [], busy: false, abort: null, menuIndex: 0, menuItems: [],
   backend: "No model", runningChat: null, notesOnly: false, sideSet: false, reveal: null,
@@ -106,10 +111,12 @@ function followStyleSidebar() {
 /* ---------- api ---------- */
 async function api(path, opts = {}) {
   const init = { ...opts };
+  const scoped = withDept(path, opts.body, state.dept);
+  path = scoped.path;
   if (opts.body !== undefined) {
     init.method = opts.method || "POST";
     init.headers = { "Content-Type": "application/json" };
-    init.body = JSON.stringify(opts.body);
+    init.body = JSON.stringify(scoped.body);
   }
   const r = await fetch(path, init);
   const data = await r.json().catch(() => ({}));
@@ -119,7 +126,7 @@ async function api(path, opts = {}) {
 
 /** POST that streams newline-delimited JSON events. Falls back to one JSON reply (errors, old servers). */
 async function streamPost(path, body, signal, onEvent) {
-  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" }, body: JSON.stringify(body), signal });
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" }, body: JSON.stringify(withDept(path, body, state.dept).body), signal });
   const type = r.headers.get("content-type") || "";
   if (!type.includes("ndjson") || !r.body) return { json: await r.json().catch(() => ({})), status: r.status };
   const reader = r.body.getReader();
@@ -497,11 +504,13 @@ function emptyState() {
   const hero = el("div", "hero-mark");
   hero.appendChild(mark("idle"));
   box.append(hero);
-  box.appendChild(el("p", "prompt-line", "> aura-guard ready"));
-  box.append(el("h2", "", "What do you want to know about Aura?"));
+  const cur = currentDept();
+  box.appendChild(el("p", "prompt-line", "> " + PRODUCT_SHORT.toLowerCase().replace(/\s+/g, "-") + " ready"));
+  box.append(el("h2", "", cur ? `What do you want to know about ${cur.name}?` : "What do you want to know?"));
   box.append(el("p", "", "Answers come only from the vault notes and the indexed code, with sources. Type / for commands."));
   const grid = el("div", "examples");
-  EXAMPLES.forEach((q, i) => {
+  // The example questions are about one project, so they are only shown when no department is chosen.
+  (state.dept ? [] : EXAMPLES).forEach((q, i) => {
     const b = el("button", "example");
     b.type = "button";
     if (d.empty === "terminal") b.appendChild(el("span", "example-n", String(i + 1).padStart(2, "0")));
@@ -867,26 +876,88 @@ function openNoteDoc(n) {
 
 /* ---------- views ---------- */
 const review = initReview({ api, el, $, openNote: openNoteDoc, closePanel });
-function toast(text) {
-  const t = el("div", "toast");
+function toast(text, opts = {}) {
+  const t = el("div", "toast" + (opts.error ? " toast-error" : ""));
   t.appendChild(el("span", "toast-text", text));
   $("toasts").appendChild(t);
-  setTimeout(() => t.remove(), 1600);
+  setTimeout(() => t.remove(), opts.error ? 6000 : 1600);
+}
+
+const currentDept = () => state.depts.find((d) => d.id === state.dept) || null;
+function paintDeptChrome() {
+  const d = currentDept();
+  const inWork = !!d && state.view !== "landing";
+  $("dept-bar").hidden = !inWork;
+  $("tab-dept").hidden = !inWork;
+  if (d) {
+    $("dept-name").textContent = d.name;
+    $("dept-dot").style.setProperty("--dc", colorHex(d.color));
+    $("dept-current").setAttribute("aria-label", `${d.name}. Back to all departments (Ctrl+Shift+D)`);
+  }
+  for (const c of document.querySelectorAll("[data-dept-chip]")) {
+    c.replaceChildren();
+    c.hidden = !d;
+    if (!d) continue;
+    const dot = el("span", "dot");
+    dot.style.setProperty("--dc", colorHex(d.color));
+    dot.setAttribute("aria-hidden", "true");
+    c.append(dot, el("span", "dept-chip-name", d.name));
+    c.setAttribute("title", `Department: ${d.name}`);
+  }
+  document.title = d && inWork ? `${d.name} - ${PRODUCT_NAME}` : PRODUCT_NAME;
 }
 
 function setView(name) {
-  for (const v of ["chat", "inbox", "reports"]) {
+  state.view = name;
+  $("app").classList.toggle("at-landing", name === "landing");
+  for (const v of ["landing", "dept", "chat", "inbox", "reports"]) {
     $(`view-${v}`).hidden = v !== name;
     const tab = $(`tab-${v}`);
+    if (!tab) continue;
     tab.classList.toggle("active", v === name);
     tab.setAttribute("aria-selected", String(v === name));
   }
   for (const n of document.querySelectorAll(".chat-only")) n.hidden = name !== "chat";
   closePanel();
-  review.show(name);
+  paintDeptChrome();
+  if (name === "inbox" || name === "reports") review.show(name);
   if (name === "chat") $("input").focus();
 }
-for (const b of document.querySelectorAll(".switch")) b.addEventListener("click", () => setView(b.getAttribute("data-view")));
+
+/** Switches the current department and shows one of its views. Everything per-department reloads. */
+async function enter(id, view = "chat") {
+  if (state.dept !== id) {
+    state.dept = id;
+    state.chat = null;
+    state.chats = [];
+    renderChatList();
+  }
+  saveLast(storage, id);
+  setView(view);
+  if (view === "dept") {
+    refreshStatus();
+    return depts.showDept(id);
+  }
+  await Promise.all([refreshChats(), refreshStatus()]);
+  if (view === "chat") {
+    if (state.chats[0]) await openChat(state.chats[0].id);
+    else renderMessages();
+    $("input").focus();
+  }
+  review.refreshCount();
+}
+function showLanding() {
+  setView("landing");
+  depts.showLanding();
+}
+const depts = initDepartments({
+  $, storage, enter, showLanding, toast, streamPost,
+  onList: (list) => { state.depts = list; paintDeptChrome(); },
+  paintChips: paintDeptChrome,
+  mountMark: (slot) => { slot.replaceChildren(buildMark(document, style(), "idle")); },
+});
+$("dept-current").addEventListener("click", showLanding);
+for (const b of document.querySelectorAll(".switch")) b.addEventListener("click", () => (state.legacy ? setView(b.getAttribute("data-view")) : enter(state.dept, b.getAttribute("data-view"))));
 
 document.addEventListener("click", (ev) => {
   const t = ev.target;
@@ -1111,7 +1182,10 @@ for (const b of document.querySelectorAll("[data-cmd]")) {
 }
 document.addEventListener("keydown", (e) => {
   const mod = e.ctrlKey || e.metaKey;
-  if (mod && !e.altKey && e.key.toLowerCase() === "k") {
+  if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === "d") {
+    e.preventDefault();
+    if (!state.legacy) showLanding();
+  } else if (mod && !e.altKey && e.key.toLowerCase() === "k") {
     e.preventDefault();
     newChat();
   } else if (mod && !e.altKey && e.key === "/") {
@@ -1140,12 +1214,23 @@ async function boot() {
   remountMarks(document, document, style());
   followStyleSidebar();
   syncPills();
-  const [cmds] = await Promise.all([api("/api/commands"), refreshStatus(), refreshChats()]);
-  state.commands = (cmds.data.commands || []).filter((c) => c.available);
-  if (state.chats[0]) await openChat(state.chats[0].id);
-  else renderMessages();
-  $("input").focus();
-  review.refreshCount();
-  setInterval(() => !state.busy && refreshStatus(), 30000);
+  document.title = PRODUCT_NAME;
+  $("brand-name").textContent = PRODUCT_SHORT;
+  await depts.loadList();
+  state.legacy = depts.legacy;
+  if (state.legacy) {
+    // An older server without departments: behave as before, one set of chats, no landing page.
+    const [cmds] = await Promise.all([api("/api/commands"), refreshStatus(), refreshChats()]);
+    state.commands = (cmds.data.commands || []).filter((c) => c.available);
+    setView("chat");
+    if (state.chats[0]) await openChat(state.chats[0].id);
+    else renderMessages();
+    review.refreshCount();
+  } else {
+    const cmds = await api("/api/commands");
+    state.commands = (cmds.data.commands || []).filter((c) => c.available);
+    showLanding();
+  }
+  setInterval(() => !state.busy && state.view !== "landing" && refreshStatus(), 30000);
 }
 boot();

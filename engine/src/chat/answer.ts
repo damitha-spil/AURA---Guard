@@ -2,6 +2,7 @@
 // Every model call goes through the injected `complete` (createBrain), which masks the text,
 // blocks secrets and audits. This module never talks to a model by itself.
 
+import { PRODUCT_SHORT } from "../brand.ts";
 import type { Db } from "../index/db.ts";
 import { getDoc, search } from "../index/search.ts";
 import { coChanged } from "../index/cochange.ts";
@@ -28,7 +29,7 @@ export const MAX_CONTEXT_ROWS = 8;
 export const ANSWER_MAX_TOKENS = 900;
 
 export const RULES = [
-  "You are AURA Guard's chat, an internal engineering assistant for the Aura product.",
+  "You are SPIL Quality Support Bot's chat, an internal engineering assistant for the Aura product.",
   "Rules:",
   "- Answer only from the sources provided below. Do not use outside knowledge about this codebase.",
   "- Cite sources as [ref], using the exact ref shown for each source. Never invent a ref.",
@@ -37,6 +38,13 @@ export const RULES = [
   "- Never suggest writing to the ERP or giving the AI an ERP create tool.",
   "- Use plain words. Keep the answer short.",
 ].join("\n");
+
+/** The rules text for a department. The plain default config keeps the original first line. */
+export function rulesFor(cfg: GuardConfig): string {
+  if (!cfg.departmentName || cfg.departmentId === "default") return RULES;
+  const first = `You are ${PRODUCT_SHORT}, an internal assistant for the ${cfg.departmentName} department. Use only this department's knowledge.`;
+  return first + RULES.slice(RULES.indexOf("\n"));
+}
 
 export interface ChatTurn { role: "user" | "assistant"; text: string }
 
@@ -216,7 +224,7 @@ export async function answer(_cfg: GuardConfig, db: Db, input: AnswerInput, deps
   try {
     const r = await deps.complete({
       role: "chat",
-      system: [RULES, "Sources:\n\n" + blocks.join("\n\n---\n\n")],
+      system: [rulesFor(_cfg), "Sources:\n\n" + blocks.join("\n\n---\n\n")],
       user,
       maxTokens: ANSWER_MAX_TOKENS,
     });

@@ -34,7 +34,7 @@ export function buildDiaryPrompt(
   const maxQuestions = role.limits?.max_questions_per_day ?? FALLBACK_MAX_QUESTIONS;
   const rules = (role.rules ?? []).map((r) => `- ${r}`).join("\n");
   const stable =
-    `You are Scribe for AURA Guard. You write a short engineering diary for one day.\n\nRules:\n${rules}\n\n` +
+    `You are Scribe for SPIL Quality Support Bot. You write a short engineering diary for one day.\n\nRules:\n${rules}\n\n` +
     `Reply with JSON: {"summary": string, "built": string[], "decisions": [{"what": string, "why": string}], ` +
     `"questions": string[]}. At most ${maxQuestions} questions.`;
   const { notes } = loadVault(cfg.vaultDir);

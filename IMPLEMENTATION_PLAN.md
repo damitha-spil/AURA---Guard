@@ -1,4 +1,4 @@
-# AURA Guard implementation plan
+# SPIL Quality Support Bot implementation plan
 
 Status: draft, 2026-11-20. Starts after the open decisions in
 [ARCHITECTURE.md](ARCHITECTURE.md#14-open-decisions) are settled.

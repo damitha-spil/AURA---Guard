@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import type { GuardConfig } from "../types.ts";
+import { PRODUCT_NAME } from "../brand.ts";
 import { createBrain } from "../brain/select.ts";
 import { createGuardServer, newToken } from "./server.ts";
 
@@ -59,7 +60,7 @@ export async function runUi(cfg: GuardConfig, opts: UiOptions): Promise<number> 
   const server = createGuardServer(cfg, { token, complete: brain.complete });
   const port = await listen(server, opts.port);
   const url = `http://127.0.0.1:${port}/?t=${token}`;
-  opts.out(`AURA Guard chat is running at http://127.0.0.1:${port}/`);
+  opts.out(`${PRODUCT_NAME} is running at http://127.0.0.1:${port}/`);
 
   let child: ChildProcess | null = null;
   const done = new Promise<number>((resolve) => {

@@ -1,0 +1,6 @@
+{
+  "retentionDays": 30,
+  "maxEventsPerDay": 5000,
+  "terminalAllowlist": ["git", "cargo", "npm", "npx", "node", "tsc", "vitest", "playwright", "pytest", "dotnet", "yarn", "pnpm"],
+  "capture": { "commit": true, "save": true, "task": true, "terminal": true, "diagnostics": true, "chat": true }
+}

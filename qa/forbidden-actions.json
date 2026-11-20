@@ -1,5 +1,5 @@
 {
-  "$comment": "AURA Guard QA safety list. DATA, not code: a company extends it in qa/forbidden-actions.local.json (same shape; lists are added to these, never replaced). A word matches whole words after lower-casing and dropping punctuation; a word ending in * matches any word that starts with it. A test never clicks, fills or presses anything that matches. Tests only READ.",
+  "$comment": "SPIL Quality Support Bot QA safety list. DATA, not code: a company extends it in qa/forbidden-actions.local.json (same shape; lists are added to these, never replaced). A word matches whole words after lower-casing and dropping punctuation; a word ending in * matches any word that starts with it. A test never clicks, fills or presses anything that matches. Tests only READ.",
   "names": [
     "save", "save draft", "create", "new", "add", "submit", "send", "reply", "delete", "remove", "clear list",
     "forget", "approve", "post", "confirm", "confirm order", "publish", "to spil glass", "send to spil glass",

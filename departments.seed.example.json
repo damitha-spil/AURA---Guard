@@ -1,0 +1,36 @@
+{
+  "$comment": "Example only. Copy to data/departments/seed.json (local, never committed), edit, then run `aura-guard dept seed`. A source is created only if its folder exists on this computer. Paths must be full local folder paths.",
+  "departments": [
+    {
+      "id": "example-engineering",
+      "name": "Example Engineering",
+      "description": "A team that builds software.",
+      "template": "engineering",
+      "color": "blue",
+      "modules": [
+        {
+          "name": "Web app",
+          "sources": [
+            {
+              "id": "web-app",
+              "label": "Web app",
+              "path": "C:/work/web-app"
+            }
+          ],
+          "subModules": [
+            {
+              "name": "Checkout"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "example-support",
+      "name": "Example Support",
+      "description": "Answers customer questions.",
+      "template": "support",
+      "color": "rose"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "id": "knowledge",
+  "name": "Knowledge",
+  "description": "A team that keeps documents and know-how. Reads folders of Markdown or text files and writes a daily diary.",
+  "hint": "Add the folders where the team keeps its documents. No git needed.",
+  "sourceKind": "docs",
+  "roles": { "scribe": true, "reviewer": false, "refactor": false, "qa": false, "rules": false, "prs": false, "supportWriter": false, "quiz": true, "daily": true }
+}

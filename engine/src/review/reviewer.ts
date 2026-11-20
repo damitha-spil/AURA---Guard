@@ -115,7 +115,7 @@ export function buildReviewPrompt(
   const maxTokens = limitOf(role, "max_tokens", FALLBACK_MAX_TOKENS);
   const rules = (role.rules ?? []).map((r) => `- ${r}`).join("\n");
   const stable =
-    `You are the Code Reviewer and defect finder for AURA Guard. You read one change to Aura (a Windows desktop app) and report problems.\n\nRules:\n${rules}\n\n` +
+    `You are the Code Reviewer and defect finder for SPIL Quality Support Bot. You read one change to Aura (a Windows desktop app) and report problems.\n\nRules:\n${rules}\n\n` +
     `Reply with JSON: {"findings": [{"file": string, "line": number, "severity": "blocker"|"risk"|"suggestion", ` +
     `"issue": string, "why": string, "confidence": number 0 to 1 (how sure you are this is a real bug), "suggestion": string (optional, a minimal unified diff)}]}. ` +
     `At most ${maxFindings} findings. Use {"findings": []} when the change is fine.`;

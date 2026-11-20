@@ -58,7 +58,7 @@ function main() {
     (body ? `- **Details:** ${body.slice(0, MAX_BODY_CHARS).replace(/\s*\n\s*/g, " ")}\n` : "") +
     `- **Files:** ${shown}\n` +
     `- **Commit:** ${sha}\n` +
-    `- **Logged by:** AURA Guard commit hook (add Why / Decided / Ideas by hand or ask the assistant)\n`;
+    `- **Logged by:** SPIL Quality Support Bot commit hook (add Why / Decided / Ideas by hand or ask the assistant)\n`;
   appendFileSync(file, entry);
 }
 

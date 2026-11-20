@@ -5,7 +5,9 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { dbPath, loadConfig } from "../config.ts";
+import { dbPath, envValue, loadConfig } from "../config.ts";
+import { PRODUCT_NAME } from "../brand.ts";
+import { loadRegistry, resolveDepartment } from "../departments/registry.ts";
 import { openDb } from "../index/db.ts";
 import type { Db } from "../index/db.ts";
 import { getDoc, search } from "../index/search.ts";
@@ -13,7 +15,7 @@ import { historyFor } from "../index/history.ts";
 import { coChanged } from "../index/cochange.ts";
 import { findStale } from "../index/stale.ts";
 import { blastRadius } from "../index/graph.ts";
-import type { Audience, DocKind } from "../types.ts";
+import type { Audience, DocKind, GuardConfig } from "../types.ts";
 
 export type Scope = "dev" | "qa" | "support";
 
@@ -33,9 +35,12 @@ type Text = { content: { type: "text"; text: string }[] };
 const text = (t: string): Text => ({ content: [{ type: "text", text: t }] });
 
 /** `db` may be null when the index file does not exist yet. */
-export function buildServer(db: Db | null, scope: Scope): McpServer {
+export function buildServer(db: Db | null, scope: Scope, departmentName?: string): McpServer {
   const audience = SCOPE_AUDIENCE[scope];
-  const server = new McpServer({ name: "aura-guard", version: "0.1.0" });
+  const server = new McpServer(
+    { name: "aura-guard", title: PRODUCT_NAME, version: "0.1.0" },
+    departmentName ? { instructions: `Knowledge of the ${departmentName} department only.` } : {},
+  );
   const run = (fn: (d: Db) => string): Text => {
     if (!db) return text(NOT_BUILT);
     try {
@@ -156,12 +161,18 @@ export function buildServer(db: Db | null, scope: Scope): McpServer {
   return server;
 }
 
+/** The department this server serves: QSB_DEPT or AURA_GUARD_DEPT, else the registry default. */
+export function mcpConfig(base: GuardConfig, env: Record<string, string | undefined> = process.env): GuardConfig {
+  return resolveDepartment(loadRegistry(base), envValue("DEPT", env), PRODUCT_NAME).cfg;
+}
+
 async function main(): Promise<void> {
-  const scope = parseScope(process.env["AURA_GUARD_SCOPE"]);
-  const file = dbPath(loadConfig());
+  const scope = parseScope(envValue("SCOPE"));
+  const cfg = mcpConfig(loadConfig());
+  const file = dbPath(cfg);
   const db = existsSync(file) ? openDb(file) : null;
-  await buildServer(db, scope).connect(new StdioServerTransport());
-  console.error(`aura-guard MCP ready (scope ${scope})`);
+  await buildServer(db, scope, cfg.departmentName).connect(new StdioServerTransport());
+  console.error(`aura-guard MCP ready (scope ${scope}, department ${cfg.departmentId ?? "default"})`);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

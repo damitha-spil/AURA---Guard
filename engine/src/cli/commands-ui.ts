@@ -26,6 +26,7 @@ export const uiCommands: Record<string, (ctx: CommandContext) => Promise<number>
       return 2;
     }
     const { runUi } = await import("../server/launch.ts");
-    return runUi(ctx.cfg, { port, open: ctx.flags["no-open"] !== true, out: ctx.out });
+    // The server picks the department per request, so it needs the machine config the registry hangs on.
+    return runUi(ctx.base ?? ctx.cfg, { port, open: ctx.flags["no-open"] !== true, out: ctx.out });
   },
 };

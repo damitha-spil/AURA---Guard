@@ -138,7 +138,7 @@ export async function suggestRefactor(
   const notes = relevantNotes(db, [path], limitOf(role, "max_context_notes", FALLBACK_MAX_NOTES), limitOf(role, "note_chars", FALLBACK_NOTE_CHARS));
   const rules = (role.rules ?? []).map((r) => `- ${r}`).join("\n");
   const stable =
-    `You are the Refactor advisor for AURA Guard. You suggest small, safe refactors for one file.\n\nRules:\n${rules}\n\n` +
+    `You are the Refactor advisor for SPIL Quality Support Bot. You suggest small, safe refactors for one file.\n\nRules:\n${rules}\n\n` +
     `Reply with JSON: {"refactors": [{"title": string, "why": string, "risk": string, "affected": string[], "patch": string}]}. ` +
     `At most ${maxRefactors} refactors. Use {"refactors": []} when the file is fine. The patch is a unified diff with a/${path} and b/${path} headers.`;
   const titles = ruleTitles(cfg).join("\n");

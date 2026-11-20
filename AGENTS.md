@@ -1,4 +1,4 @@
-# Working in AURA Guard
+# Working in SPIL Quality Support Bot
 
 Read [AI_HANDOFF.md](AI_HANDOFF.md) and run `git status --short` before
 changing anything. Keep the handoff current after every meaningful change,
@@ -20,6 +20,19 @@ Do not commit or push unless the owner asks.
   inside Aura after human review. Aura never queries Guard live.
 - On the shared QA SQL Server, use only the Cobalt database.
 
+- **Departments.** The product serves many departments. Each one has its own vault,
+  index and chats; no code path may read another department's data. Always go through
+  `resolveDepartment` (`engine/src/departments/`). Department names, modules and folder
+  paths are company facts: they live in local data (`data/departments/`, git-ignored),
+  never in code, tests, docs or git. Use generic names in tests and examples.
+- **The vault and anything derived from private repos or chats stays out of git.**
+  This repo is public: only code, generic docs, templates and fixtures are pushed.
+- **Developer activity capture.** Only the VS Code extension writes the capture spool, and
+  only after the developer's consent. The engine reads the spool and returns DRAFT
+  ai-log entries; the extension appends a draft to the developer's own `ai-log/` only
+  after the developer reviews a diff and confirms. The engine itself never writes into
+  another repo.
+
 ## Layout
 
 | Folder | What |
@@ -31,6 +44,12 @@ Do not commit or push unless the owner asks.
 | `engine/src/guard/` | resource guard (pause during builds) |
 | `engine/src/mcp/` | read-only MCP server |
 | `engine/src/cli/` | `aura-guard` command line; words in `copy.ts` |
+| `engine/src/departments/` | departments registry, templates, health, isolation |
+| `engine/src/capture/` | read the capture spool, draft ai-log entries |
+| `engine/src/{review,qa,prs,quiz,rules,logcheck,support}/` | roles and learning |
+| `engine/src/{chat,server}/` and `ui/` | chat app, landing page, dashboard (four themes) |
+| `extension/` | VS Code companion extension (own package) |
+| `plugin/` | Claude Code plugin |
 | `vault/` | Obsidian vault: the source of truth |
 | `roles/` | role config files |
 | `evals/` | quiz, masking cases, PR replay |

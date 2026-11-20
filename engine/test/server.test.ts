@@ -65,7 +65,7 @@ test("token: requests without the cookie get 401; the token link sets an HttpOnl
     assert.match(cookie, /SameSite=Strict/);
     const page = await http(s.port, { path: "/", headers: s.auth });
     assert.equal(page.status, 200);
-    assert.match(page.body, /<title>AURA Guard<\/title>/);
+    assert.match(page.body, /<title>SPIL Quality Support Bot<\/title>/);
     assert.equal(page.headers["x-content-type-options"], "nosniff");
     assert.equal(page.headers["content-security-policy"], "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'");
     assert.equal(page.headers["access-control-allow-origin"], undefined);

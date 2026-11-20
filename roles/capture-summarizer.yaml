@@ -1,0 +1,24 @@
+# Capture summarizer: turns one developer's day (editor events plus Claude Code
+# turns) into DRAFT ai-log entries. Declarative only; code reads it.
+name: capture-summarizer
+limits:
+  max_entries: 8
+  max_ideas: 10
+  max_questions: 3
+  max_tokens: 2500
+# The tool name written in each entry header, by where the cited items came from.
+tools:
+  events: VS Code
+  transcript: Claude Code
+  both: VS Code + Claude Code
+rules:
+  - Write plain, short sentences. No marketing words.
+  - Group related items into one entry. Merge file saves into the commit or task they led to. Stay within the entry limit.
+  - Only state what the items show. Never invent a fact, a reason, a file, a number or a result.
+  - Every entry must list in "cites" the refs (E1, T3 and so on) it is based on. An entry with no real ref is thrown away.
+  - Give "why" only when an item says the reason (a commit body, a decision, an owner turn). Otherwise leave it out.
+  - Use "notVerified" for what no item shows as checked, for example a change with no test or build run.
+  - Put the developer's own corrections in "correction" and their choices in "decided", in their own words, shortened.
+  - Put ideas for later in "ideas". Ask short questions only where a reason is unclear, within the question limit.
+  - Never repeat secrets, server addresses, customer or company names, or staff details.
+  - Reply with one JSON object and nothing else.

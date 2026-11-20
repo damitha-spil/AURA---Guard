@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GuardConfig } from "./types.ts";
 
-/** AURA Guard's own root folder (two levels above engine/src). */
+/** SPIL Quality Support Bot's own root folder (two levels above engine/src). */
 export const GUARD_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 /**
@@ -27,4 +27,12 @@ export function loadConfig(root: string = GUARD_ROOT): GuardConfig {
 
 export function dbPath(cfg: GuardConfig): string {
   return join(cfg.dataDir, "guard.db");
+}
+
+/** Reads QSB_<name> first, then AURA_GUARD_<name>. The new QSB_ names win when both are set. */
+export function envValue(name: string, env: Record<string, string | undefined> = process.env): string | undefined {
+  const a = env[`QSB_${name}`];
+  if (a !== undefined && a !== "") return a;
+  const b = env[`AURA_GUARD_${name}`];
+  return b !== undefined && b !== "" ? b : undefined;
 }

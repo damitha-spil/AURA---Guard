@@ -1,4 +1,4 @@
-# AI handoff: AURA Guard
+# AI handoff: SPIL Quality Support Bot
 
 Keep this file current. Update it after every meaningful change, test,
 decision or blocker, and before stopping. Never record credentials, tokens or
@@ -64,7 +64,7 @@ other secrets.
 - **Owner to check:** a few key-shaped strings in Aura's own source (locations
   kept out of this public repo; ask the assistant to re-run the scan). Probably
   test fixtures; not judged safe by Guard.
-- The Aura folder was switched to `feat/order-entry-rebase-by-nisal` during
+- The Aura folder was switched to `another feature branch` during
   this session (not by Guard), so later scans see a different file set.
 
 ## Graph direction fix (main session)
@@ -280,3 +280,27 @@ other secrets.
   icon). Contrast checked for 8 colour sets; Aurora measured against
   approximated opaque backgrounds. `themes.css` reduced-motion block comes from
   a script that is not in the repo.
+
+## Departments, capture, extension and rename (2026-11-20, main session + Sonnet agents)
+
+- Product renamed to **SPIL Quality Support Bot** in all user-facing text. Identifiers stay
+  (`aura-guard`, `AURA_GUARD_*` with `QSB_*` aliases, plugin id, extension id) until the GitHub repo is
+  renamed. To finish the rename: rename the GitHub repo (Settings > General), then
+  `git remote set-url origin <new url>`, update the marketplace repo in Aura's
+  `.claude/settings.json` and in `README.md`, then rename the folder (close VS Code first).
+- Built: departments engine and API (`engine/src/departments/*`, isolation tests), landing page,
+  overview, department page and wizard (`ui/depts.js` and friends), capture engine
+  (`engine/src/capture/*`, `capture` and `answer` commands), VS Code extension (`extension/`).
+- Local data (git-ignored): `data/departments/registry.json` (the real departments),
+  `data/departments/seed.json` (the starting set; `dept seed` reads it). The repo only has
+  `departments.example.json` and `departments.seed.example.json` with generic names.
+- Evidence: root `npm test` 271 pass (29 files); extension `npm test` 22 pass; typechecks clean;
+  end-to-end capture check (see STATUS.md section 11); a fresh-clone test is run before every push.
+- Fixed in this session: extension `repoKey` did not match the engine (trailing slash, runs of
+  symbols); real department names, paths and staff names were hard-coded in a seed and in tests and
+  were moved to local data or replaced with generic names.
+- Not verified: the extension in a real VS Code window; Index now from the dashboard against the real
+  `/api/command`; 409 etag conflict UI live; the other three themes against the real server.
+- Owner actions: make the GitHub repo private; install the extension to try it
+  (`code --install-extension <vsix>`), delete the stray empty folder `D:\tmp`; tell the team before
+  rolling out capture.

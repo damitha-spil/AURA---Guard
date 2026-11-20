@@ -1,14 +1,14 @@
-// AURA Guard command line. Small hand-written argument parser, no extra deps.
+// SPIL Quality Support Bot command line. Small hand-written argument parser, no extra deps.
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dbPath, loadConfig } from "../config.ts";
+import { dbPath, envValue, loadConfig } from "../config.ts";
 import { openDb } from "../index/db.ts";
 import type { Db } from "../index/db.ts";
 import { search } from "../index/search.ts";
 import { indexVault } from "../index/notes.ts";
-import { ingestRepos } from "../ingest/index.ts";
+import { ingestDocSources, ingestRepos, pruneRemovedSources } from "../ingest/index.ts";
 import { historyFor } from "../index/history.ts";
 import { coChanged } from "../index/cochange.ts";
 import { findStale } from "../index/stale.ts";
@@ -23,7 +23,9 @@ import { CliError } from "../brain/backends.ts";
 import { createBrain, describeBackends, NoBackendError } from "../brain/select.ts";
 import { draftDiary } from "../roles/scribe.ts";
 import { mineSessions } from "../sessions/mine.ts";
+import { captureCommands } from "./commands-capture.ts";
 import { dailyCommands } from "./commands-daily.ts";
+import { DeptSelectionError, deptCommands, indexAll, selectConfig } from "./commands-dept.ts";
 import { learnCommands } from "./commands-learn.ts";
 import { prCommands } from "./commands-prs.ts";
 import { qaCommands } from "./commands-qa.ts";
@@ -36,14 +38,17 @@ interface Parsed {
   flags: Record<string, string | true>;
 }
 
-const VALUE_FLAGS = new Set(["max", "audience", "limit", "since", "min-score", "port", "base", "head", "widths", "status", "skip"]);
+const VALUE_FLAGS = new Set(["dept", "name", "template", "description", "owner", "color", "path", "kind", "module", "sub", "label", "max", "audience", "limit", "since", "min-score", "port", "base", "head", "widths", "status", "skip", "repo", "date", "before"]);
 
 /** What an extra command receives. */
 export interface CommandContext {
   rest: string[];
   flags: Record<string, string | true>;
   out: (s: string) => void;
+  /** The selected department's config (see --dept). */
   cfg: GuardConfig;
+  /** The machine config the department registry hangs on. Set by the main entry point. */
+  base?: GuardConfig;
 }
 
 /**
@@ -123,7 +128,7 @@ EXTRA_COMMANDS.mine = ({ rest, flags, out, cfg }) => {
 };
 
 // Command sets from the feature modules. Each one exports a name -> handler map.
-Object.assign(EXTRA_COMMANDS, uiCommands, qaCommands, prCommands, reviewCommands, dailyCommands, learnCommands);
+Object.assign(EXTRA_COMMANDS, uiCommands, qaCommands, prCommands, reviewCommands, dailyCommands, learnCommands, deptCommands, captureCommands);
 
 function localToday(): string {
   const d = new Date();
@@ -162,8 +167,8 @@ function num(v: string | true | undefined): number | undefined {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
 }
 
-function openExisting(): Db | null {
-  const file = dbPath(loadConfig());
+function openExisting(cfg: GuardConfig): Db | null {
+  const file = dbPath(cfg);
   return existsSync(file) ? openDb(file) : null;
 }
 
@@ -177,9 +182,28 @@ export async function run(argv: string[]): Promise<number> {
     out(copy.help);
     return 0;
   }
-  const cfg = loadConfig();
+  // QSB_ROOT (or AURA_GUARD_ROOT) points at another config folder; used by tests and copies.
+  const base = loadConfig(envValue("ROOT"));
+  // The department registry hangs on the machine config; `dept` works on the registry itself.
+  if (cmd === "dept") return deptCommands["dept"]!({ rest, flags, out, cfg: base, base });
+  if (cmd === "index" && flags["all"] === true) return indexAll(base, flags, out);
+  let cfg: GuardConfig;
+  try {
+    const sel = selectConfig(base, flags);
+    cfg = sel.cfg;
+    if (sel.archived && (cmd === "index" || cmd === "daily")) {
+      out(copy.archived(cfg.departmentId ?? ""));
+      return 1;
+    }
+  } catch (e) {
+    if (e instanceof DeptSelectionError) {
+      out(e.message);
+      return 2;
+    }
+    throw e;
+  }
   const extra = EXTRA_COMMANDS[cmd];
-  if (extra) return extra({ rest, flags, out, cfg });
+  if (extra) return extra({ rest, flags, out, cfg, base });
 
   if (cmd === "check") {
     const { notes, problems } = loadVault(cfg.vaultDir);
@@ -203,11 +227,14 @@ export async function run(argv: string[]): Promise<number> {
       }
     }
     const db = openDb(dbPath(cfg));
+    if (cfg.departmentName && cfg.departmentId !== "default") out(copy.department(cfg.departmentName, cfg.departmentId ?? ""));
+    const pruned = pruneRemovedSources(db, cfg);
+    if (pruned > 0) out(copy.pruned(pruned));
     const notes = indexVault(db, cfg.vaultDir);
     out(copy.indexed(notes.added, notes.updated, notes.removed));
     for (const p of notes.problems) out(copy.problemLine(p.file, p.message));
     const max = num(flags["max"]);
-    for (const r of ingestRepos(db, cfg, max ? { max } : undefined)) {
+    for (const r of [...ingestRepos(db, cfg, max ? { max } : undefined), ...ingestDocSources(db, cfg)]) {
       out(
         r.skipped
           ? copy.repoSkipped(r.repo, r.skipped)
@@ -245,7 +272,7 @@ export async function run(argv: string[]): Promise<number> {
         out(copy.needArgs("graph blast", "<repo> <path>"));
         return 1;
       }
-      const db = openExisting();
+      const db = openExisting(cfg);
       if (!db) {
         out(copy.noIndex);
         return 1;
@@ -278,7 +305,7 @@ export async function run(argv: string[]): Promise<number> {
     return 1;
   }
 
-  const db = openExisting();
+  const db = openExisting(cfg);
   if (!db) {
     out(copy.noIndex);
     return 1;
@@ -338,6 +365,7 @@ export async function run(argv: string[]): Promise<number> {
       return 0;
     }
     case "status": {
+      if (cfg.departmentName && cfg.departmentId !== "default") out(copy.department(cfg.departmentName, cfg.departmentId ?? ""));
       out(`Index: ${dbPath(cfg)}`);
       const kinds = db.prepare("SELECT kind, COUNT(*) AS n FROM docs GROUP BY kind ORDER BY kind").all() as {
         kind: string;
