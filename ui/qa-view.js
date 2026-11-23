@@ -6,7 +6,7 @@
 
 import {
   CASE_TYPES, TYPE_LABEL, PRIORITIES, PRIORITY_NOTE, MAX_SHOWN_FILES, safeResult, riskInfo, groupByPriority, filterCases, priorityCounts, typeCounts,
-  caseCountText, generatedText, journeyState, loadChecklist, saveChecklist, toMarkdown, targetChips, chipAction, usedChip,
+  caseCountText, generatedText, journeyState, loadChecklist, saveChecklist, toMarkdown, targetChips, chipAction, usedChip, computeScorecard,
 } from "./qa.js";
 
 const NS = "http://www.w3.org/2000/svg";
@@ -640,7 +640,16 @@ export function renderQaCard(qa, ctx, { isLatest = false } = {}) {
     if (r.artifacts.jsonPath) pathBox.appendChild(pathRow("JSON", r.artifacts.jsonPath, ctx));
   } else acts.appendChild(el("span", "qa-muted qa-nofile", "No report file was written."));
   acts.appendChild(button("qa-btn qa-btn-quiet", "Re-run with a different target", "redo", changeTarget));
-  card.append(acts, pathBox);
+  if (typeof ctx.openHarness === "function" && r.id) {
+    acts.appendChild(button("qa-btn qa-btn-quiet", "Open in QA Harness", "shield", () => ctx.openHarness(r.id)));
+  }
+  const sc = computeScorecard(r);
+  const gateBar = el("div", "qa-block");
+  gateBar.append(
+    el("strong", "", `Release Gate: ${sc.gate.toUpperCase()} · ${sc.totalCases} cases (${sc.counts.P0} P0, ${sc.counts.P1} P1, ${sc.counts.P2} P2)`),
+    el("p", "qa-muted", sc.gateReason),
+  );
+  card.append(acts, pathBox, gateBar);
 
   if (r.risk.reasons.length) {
     const s = section("Why this risk", r.risk.reasons.length, nextId("qa-h"));

@@ -1,8 +1,61 @@
 # AI handoff: SPIL AURA QA Bot
 
-Keep this file current. Update it after every meaningful change, test,
-decision or blocker, and before stopping. Never record credentials, tokens or
-other secrets.
+> **Standing instruction for all future AIs:**
+> Read this entire file and run `git status --short` before making any changes.
+> **Every AI session MUST update `AI_HANDOFF.md`** after every meaningful implementation, test run, architectural decision, or blocker, and again before handing off or stopping. Record: what changed (exact file paths and symbols), exact commands and observed test/check results, what remains unverified (e.g., live UI visual proof), and the concrete next action. **Never record credentials, tokens, connection strings, or other secrets.**
+
+---
+
+## Agentic QA Harness UI, Backend API & Cua Driver Plan (2026-11-23)
+
+- **Cua Driver Background QA Integration (`engine/src/qa/cua_client.ts`, `engine/src/qa/cua_harness.ts`, `engine/src/qa/runner.ts`, `engine/src/types.ts`, `engine/src/config.ts`, `engine/src/qa/harness_api.ts`, `engine/src/server/server.ts`, `ui/qa-harness-view.js`):**
+  - Implemented `CuaClient` (`@modelcontextprotocol/sdk` stdio MCP client for `cua-driver mcp`) with `CUA_CALL_TIMEOUT_MS = 15_000`, `probeCuaDriver`, and hard tool blocking (`kill_app`, `bring_to_front`, `get_desktop_state`, `launch_app`).
+  - Implemented `cua_harness.ts` (`judgeTargetWindow`, `selectTargetWindow`, `createCuaStepContext`) enforcing `delivery_mode: "background"`, process denylist (`BUILTIN_DENY_PROCESSES` + `cuaDriver.denyApps`), allowlist (`cuaDriver.allowedApps`), and pre-action `qa/safety.ts` (`judgeElement`, `isCommitKey`, `isEnterKey`) checks on UIA `element_token`s.
+  - Added `runJourneyWithCua` in `engine/src/qa/runner.ts` saving background screenshots into `.artifacts/qa/<runId>/` and `GET /api/qa/driver` (`cuaDriverStatus`) surfaced in the **QA Harness** UI.
+  - Added `engine/test/cua-harness.test.ts`.
+- **Active Repo & Branch:** `D:\AURA - Guard` on branch `master` (all changes below are uncommitted).
+- **Repo Boundary Rule:** Do **not** modify `D:\SPIL AURA` unless the user explicitly asks to switch there. (A read-only research & design document `Cua Driver design plan.md` was written in `D:\SPIL AURA` earlier in the session; all code implementation was done strictly in `D:\AURA - Guard`.)
+
+### 1. What Was Built in `D:\AURA - Guard`
+
+#### A. Read-Only QA Harness Backend (`engine/src/qa/harness_api.ts`, `engine/src/server/server.ts`)
+- **`engine/src/qa/harness_api.ts`:**
+  - `listQaRuns(cfg)`: Scans `data/qa/runs/*.json` (capped at `MAX_QA_RUNS = 100`), computes per-run `Scorecard` (`totalCases`, `p0Count`/`p1Count`/`p2Count`, `safetyChecked`/`safetyPassed`, `defectsCount`, `passRate`, and deterministic `releaseGate`: `"pass" | "warn" | "block"`), and aggregates KPIs (`totalRuns`, `executedRuns`, `passRate`, `totalDefects`, `avgSeconds`, `modelRuns`).
+  - `getQaRun(cfg, id)`: Validates `id` (`^[a-zA-Z0-9_-]{3,80}$`), loads the `QaResult`, builds `WaterfallSpan[]` (`buildSpans`) across pipeline stages (`root`, `context`, `design`, `safety`, `report`, `runner`), and collects verified defect screenshots.
+  - `compareQaRuns(cfg, baseId, headId)`: Computes `RunComparison` (case/P0/defect/duration/passRate deltas, added/removed cases, added/resolved defects).
+  - `listQaSuite(cfg)`: Aggregates `vault/journeys/*.md` (`loadJourneys`), `roles/qa-case-templates.json` (`loadTemplates`), and recent run cases.
+  - `listGovernanceAndCost(cfg)`: Reads `qa/forbidden-actions.json` (`loadForbidden`) and `data/logs/egress-*.jsonl` (capped at `MAX_AUDIT_RECORDS = 150`; hashes/counts/models only, never secret values).
+  - `safeQaScreenshotPath(cfg, rawPath)`: Path-jailed image resolver strictly under `<root>/.artifacts/qa/` (rejects symlinks, traversal, non-images, and files > `MAX_ARTIFACT_BYTES = 10 MB`).
+- **`engine/src/server/server.ts`:**
+  - Registered `/qa-harness.js`, `/qa-harness-view.js`, and `/qa-harness.css` in `STATIC_FILES`.
+  - Added routes: `GET /api/qa/runs`, `GET /api/qa/run?id=...`, `GET /api/qa/compare?base=...&head=...`, `GET /api/qa/suite`, `GET /api/qa/governance`, and `GET /api/qa/artifact?path=...`.
+
+#### B. Upgraded Existing UI + New QA Harness Workspace (`ui/`)
+- **Strict CSP & Theme Rules Followed:** Zero inline `style=` attributes or `.style.` mutations, `textContent` / `createElement` / `createElementNS` only (no `innerHTML` on server/model data), zero external CDNs, and full 4-theme compatibility via `themes.css` custom properties. SVG is used for waterfall bars, the multi-agent workflow DAG, and the regression trend chart.
+- **`ui/steps.js`:** Added `stepKindLabel(kind)` and `computeWaterfall(steps)` for proportional timing bars.
+- **`ui/qa.js` & `ui/qa-view.js`:** Added `computeScorecard(qa)` and `groupDefects(defects)`. Chat QA cards now render an inline **Release Gate & Scorecard** banner and an **"Open in QA Harness"** button.
+- **`ui/qa-harness.js` (pure, DOM-free):** Exports `HARNESS_TABS`, `GATE_INFO`, `buildWaterfallSpans`, `buildWorkflowGraph`, `buildReplayFrames`, `filterSuiteCases`, and `regressionSeries`.
+- **`ui/qa-harness-view.js` & `ui/qa-harness.css`:** Redesigned as a Linear + LangSmith + Postman + Playwright desktop engineering workstation mounted under `#tab-qa` / `#view-qa`:
+  - **3 Major Workspaces (`1`/`2`/`3`):** `Agent Observability` (Overview, Agent Runs, Workflows, Replay & Artifacts), `Test Lab` (Test Suites, Journey Specs), `Evaluation Lab` (Evaluations, Run Comparison, Governance & Audit).
+  - **IDE 4-Zone Split Workbench:** Top workspace/command toolbar + Postman-style closable **Multi-Tab Execution Bar**; CSS-resizable Left Rail (workspace nav, Pipeline Agents status, recent runs); Center Canvas (KPIs, Release Gate, interactive SVG Workflow DAG & Execution Waterfall, Test Explorer, Run Comparison, Playwright/Cua Action Replay, Regression SVG); Right **Span / Syntax-Colored JSON / Safety Inspector** (`I` to toggle); Bottom dockable **Execution Logs / Artifacts / Cua Driver Console** (`J` to toggle).
+  - **Command Palette (`Ctrl+Shift+K`):** Instant search/jump across workspaces, views, runs, and test cases.
+
+#### C. Tests Added
+- `engine/test/qa-harness-api.test.ts`: Tests `listQaRuns`, `getQaRun`, `compareQaRuns`, `listQaSuite`, `listGovernanceAndCost`, `computeScorecard`, and `safeQaScreenshotPath` path-traversal rejection.
+- `engine/test/ui-qa-harness.test.ts`: Tests `ui/qa.js` scorecard/defect grouping, `ui/steps.js` waterfall calculation, and `ui/qa-harness.js` graph/replay/filter/trend helpers.
+
+### 2. Research Completed (Not Yet Implemented in Code)
+- **Cua Driver (`trycua/cua` → `libs/cua-driver`) Integration Design:** Researched Windows UIA/`PostMessage`/`PrintWindow`/CDP background delivery, `element_token` snapshots, `cursor-overlay`, and mapped gaps against `D:\SPIL AURA`. Design saved at `D:\SPIL AURA\Cua Driver design plan.md` (awaiting owner go-ahead before touching `D:\SPIL AURA`).
+
+### 3. Verification & Current Status
+- `npx tsc -p engine --noEmit`: **Passed** (0 errors).
+- `npm test`: **Passed** — **345 / 345 tests** across 39 test files (including CSP inline-style checks and both new QA Harness test files).
+- `git diff --check`: **Clean**.
+- **Unverified:** Live visual rendering and interactive clicks inside `npm run ui` with real `data/qa/runs/*.json` and `.artifacts/qa/` screenshots across all 4 themes and responsive widths.
+- **Next Action:** Start `npm run ui` in `D:\AURA - Guard`, inspect the **QA Harness** tab visually across all 5 sub-views, then proceed to Phase 2 (LLM-as-Judge rubric evaluation panel, per-step token/cost telemetry, and interactive pause/inject-instruction controls).
+
+---
+
 
 ## Current state (2026-11-20, end of first build session)
 

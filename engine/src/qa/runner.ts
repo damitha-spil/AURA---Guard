@@ -18,6 +18,9 @@ import {
   registeredJourneys, StepFailed,
 } from "./harness.ts";
 import type { Attached, StepRecord } from "./harness.ts";
+import { CuaClient, createMcpCuaTransport } from "./cua_client.ts";
+import { createCuaStepContext, selectTargetWindow } from "./cua_harness.ts";
+import type { CuaStepContext } from "./cua_harness.ts";
 import { checkSpec, describeFindings, loadForbidden } from "./safety.ts";
 import type { SafetyFinding } from "./safety.ts";
 
@@ -66,12 +69,18 @@ export interface RunOptions {
   /** Write a proposed incident note into vault/inbox for each defect. */
   note?: boolean;
   now?: () => Date;
+  /** Which UI automation driver to use: "cdp" (default when AURA_CDP_URL is set) or "cua" (background UIA). */
+  driver?: "cdp" | "cua";
+  /** Optional window title/process substring when running with driver: "cua". */
+  windowMatch?: string;
 }
 
 export interface RunDeps {
   /** For tests: replaces the real CDP attach. */
   attach?: (url: string) => Promise<Attached>;
   probe?: (url: string) => Promise<string>;
+  /** For tests: injects a fake CuaClient instead of spawning cua-driver mcp. */
+  cuaClient?: CuaClient;
 }
 
 /** Safety limit: the video recorder stops after this long if the run is still going. */
@@ -280,5 +289,80 @@ export async function runSpec(cfg: GuardConfig, target: string, opts: RunOptions
   }
   if (video) result.videoNote = await video.done;
   else result.videoNote = "No video: Playwright cannot record a WebView it only attached to. Use --video (Aura's record-window.ps1) or record by hand.";
+  return finish(cfg, result, opts);
+}
+
+/** Runs a background UI journey using cua-driver (UIA + PrintWindow) with full qa/safety.ts guards. */
+export async function runJourneyWithCua(
+  cfg: GuardConfig,
+  journeyId: string,
+  fn: (ctx: CuaStepContext) => Promise<void>,
+  opts: RunOptions = {},
+  deps: RunDeps = {},
+): Promise<RunResult> {
+  const now = opts.now ?? (() => new Date());
+  const runId = `${stamp(now())}-${slug(journeyId)}-cua`;
+  const dir = join(cfg.root, ".artifacts", "qa", runId);
+  mkdirSync(dir, { recursive: true });
+  const result: RunResult = {
+    runId,
+    status: "passed",
+    journey: journeyId,
+    spec: `cua://${journeyId}`,
+    dir,
+    widths: [],
+    defects: [],
+    videoNote: "Background UIA mode (cua-driver): window-scoped screenshots captured without focus theft.",
+    notes: [],
+  };
+  const ownsClient = !deps.cuaClient;
+  let client: CuaClient;
+  try {
+    client = deps.cuaClient ?? new CuaClient(await createMcpCuaTransport(cfg));
+  } catch (e) {
+    return finish(cfg, { ...result, status: "blocked", blocker: `Could not start cua-driver: ${(e as Error).message.split("\n")[0]}` }, opts);
+  }
+  const wr: WidthRun = { width: null, applied: true, steps: [] };
+  result.widths.push(wr);
+  try {
+    const windows = await client.listWindows();
+    const win = selectTargetWindow(windows, cfg, opts.windowMatch);
+    const ctx = createCuaStepContext({
+      client,
+      window: win,
+      forbidden: loadForbidden(cfg.root),
+      shotDir: join(dir, "background"),
+      record: (s) => wr.steps.push(s),
+    });
+    await fn(ctx);
+  } catch (e) {
+    if (wr.steps.every((s) => s.status !== "failed")) {
+      wr.steps.push({
+        n: wr.steps.length + 1,
+        width: null,
+        title: "(cua-driver step)",
+        expected: "The background journey runs",
+        status: "failed",
+        ms: 0,
+        error: (e as Error).message.split("\n")[0] ?? "failed",
+      });
+    }
+  } finally {
+    if (ownsClient) await client.close().catch(() => undefined);
+  }
+  for (const s of wr.steps) {
+    if (s.status === "failed") {
+      result.status = "failed";
+      result.defects.push({
+        journey: journeyId,
+        spec: result.spec,
+        width: null,
+        step: s.title,
+        expected: s.expected,
+        actual: s.error ?? "failed",
+        screenshot: s.screenshot ?? null,
+      });
+    }
+  }
   return finish(cfg, result, opts);
 }

@@ -51,3 +51,35 @@ export function splitEvents(buffer) {
   }
   return { events, rest };
 }
+
+/** Human-readable span category for the live execution waterfall. */
+export function stepKindLabel(kind) {
+  if (kind === "design" || kind === "model") return "LLM";
+  if (kind === "safety" || kind === "verify") return "Guard";
+  if (kind === "run") return "Runner";
+  if (kind === "context" || kind === "search" || kind === "found") return "Context";
+  if (kind === "report") return "Artifact";
+  return "Step";
+}
+
+/** Computes waterfall offsets (%) and widths (%) for a list of steps. */
+export function computeWaterfall(steps) {
+  const list = workSteps(steps);
+  if (list.length === 0) return [];
+  const t0 = list[0].startedAt ?? 0;
+  let maxEnd = 0;
+  const raw = list.map((s, idx) => {
+    const start = Math.max(0, (s.startedAt ?? t0) - t0);
+    const dur = Math.max(10, typeof s.ms === "number" ? s.ms : 50);
+    const end = start + dur;
+    if (end > maxEnd) maxEnd = end;
+    return { ...s, index: idx, offsetMs: start, durationMs: dur };
+  });
+  const total = Math.max(1, maxEnd);
+  return raw.map((r) => ({
+    ...r,
+    kindLabel: stepKindLabel(r.kind),
+    leftPct: Math.min(96, Math.round((r.offsetMs / total) * 100)),
+    widthPct: Math.max(4, Math.min(100, Math.round((r.durationMs / total) * 100))),
+  }));
+}

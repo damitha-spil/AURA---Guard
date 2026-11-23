@@ -22,6 +22,7 @@ import { indexVault } from "../index/notes.ts";
 import { revertNoteStatus, setNoteStatus } from "../rules/manage.ts";
 import type { StatusSnapshot } from "../rules/manage.ts";
 import { buildInbox, inboxNote, isNoteId, listReports, readReport, safeReportPath } from "./inbox.ts";
+import { compareQaRuns, cuaDriverStatus, getQaRun, listGovernanceAndCost, listQaRuns, listQaSuite, safeQaScreenshotPath } from "../qa/harness_api.ts";
 import { describeBackends } from "../brain/select.ts";
 import type { CompleteFn } from "../brain/client.ts";
 import type { GuardConfig } from "../types.ts";
@@ -63,6 +64,9 @@ export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/qa.js": { file: "qa.js", type: "text/javascript; charset=utf-8" },
   "/qa-view.js": { file: "qa-view.js", type: "text/javascript; charset=utf-8" },
   "/qa.css": { file: "qa.css", type: "text/css; charset=utf-8" },
+  "/qa-harness.js": { file: "qa-harness.js", type: "text/javascript; charset=utf-8" },
+  "/qa-harness-view.js": { file: "qa-harness-view.js", type: "text/javascript; charset=utf-8" },
+  "/qa-harness.css": { file: "qa-harness.css", type: "text/css; charset=utf-8" },
   "/settings.js": { file: "settings.js", type: "text/javascript; charset=utf-8" },
   "/settings.css": { file: "settings.css", type: "text/css; charset=utf-8" },
 };
@@ -388,6 +392,38 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       if (!hit) throw new HttpError(404, "No such report.");
       const r = readReport(hit.file);
       return json(res, 200, { path: hit.rel, name: hit.rel.split("/").pop(), kind: hit.kind, ...r });
+    }
+
+    if (path === "/api/qa/runs" && method === "GET") return json(res, 200, listQaRuns(dcfg));
+
+    if (path === "/api/qa/run" && method === "GET") {
+      const id = new URL(req.url ?? "/", "http://x").searchParams.get("id") ?? "";
+      const detail = getQaRun(dcfg, id);
+      if (!detail) throw new HttpError(404, "No such QA run.");
+      return json(res, 200, detail);
+    }
+
+    if (path === "/api/qa/compare" && method === "GET") {
+      const q = new URL(req.url ?? "/", "http://x").searchParams;
+      const cmp = compareQaRuns(dcfg, q.get("base") ?? "", q.get("head") ?? "");
+      if (!cmp) throw new HttpError(404, "One or both QA runs were not found.");
+      return json(res, 200, cmp);
+    }
+
+    if (path === "/api/qa/suite" && method === "GET") return json(res, 200, listQaSuite(dcfg));
+
+    if (path === "/api/qa/governance" && method === "GET") return json(res, 200, listGovernanceAndCost(dcfg));
+
+    if (path === "/api/qa/driver" && method === "GET") return json(res, 200, await cuaDriverStatus(dcfg));
+
+    if (path === "/api/qa/artifact" && method === "GET") {
+      const p = new URL(req.url ?? "/", "http://x").searchParams.get("path") ?? "";
+      const hit = safeQaScreenshotPath(dcfg, p);
+      if (!hit) throw new HttpError(404, "No such QA artifact.");
+      const ext = hit.toLowerCase();
+      const type = ext.endsWith(".jpg") || ext.endsWith(".jpeg") ? "image/jpeg" : ext.endsWith(".webp") ? "image/webp" : "image/png";
+      res.writeHead(200, { "Content-Type": type });
+      return void res.end(readFileSync(hit));
     }
 
     throw new HttpError(404, "Not found.");

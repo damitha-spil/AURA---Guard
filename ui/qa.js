@@ -403,3 +403,47 @@ export function findReportPath(markdownPath, reports) {
   const hit = arr(reports).map((r) => str(r && r.path)).filter(Boolean).sort((a, b) => b.length - a.length).find((p) => full === p || full.endsWith("/" + p));
   return hit || null;
 }
+
+/** Computes a deterministic Evaluation Scorecard and Release Gate verdict from a QA result. */
+export function computeScorecard(qa) {
+  const r = safeResult(qa);
+  const counts = priorityCounts(r.cases);
+  const safetyChecked = r.journeys.offer.safety.checked;
+  const safetyPassed = r.journeys.offer.safety.passed;
+  const defectsCount = r.run ? r.run.defects.length : 0;
+  const runStatus = r.run ? r.run.status : "planned";
+  const totalRuns = r.run ? r.run.runs.length : 0;
+  const passedRuns = r.run ? r.run.runs.filter((x) => x.status === "passed").length : 0;
+  const passRate = totalRuns > 0 ? Math.round((passedRuns / totalRuns) * 100) : null;
+
+  let gate = "pass";
+  let gateReason = "All checked journeys and safety gates passed.";
+  if (runStatus === "rejected" || (safetyChecked > 0 && safetyPassed < safetyChecked)) {
+    gate = "block";
+    gateReason = "Safety gate failed on one or more journey specs.";
+  } else if (defectsCount > 0 || runStatus === "failed") {
+    gate = "block";
+    gateReason = `${defectsCount} defect${defectsCount === 1 ? "" : "s"} recorded during journey execution.`;
+  } else if (r.risk.level === "high" && totalRuns === 0) {
+    gate = "warn";
+    gateReason = "High-risk change has no executed browser journeys yet.";
+  } else if (runStatus === "blocked") {
+    gate = "warn";
+    gateReason = "Journey execution was blocked; manual verification required.";
+  } else if (totalRuns === 0) {
+    gate = "warn";
+    gateReason = `${r.cases.length} cases designed; no live journey run recorded.`;
+  }
+  return { totalCases: r.cases.length, counts, safetyChecked, safetyPassed, runStatus, defectsCount, passRate, gate, gateReason };
+}
+
+/** Groups defects by journeyId for root-cause inspection. */
+export function groupDefects(defects) {
+  const by = new Map();
+  for (const d of arr(defects)) {
+    const j = str(d && (d.journeyId ?? d.journey), "unknown");
+    if (!by.has(j)) by.set(j, []);
+    by.get(j).push(d);
+  }
+  return [...by.entries()].map(([journey, items]) => ({ journey, items }));
+}

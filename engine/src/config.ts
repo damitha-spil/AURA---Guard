@@ -22,6 +22,7 @@ export function loadConfig(root: string = GUARD_ROOT): GuardConfig {
     busyProcesses: raw.busyProcesses ?? [],
     ...(Array.isArray(raw.docSources) ? { docSources: raw.docSources } : {}),
     ...(raw.brain ? { brain: raw.brain } : {}),
+    ...(raw.cuaDriver ? { cuaDriver: raw.cuaDriver } : {}),
     root,
   };
 }

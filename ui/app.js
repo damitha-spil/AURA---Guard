@@ -8,6 +8,7 @@ import { PRODUCT_NAME, PRODUCT_SHORT, PROJECT_NAME, MONOGRAM } from "/brand.js";
 import { mountSettings } from "/settings.js";
 import { QA_LABEL, routeSlash, qaSlashItems, chipAction, usedChip, isQaMessage, qaInitial, reduceQaEvent, qaFromJson, qaSummary, qaTotalMs, qaErrorInfo, progressNote, announceBucket, findReportPath } from "/qa.js";
 import { renderQaCard, renderNeedsInput, markAskUsed } from "/qa-view.js";
+import { createQaHarnessController } from "/qa-harness-view.js";
 
 const KIND_LABEL = { note: "Note", commit: "Commit", file: "File", context: "Context" };
 const KIND_ICON = {
@@ -1118,12 +1119,31 @@ function paintChrome() {
 }
 
 let settingsView = null;
+let qaHarnessView = null;
+function ensureQaHarness() {
+  if (!qaHarnessView) {
+    qaHarnessView = createQaHarnessController({
+      api,
+      root: $("qa-harness-body"),
+      statusEl: $("qa-harness-status"),
+      refreshBtn: $("qa-harness-refresh"),
+      onAskInChat: (prompt) => {
+        setView("chat");
+        const box = $("input");
+        box.value = prompt;
+        box.focus();
+      },
+    });
+  }
+  return qaHarnessView;
+}
 function setView(name) {
   if (state.view === "settings" && name !== "settings") settingsView?.hide();
+  if (state.view === "qa" && name !== "qa") qaHarnessView?.stopReplay();
   if (name === "settings" && state.view !== "settings") state.viewBeforeSettings = state.view;
   state.view = name;
   $("settings-btn")?.classList.toggle("active", name === "settings");
-  for (const v of ["chat", "inbox", "reports", "settings"]) {
+  for (const v of ["chat", "inbox", "reports", "qa", "settings"]) {
     $(`view-${v}`).hidden = v !== name;
     const tab = $(`tab-${v}`);
     if (!tab) continue;
@@ -1133,6 +1153,7 @@ function setView(name) {
   for (const n of document.querySelectorAll(".chat-only")) n.hidden = name !== "chat";
   closePanel();
   if (name === "inbox" || name === "reports") review.show(name);
+  if (name === "qa") ensureQaHarness().show();
   if (name === "chat") $("input").focus();
   if (name === "settings") {
     settingsView ||= mountSettings({ root: $("view-settings"), onBack: closeSettings });
@@ -1339,6 +1360,7 @@ const qaCtx = {
   },
   runJourneys: () => send("Run the read-only journeys", { runJourneys: true }),
   openInbox: () => setView("inbox"),
+  openHarness: (runId) => { setView("qa"); ensureQaHarness().show(runId); },
   async openReport(markdownPath) {
     const r = await api("/api/reports");
     if (!r.ok) return false;

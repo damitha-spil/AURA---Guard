@@ -56,6 +56,17 @@ export interface DocSourceConfig {
   sub?: string;
 }
 
+export interface CuaDriverConfig {
+  /** Path or binary name for cua-driver (defaults to "cua-driver" on PATH). */
+  command?: string;
+  /** Optional process names (lowercase, e.g. "personal-agent.exe", "chrome.exe") allowed for background QA. */
+  allowedApps?: string[];
+  /** Extra process names to always refuse in addition to built-in shell/admin/ERP denylists. */
+  denyApps?: string[];
+  /** Per-call timeout in ms (capped by safety limits). */
+  timeoutMs?: number;
+}
+
 export interface GuardConfig {
   dataDir: string;
   vaultDir: string;
@@ -66,6 +77,8 @@ export interface GuardConfig {
   root: string; // absolute repo root of SPIL AURA QA Bot, filled in by loadConfig
   /** Plain Markdown/text folders of the project. */
   docSources?: DocSourceConfig[];
+  /** Optional Cua Driver configuration (for background desktop/UI QA). */
+  cuaDriver?: CuaDriverConfig;
 }
 
 export interface CommitRecord {

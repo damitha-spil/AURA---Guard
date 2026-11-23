@@ -1,0 +1,124 @@
+/* Linear + LangSmith + Postman + Playwright IDE Workstation for Agentic QA Harness.
+   Zero inline styles; uses themes.css tokens with restrained dark-first workstation accents. */
+
+#view-qa { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.qa-harness-body { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; padding: 0; gap: 0; }
+
+/* ---------- Top IDE Toolbar + Postman Execution Tabs ---------- */
+.qh-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.qh-ws-group { display: inline-flex; gap: 4px; background: var(--bg); padding: 3px; border-radius: var(--r-sm); border: 1px solid var(--border); }
+.qh-ws-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 500; }
+.qh-ws-btn:hover { color: var(--text); }
+.qh-ws-btn[aria-selected="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+.qh-kbd { font-size: 10.5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
+
+.qh-tool-actions { display: flex; align-items: center; gap: 6px; }
+.qh-icon-toggle { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--bg); font-size: 12px; color: var(--muted); }
+.qh-icon-toggle[aria-pressed="true"] { color: var(--text); border-color: var(--brand, #6366f1); }
+
+.qh-tabbar { display: flex; align-items: center; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--bg); overflow-x: auto; min-height: 32px; }
+.qh-exec-tab { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); white-space: nowrap; }
+.qh-exec-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--brand, #6366f1); background: var(--surface); font-weight: 500; }
+.qh-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.qh-dot[data-tone="good"] { background: #10b981; }
+.qh-dot[data-tone="warn"] { background: #f59e0b; }
+.qh-dot[data-tone="bad"] { background: #ef4444; }
+.qh-tab-close { border: 0; background: transparent; color: var(--muted); font-size: 13px; line-height: 1; padding: 0 2px; border-radius: 3px; }
+.qh-tab-close:hover { color: var(--text); background: var(--border); }
+
+/* ---------- IDE Workbench Grid (Left Rail + Center + Right Inspector + Bottom Drawer) ---------- */
+.qh-workbench { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.qh-main-row { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+.qh-rail { width: 220px; min-width: 170px; max-width: 340px; resize: horizontal; overflow-y: auto; overflow-x: hidden; border-right: 1px solid var(--border); background: var(--surface); padding: 10px; display: flex; flex-direction: column; gap: 14px; flex-shrink: 0; }
+.qh-rail-sec { display: flex; flex-direction: column; gap: 4px; }
+.qh-rail-head { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 0 6px; }
+.qh-nav-item { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; text-align: left; padding: 5px 8px; border-radius: 6px; border: 0; background: transparent; color: var(--muted); font-size: 12.5px; }
+.qh-nav-item:hover { background: var(--bg); color: var(--text); }
+.qh-nav-item[aria-current="page"] { background: var(--bg); color: var(--text); font-weight: 600; }
+
+.qh-agent-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 8px; font-size: 12px; border-radius: 5px; }
+.qh-agent-row:hover { background: var(--bg); }
+
+.qh-center { flex: 1; min-width: 320px; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 14px; background: var(--bg); }
+
+.qh-inspector { width: 320px; min-width: 240px; max-width: 480px; border-left: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; min-height: 0; flex-shrink: 0; }
+.qh-insp-tabs { display: flex; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.qh-insp-tab { border: 0; background: transparent; color: var(--muted); font-size: 12px; padding: 4px 8px; border-radius: 5px; }
+.qh-insp-tab[aria-selected="true"] { background: var(--bg); color: var(--text); font-weight: 600; }
+.qh-insp-body { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; }
+
+/* ---------- Bottom Dockable Terminal / Logs / Artifacts Drawer ---------- */
+.qh-bottom { height: 175px; min-height: 110px; max-height: 360px; border-top: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; flex-shrink: 0; }
+.qh-bottom-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--border); }
+.qh-bottom-body { flex: 1; overflow-y: auto; padding: 8px 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.5; background: var(--bg); }
+.qh-log-line { display: flex; gap: 8px; padding: 1px 0; }
+.qh-log-lvl { font-weight: 700; min-width: 52px; }
+.qh-log-lvl[data-lvl="info"] { color: #38bdf8; }
+.qh-log-lvl[data-lvl="warn"] { color: #f59e0b; }
+.qh-log-lvl[data-lvl="error"] { color: #ef4444; }
+.qh-log-src { color: var(--muted); min-width: 64px; }
+
+/* ---------- Dense KPIs, Tables, Panels & JSON Viewer ---------- */
+.qh-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px; }
+.qh-kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.qh-kpi-label { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.qh-kpi-val { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text); }
+.qh-kpi-sub { font-size: 11.5px; color: var(--muted); }
+
+.qh-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.qh-panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.qh-panel-title { margin: 0; font-size: 13.5px; font-weight: 600; }
+
+.qh-gate { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--surface); }
+.qh-gate[data-tone="good"] { border-left: 3px solid #10b981; }
+.qh-gate[data-tone="warn"] { border-left: 3px solid #f59e0b; }
+.qh-gate[data-tone="bad"] { border-left: 3px solid #ef4444; }
+.qh-gate-badge { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg); border: 1px solid var(--border); }
+
+.qh-table-wrap { overflow-x: auto; }
+.qh-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.qh-table th, .qh-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.qh-table th { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.qh-table tr.qh-row-btn { cursor: pointer; }
+.qh-table tr.qh-row-btn:hover { background: var(--bg); }
+.qh-table tr[data-selected="true"] { background: var(--bg); }
+
+.qh-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; font-size: 11px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+.qh-pill[data-tone="good"] { color: #10b981; border-color: #10b981; }
+.qh-pill[data-tone="warn"] { color: #f59e0b; border-color: #f59e0b; }
+.qh-pill[data-tone="bad"] { color: #ef4444; border-color: #ef4444; }
+
+.qh-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.qh-select, .qh-input { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 4px 8px; font-size: 12px; color: var(--text); }
+
+.qh-svg-box { width: 100%; overflow-x: auto; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px; }
+.qh-svg-graph { width: 100%; min-width: 660px; height: 168px; display: block; }
+.qh-svg-trend { width: 100%; min-width: 440px; height: 140px; display: block; }
+.qh-graph-node { cursor: pointer; }
+
+.qh-wf-list { display: flex; flex-direction: column; gap: 6px; }
+.qh-wf-row { display: grid; grid-template-columns: 190px 1fr 64px; gap: 8px; align-items: center; font-size: 12px; padding: 4px 6px; border-radius: 5px; cursor: pointer; }
+.qh-wf-row:hover, .qh-wf-row[data-selected="true"] { background: var(--bg); }
+.qh-wf-bar-svg { width: 100%; height: 14px; display: block; }
+
+.qh-json { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; background: var(--bg); padding: 8px; border-radius: var(--r-sm); border: 1px solid var(--border); }
+.qh-tok-key { color: #93c5fd; }
+.qh-tok-str { color: #86efac; }
+.qh-tok-num { color: #fcd34d; }
+.qh-tok-bool { color: #f9a8d4; }
+.qh-tok-null { color: var(--muted); }
+
+.qh-replay-stage { display: flex; flex-direction: column; gap: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px; }
+.qh-replay-img { max-width: 100%; max-height: 340px; object-fit: contain; border-radius: var(--r-sm); border: 1px solid var(--border); }
+.qh-diff-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.qh-diff-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 9px 11px; font-size: 12px; }
+.qh-empty { color: var(--muted); font-size: 12.5px; padding: 10px 0; }
+
+/* ---------- Global Command Palette (cmdk style) ---------- */
+.qh-palette-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; z-index: 60; }
+.qh-palette { width: min(560px, 92vw); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: 0 18px 48px rgba(0, 0, 0, .45); overflow: hidden; display: flex; flex-direction: column; }
+.qh-palette-input { width: 100%; border: 0; border-bottom: 1px solid var(--border); background: var(--surface); padding: 12px 14px; font-size: 13.5px; color: var(--text); outline: none; }
+.qh-palette-list { max-height: 300px; overflow-y: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.qh-palette-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; text-align: left; border: 0; background: transparent; padding: 7px 10px; border-radius: 6px; font-size: 12.5px; color: var(--text); }
+.qh-palette-item:hover { background: var(--bg); }
