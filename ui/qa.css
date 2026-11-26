@@ -243,9 +243,8 @@ ol.qa-list li::before { content: counter(qa); position: absolute; left: 0; top: 
 .qa-foot { margin: 22px 0 0 !important; padding: 12px 20px 14px; border-top: 1px solid var(--border); background: var(--card-2); color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 
 /* ---------- the confirm dialog ---------- */
-.qa-modal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; background: color-mix(in srgb, var(--bg) 55%, rgba(0, 0, 0, .5)); backdrop-filter: blur(3px); animation: noirin .15s ease both; }
-.qa-dialog { width: min(520px, 100%); max-height: min(90vh, 640px); overflow: auto; padding: 22px 24px 18px; border: 1px solid var(--border-hi); border-radius: var(--r-lg); background: var(--card); color: var(--text); box-shadow: 0 24px 70px -18px rgba(0, 0, 0, .55); }
-:root[data-style="aurora"] .qa-dialog { background: color-mix(in srgb, var(--bg) 84%, var(--card)); }
+.qa-modal { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; background: color-mix(in srgb, var(--bg) 55%, color-mix(in srgb, var(--shadow-ink) 50%, transparent)); backdrop-filter: blur(3px); animation: noirin .15s ease both; }
+.qa-dialog { width: min(520px, 100%); max-height: min(90vh, 640px); overflow: auto; padding: 22px 24px 18px; border: 1px solid var(--border-hi); border-radius: var(--r-lg); background: var(--card); color: var(--text); box-shadow: 0 24px 70px -18px color-mix(in srgb, var(--shadow-ink) 55%, transparent); }
 .qa-dlg-title { margin: 0 0 10px; font-size: 18px; font-weight: 700; letter-spacing: -.012em; }
 .qa-dlg-desc { font-size: 14.5px; line-height: 1.55; }
 .qa-dlg-desc > * + * { margin-top: 10px; }
@@ -258,20 +257,6 @@ ol.qa-list li::before { content: counter(qa); position: absolute; left: 0; top: 
 :root[data-style="noir"] .qa-h { letter-spacing: .1em; }
 :root[data-style="noir"] .qa-case, :root[data-style="noir"] .qa-area, :root[data-style="noir"] .qa-btn, :root[data-style="noir"] .qa-j { border-radius: 6px; }
 :root[data-style="noir"] .qa-risk, :root[data-style="noir"] .qa-chip, :root[data-style="noir"] .qa-stat, :root[data-style="noir"] .qa-tfilter, :root[data-style="noir"] .qa-answer, :root[data-style="noir"] .qa-pick { border-radius: 6px; }
-:root[data-style="dots"] .qa-card { background: color-mix(in srgb, var(--card) 70%, var(--bg)); }
-:root[data-style="dots"] .qa-head { background: linear-gradient(180deg, color-mix(in srgb, var(--qa-risk) 10%, var(--card-2)), var(--card)); }
-:root[data-style="dots"] .qa-case { background: var(--card); }
-:root[data-style="pulse"] .qa-card { box-shadow: var(--shadow-card); border-color: var(--border); }
-:root[data-style="pulse"] .qa-title { font-weight: 600; }
-:root[data-style="pulse"] .qa-h { letter-spacing: .04em; }
-:root[data-style="pulse"] .qa-head { background: var(--card); }
-:root[data-style="pulse"] .qa-case { border-color: transparent; background: var(--card-2); }
-:root[data-style="pulse"] .qa-case.open, :root[data-style="pulse"] .qa-case:hover { border-color: var(--border-hi); }
-:root[data-style="aurora"] .qa-card { backdrop-filter: blur(14px); border-color: var(--border); box-shadow: var(--glow); }
-:root[data-style="aurora"] .qa-case { background: color-mix(in srgb, var(--card-2) 70%, transparent); }
-:root[data-style="aurora"] .qa-head { background: linear-gradient(135deg, color-mix(in srgb, var(--qa-risk) 14%, transparent), transparent 70%); }
-:root[data-style="aurora"] .qa-foot { background: transparent; }
-:root[data-style="aurora"] .qa-ask { backdrop-filter: blur(14px); }
 
 /* ---------- narrow places (the card measures its own width) ---------- */
 @container (max-width: 620px) {

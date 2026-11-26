@@ -1,5 +1,6 @@
 import { renderSafe } from "/render.js";
 import { initReview } from "/review.js";
+import { mountOverview } from "/overview.js";
 import { buildMark, remountMarks, setMarkState, STYLES, STYLE_NAMES, STYLE_BLURBS, WORK_DEFAULTS, styleDescriptor } from "/marks.js";
 import { applyStep, workSteps, summarize, totalMs, formatDuration, stepIcon, splitEvents } from "/steps.js";
 import { planReveal, revealedLength, shouldReveal } from "/reveal.js";
@@ -71,8 +72,8 @@ const svg = (d, sw = 2) => {
 const Prefs = globalThis.GuardPrefs;
 const storage = Prefs ? Prefs.safeStorage() : null;
 const state = {
-  view: "chat", project: null, status: null, summary: null, suggestions: null, indexing: null,
-  prefs: Prefs ? Prefs.load(storage) : { style: "noir", mode: "system", motion: "auto", showWork: "auto" },
+  view: "overview", project: null, status: null, summary: null, suggestions: null, indexing: null,
+  prefs: Prefs ? Prefs.load(storage) : { style: "noir", mode: "light", motion: "auto", showWork: "auto" },
   chats: [], chat: null, commands: [], busy: false, abort: null, menuIndex: 0, menuItems: [],
   backend: "No model", runningChat: null, notesOnly: false, sideSet: false, reveal: null,
   chatQuery: "", armedDelete: null,
@@ -241,6 +242,10 @@ function setInboxBadge(n) {
   b.hidden = !n;
   b.textContent = String(n);
   b.setAttribute("aria-label", `${n} waiting for review`);
+  const bell = $("bell-n");
+  bell.hidden = !n;
+  bell.textContent = n > 99 ? "99+" : String(n);
+  $("gbar-bell").setAttribute("aria-label", n ? `Review inbox, ${n} waiting` : "Review inbox");
 }
 
 function paintStatus() {
@@ -250,8 +255,12 @@ function paintStatus() {
     state.backend = s.model;
     $("backend-name").textContent = s.model;
   }
+  if (state.status && state.status.version) $("app-version").textContent = `Version ${state.status.version}`;
   $("status-line").textContent = s.line;
   $("status-dot").className = "status-dot " + s.tone;
+  $("gbar-dot").className = "status-dot " + (state.status ? s.tone : "bad");
+  $("gbar-conn-text").textContent = state.status ? "Engine connected" : "Engine not reachable";
+  if (state.view === "overview") overviewView.paint();
   $("status-toggle").title = `Project status. ${s.title}`;
   for (const f of document.querySelectorAll(".empty-facts")) fillFacts(f);
   if (!$("status-detail").hidden) renderStatusPanel();
@@ -648,10 +657,31 @@ function fillFacts(node) {
   node.replaceChildren();
   const s = state.summary;
   if (!s) return;
+  // KPI cards: only numbers the server really reported. No trend lines, because Guard keeps no history of them.
   if (s.counts) {
-    for (const [n, w] of [[s.counts.notes, "notes"], [s.counts.commits, "commits"], [s.counts.files, "files"]]) if (n) node.appendChild(el("span", "fact", `${n.toLocaleString("en")} ${w}`));
+    for (const [n, w, tone] of [[s.counts.notes, "notes", "violet"], [s.counts.commits, "commits", "blue"], [s.counts.files, "files", "green"]]) {
+      if (!n) continue;
+      const card = el("span", "fact kpi");
+      const ic = el("span", "kpi-ic " + tone);
+      ic.setAttribute("aria-hidden", "true");
+      ic.appendChild(svg(KIND_ICON[w === "notes" ? "note" : w === "commits" ? "commit" : "file"], 1.6));
+      const tx = el("span", "kpi-text");
+      tx.append(el("span", "kpi-label", w), el("span", "kpi-num", n.toLocaleString("en")));
+      card.append(ic, tx);
+      card.setAttribute("aria-label", `${n.toLocaleString("en")} ${w}`);
+      node.appendChild(card);
+    }
   }
-  if (s.index) node.appendChild(el("span", "fact " + s.index.state, s.index.label.replace(/. It is getting old.$/, "")));
+  if (s.index) {
+    const card = el("span", "fact kpi " + s.index.state);
+    const ic = el("span", "kpi-ic " + (s.index.state === "ok" ? "green" : "amber"));
+    ic.setAttribute("aria-hidden", "true");
+    ic.appendChild(svg(ICON.check, 1.8));
+    const tx = el("span", "kpi-text");
+    tx.append(el("span", "kpi-label", "Search index"), el("span", "kpi-sub", s.index.label.replace(/. It is getting old.$/, "")));
+    card.append(ic, tx);
+    node.appendChild(card);
+  }
 }
 
 /** The first screen: the project tile, one plain sentence and the suggestion cards. */
@@ -1118,6 +1148,21 @@ function paintChrome() {
   for (const n of document.querySelectorAll("[data-project-name]")) n.textContent = PROJECT_NAME;
 }
 
+const overviewView = mountOverview({
+  root: $("overview-body"),
+  api,
+  getProject: () => state.project,
+  actions: {
+    openChat: () => newChat(),
+    openView: (v) => (v === "settings" ? openSettings() : setView(v)),
+    openSource: (src) => openSource(src),
+    openRun: (id) => { setView("qa"); ensureQaHarness().show(id); },
+    ask: (text) => { setView("chat"); send(text); },
+    fillQa: () => { setView("chat"); qaCtx.fillComposer("QA the latest change"); },
+    focusSearch: () => $("global-search").focus(),
+  },
+});
+$("overview-refresh").addEventListener("click", () => overviewView.refresh());
 let settingsView = null;
 let qaHarnessView = null;
 function ensureQaHarness() {
@@ -1143,7 +1188,7 @@ function setView(name) {
   if (name === "settings" && state.view !== "settings") state.viewBeforeSettings = state.view;
   state.view = name;
   $("settings-btn")?.classList.toggle("active", name === "settings");
-  for (const v of ["chat", "inbox", "reports", "qa", "settings"]) {
+  for (const v of ["overview", "chat", "inbox", "reports", "qa", "settings"]) {
     $(`view-${v}`).hidden = v !== name;
     const tab = $(`tab-${v}`);
     if (!tab) continue;
@@ -1154,12 +1199,55 @@ function setView(name) {
   closePanel();
   if (name === "inbox" || name === "reports") review.show(name);
   if (name === "qa") ensureQaHarness().show();
+  if (name === "overview") overviewView.show();
   if (name === "chat") $("input").focus();
   if (name === "settings") {
-    settingsView ||= mountSettings({ root: $("view-settings"), onBack: closeSettings });
+    if (!settingsView) {
+      settingsView = mountSettings({ root: $("view-settings"), onBack: closeSettings });
+      mountThemeCard($("view-settings"));
+    }
     settingsView.show();
   }
 }
+
+/** A Theme card at the end of the settings page: Light, Dark or System. Same preference as the sidebar toggle. */
+function mountThemeCard(root) {
+  const wrap = root.querySelector(".st-wrap");
+  if (!wrap || !Prefs) return;
+  const card = el("section", "st-card st-theme");
+  card.id = "st-theme";
+  const head = el("header", "st-card-head");
+  const t = el("div", "st-card-titles");
+  t.append(el("h2", "st-card-title", "Theme"), el("p", "st-card-sub", "Light is the default. System follows this computer."));
+  head.appendChild(t);
+  const seg = el("div", "seg");
+  seg.setAttribute("role", "radiogroup");
+  seg.setAttribute("aria-label", "Theme");
+  const paint = () => {
+    for (const b of seg.children) {
+      const on = b.getAttribute("data-mode") === state.prefs.mode;
+      b.setAttribute("aria-checked", String(on));
+      b.tabIndex = on ? 0 : -1;
+    }
+  };
+  for (const m of ["light", "dark", "system"]) {
+    const b = el("button", "", MODE_LABEL[m]);
+    b.type = "button";
+    b.setAttribute("role", "radio");
+    b.setAttribute("data-mode", m);
+    b.addEventListener("click", () => {
+      setPrefs({ mode: m });
+      paint();
+    });
+    seg.appendChild(b);
+  }
+  radioKeys(seg);
+  paint();
+  card.append(head, seg);
+  wrap.appendChild(card);
+  themeCardSync = paint;
+}
+let themeCardSync = null;
 
 /** Machine-wide model and key settings. */
 function openSettings() {
@@ -1227,28 +1315,6 @@ function renderPopover() {
   if (pop.hidden) return;
   const focusKey = pop.contains(document.activeElement) ? document.activeElement.getAttribute("data-k") : null;
   pop.replaceChildren();
-  const sec = el("div", "pop-section");
-  sec.appendChild(el("h3", "pop-title", "Style"));
-  const grid = el("div", "style-grid");
-  grid.setAttribute("role", "radiogroup");
-  grid.setAttribute("aria-label", "Style");
-  for (const s of STYLES) {
-    const c = el("button", "style-card");
-    c.type = "button";
-    c.setAttribute("role", "radio");
-    c.setAttribute("data-s", s);
-    c.setAttribute("data-k", "style-" + s);
-    c.setAttribute("aria-checked", String(s === style()));
-    c.tabIndex = s === style() ? 0 : -1;
-    const prev = el("div", "style-prev");
-    prev.append(buildMark(document, s, "thinking"), el("span", "style-name", STYLE_NAMES[s]));
-    c.append(prev, el("span", "style-sample", SAMPLE[s]), el("span", "style-sample", STYLE_BLURBS[s]));
-    c.addEventListener("click", () => setPrefs({ style: s }));
-    grid.appendChild(c);
-  }
-  radioKeys(grid);
-  sec.appendChild(grid);
-  pop.appendChild(sec);
   const parts = [
     segment("Mode", ["system", "light", "dark"], MODE_LABEL, state.prefs.mode, (v) => setPrefs({ mode: v })),
     segment("Motion", ["auto", "reduced"], MOTION_LABEL, state.prefs.motion, (v) => setPrefs({ motion: v })),
@@ -1259,7 +1325,7 @@ function renderPopover() {
     pop.appendChild(p.wrapper);
   }
   const act = el("div", "pop-actions");
-  const reset = el("button", "btn", "Reset to default (Noir)");
+  const reset = el("button", "btn", "Reset to default (Light)");
   reset.type = "button";
   reset.addEventListener("click", () => setPrefs(Prefs.DEFAULTS, true));
   const close = el("button", "btn btn-primary", "Done");
@@ -1282,8 +1348,19 @@ function closePopover() {
   $("appearance-btn").focus();
 }
 
+function syncThemeToggle() {
+  const dark = state.prefs.mode === "dark" || (state.prefs.mode === "system" && typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches);
+  const b = $("theme-toggle");
+  if (!b) return;
+  b.setAttribute("aria-pressed", String(dark));
+  b.setAttribute("title", dark ? "Switch to light theme" : "Switch to dark theme");
+  b.querySelector(".theme-label").textContent = dark ? "Dark" : "Light";
+}
+
 function applyAll() {
   Prefs.apply(state.prefs, document.documentElement);
+  if (themeCardSync) themeCardSync();
+  syncThemeToggle();
   remountMarks(document, document, style());
   if (!state.busy) renderMessages();
   if (!state.sideSet && sideStored() === null) followStyleSidebar();
@@ -1311,6 +1388,10 @@ function setPrefs(patch, replace) {
   else go();
 }
 
+$("theme-toggle")?.addEventListener("click", () => {
+  const dark = $("theme-toggle").getAttribute("aria-pressed") === "true";
+  setPrefs({ mode: dark ? "light" : "dark" });
+});
 $("appearance-btn").addEventListener("click", () => ($("appearance").hidden ? openPopover() : closePopover()));
 $("appearance").addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
@@ -1568,6 +1649,71 @@ $("input").addEventListener("keydown", (e) => {
 });
 $("stop").addEventListener("click", () => state.abort?.abort());
 $("new-chat").addEventListener("click", newChat);
+$("gbar-bell").addEventListener("click", () => setView("inbox"));
+
+/* ---------- global search: chats by title (here) and notes, commits and files (GET /api/search) ---------- */
+let gsTimer = 0;
+let gsSeq = 0;
+function closeGlobalSearch() {
+  $("gsearch-results").hidden = true;
+  $("global-search").setAttribute("aria-expanded", "false");
+}
+function gsRow(kind, title, meta, onPick) {
+  const b = el("button", "gs-row");
+  b.type = "button";
+  b.setAttribute("role", "option");
+  b.append(el("span", `gs-kind ${kind}`, kind), el("span", "gs-title", title), el("span", "gs-meta", meta || ""));
+  b.addEventListener("click", () => {
+    closeGlobalSearch();
+    $("global-search").value = "";
+    onPick();
+  });
+  return b;
+}
+async function runGlobalSearch() {
+  const q = $("global-search").value.trim();
+  const box = $("gsearch-results");
+  if (q.length < 2) return closeGlobalSearch();
+  const seq = ++gsSeq;
+  const low = q.toLowerCase();
+  const chats = (state.chats || []).filter((c) => (c.title || "").toLowerCase().includes(low)).slice(0, 4);
+  const r = await api(`/api/search?q=${encodeURIComponent(q)}`);
+  if (seq !== gsSeq) return;
+  box.replaceChildren();
+  for (const c of chats) box.appendChild(gsRow("chat", c.title || "Untitled", "", async () => { setView("chat"); await openChat(c.id); }));
+  const hits = r.ok ? r.data.hits || [] : [];
+  for (const h of hits) box.appendChild(gsRow(h.kind, h.title, h.status || "", () => openSource({ ref: h.ref, kind: h.kind, title: h.title })));
+  if (!box.children.length) box.appendChild(el("p", "gs-empty", r.ok ? "Nothing found." : "Search is not available right now."));
+  box.hidden = false;
+  $("global-search").setAttribute("aria-expanded", "true");
+}
+$("global-search").addEventListener("input", () => {
+  clearTimeout(gsTimer);
+  gsTimer = setTimeout(runGlobalSearch, 180);
+});
+$("global-search").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    closeGlobalSearch();
+    $("global-search").blur();
+  } else if (e.key === "ArrowDown") {
+    $("gsearch-results").querySelector(".gs-row")?.focus();
+    e.preventDefault();
+  }
+});
+$("gsearch-results").addEventListener("keydown", (e) => {
+  const rows = [...$("gsearch-results").querySelectorAll(".gs-row")];
+  const i = rows.indexOf(document.activeElement);
+  if (e.key === "ArrowDown" && i < rows.length - 1) rows[i + 1].focus();
+  else if (e.key === "ArrowUp") (i > 0 ? rows[i - 1] : $("global-search")).focus();
+  else if (e.key === "Escape") {
+    closeGlobalSearch();
+    $("global-search").focus();
+  } else return;
+  e.preventDefault();
+});
+document.addEventListener("pointerdown", (e) => {
+  if (!$("gsearch-results").hidden && e.target instanceof Node && !e.target.closest(".gsearch")) closeGlobalSearch();
+});
 $("panel-close").addEventListener("click", closePanel);
 $("sidebar-toggle").addEventListener("click", () => setSide(!sideCollapsed(), true));
 $("status-toggle").addEventListener("click", () => {
@@ -1615,6 +1761,10 @@ document.addEventListener("keydown", (e) => {
   } else if (mod && !e.altKey && e.key.toLowerCase() === "k") {
     e.preventDefault();
     newChat();
+  } else if (mod && e.shiftKey && !e.altKey && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    $("global-search").focus();
+    $("global-search").select();
   } else if (mod && !e.altKey && e.key === "/") {
     e.preventDefault();
     setView("chat");
@@ -1638,6 +1788,7 @@ async function boot() {
   live.setAttribute("aria-live", "polite");
   document.body.appendChild(live);
   if (Prefs) Prefs.apply(state.prefs, document.documentElement);
+  syncThemeToggle();
   remountMarks(document, document, style());
   followStyleSidebar();
   syncPills();
@@ -1649,8 +1800,8 @@ async function boot() {
   state.commands = (cmds.data.commands || []).filter((c) => c.available);
   state.suggestions = sug.ok ? sug.data : null;
   state.chat = null;
-  setView("chat");
   renderMessages();
+  setView("overview");
   renderChatList();
   setInterval(() => !state.busy && refreshStatus(), 30000);
 }

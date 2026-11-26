@@ -79,10 +79,10 @@ Tests: 341 in 37 files in the engine plus 22 in the VS Code extension, all passi
 
 ### Tech
 
-TypeScript on Node 26 run directly (`--experimental-strip-types`, no build);
-`node:sqlite` (FTS5); deps: MCP SDK, zod, yaml, playwright-core (attach only, no
-browser download). graphify runs from a local Python venv (not in git). The chat
-app has no framework and no build step.
+- **Desktop Shell:** Tauri 2 (`src-tauri/`, Rust + WebView2) spawning `node bin/aura-guard.mjs ui --no-open` as a managed child process.
+- **Core Engine:** TypeScript on Node 26 run directly (`--experimental-strip-types`, no build); `node:sqlite` (FTS5); deps: MCP SDK, zod, yaml, playwright-core (attach only, no browser download).
+- **UI & Drivers:** Zero-build CSP-strict Control Room UI (`ui/`); Windows UIA desktop crawler (`bin/win-uia-crawler.ps1`), `cua-driver`, and Playwright CDP.
+- **Code Graph:** `graphify` runs from a local Python venv (`.venv/`, not in git).
 
 ### Folder layout
 

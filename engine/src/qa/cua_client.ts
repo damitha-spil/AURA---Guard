@@ -28,12 +28,20 @@ export interface CuaWindowInfo {
   processName: string;
 }
 
+export interface CuaBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface CuaTreeNode {
   token: string;
   role: string;
   name: string;
   text: string;
   value: string;
+  bounds?: CuaBounds;
   children?: CuaTreeNode[];
 }
 
@@ -119,16 +127,35 @@ function parseJsonText(res: { content?: { type?: string; text?: string }[]; isEr
   }
 }
 
+/** Safety bounds for background window resize frames. */
+export const MIN_FRAME_WIDTH = 320;
+export const MAX_FRAME_WIDTH = 3840;
+export const MIN_FRAME_HEIGHT = 240;
+export const MAX_FRAME_HEIGHT = 2160;
+
+function normalizeBounds(raw: unknown): CuaBounds | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const x = Number(o["x"] ?? o["left"]);
+  const y = Number(o["y"] ?? o["top"]);
+  const width = Number(o["width"] ?? (o["right"] !== undefined && Number.isFinite(x) ? Number(o["right"]) - x : NaN));
+  const height = Number(o["height"] ?? (o["bottom"] !== undefined && Number.isFinite(y) ? Number(o["bottom"]) - y : NaN));
+  if (![x, y, width, height].every(Number.isFinite)) return undefined;
+  return { x, y, width, height };
+}
+
 function normalizeTree(raw: unknown): CuaTreeNode[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((n) => {
     const o = (n && typeof n === "object" ? n : {}) as Record<string, unknown>;
+    const bounds = normalizeBounds(o["bounds"] ?? o["rect"] ?? o["bbox"]);
     return {
       token: String(o["element_token"] ?? o["token"] ?? ""),
       role: String(o["role"] ?? ""),
       name: String(o["name"] ?? o["label"] ?? ""),
       text: String(o["text"] ?? o["title"] ?? ""),
       value: String(o["value"] ?? ""),
+      ...(bounds ? { bounds } : {}),
       ...(Array.isArray(o["children"]) ? { children: normalizeTree(o["children"]) } : {}),
     };
   });
@@ -195,6 +222,23 @@ export class CuaClient {
 
   async scroll(elementToken: string, deltaY: number): Promise<void> {
     const res = await this.invoke("scroll", { element_token: elementToken, delta_y: deltaY, delivery_mode: "background" });
+    parseJsonText(res);
+  }
+
+  async setWindowFrame(pid: number, windowId: string, width: number, height: number): Promise<void> {
+    if (!Number.isFinite(width) || width < MIN_FRAME_WIDTH || width > MAX_FRAME_WIDTH) {
+      throw new Error(`Invalid window frame width ${width}; must be between ${MIN_FRAME_WIDTH} and ${MAX_FRAME_WIDTH}.`);
+    }
+    if (!Number.isFinite(height) || height < MIN_FRAME_HEIGHT || height > MAX_FRAME_HEIGHT) {
+      throw new Error(`Invalid window frame height ${height}; must be between ${MIN_FRAME_HEIGHT} and ${MAX_FRAME_HEIGHT}.`);
+    }
+    const res = await this.invoke("set_window_frame", {
+      pid,
+      window_id: windowId,
+      width: Math.round(width),
+      height: Math.round(height),
+      delivery_mode: "background",
+    });
     parseJsonText(res);
   }
 

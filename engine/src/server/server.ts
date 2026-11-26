@@ -16,13 +16,33 @@ import { ChatStore } from "../chat/store.ts";
 import { openDb } from "../index/db.ts";
 import { dbPath } from "../config.ts";
 import type { Db } from "../index/db.ts";
-import { getDoc } from "../index/search.ts";
+import { getDoc, search } from "../index/search.ts";
+import { appVersion, buildOverview } from "./overview.ts";
 import { loadVault } from "../vault/load.ts";
 import { indexVault } from "../index/notes.ts";
 import { revertNoteStatus, setNoteStatus } from "../rules/manage.ts";
 import type { StatusSnapshot } from "../rules/manage.ts";
 import { buildInbox, inboxNote, isNoteId, listReports, readReport, safeReportPath } from "./inbox.ts";
 import { compareQaRuns, cuaDriverStatus, getQaRun, listGovernanceAndCost, listQaRuns, listQaSuite, safeQaScreenshotPath } from "../qa/harness_api.ts";
+import { adviseDeveloper } from "../chat/advisor.ts";
+import { buildPrReadinessReport } from "../prs/manager.ts";
+import { runBackendQaSuite } from "../qa/backend_qa.ts";
+import { LiveSessionController } from "../qa/dsl.ts";
+import { buildPrEvidencePacket } from "../qa/evidence.ts";
+import { applyTriageDecision, loadQaHints } from "../qa/judge.ts";
+import type { TriageAction } from "../qa/judge.ts";
+import { draftJourneyFromRecording } from "../qa/recorder.ts";
+import type { RecordedEvent } from "../qa/recorder.ts";
+import { buildBugSheet } from "../qa/defects.ts";
+import { crawlDesktopApp, probeDesktopCrawlers } from "../qa/desktop_crawler.ts";
+import { findFeatureEntry } from "../qa/feature_map.ts";
+import { runOpenApiChecks } from "../qa/openapi.ts";
+import { runSecurityProbes } from "../qa/security_probes.ts";
+import { recommendDurableConstraint } from "../qe/constraints.ts";
+import { analyzeRefinementAndKbDrift } from "../qe/refine.ts";
+import { analyzeCommitTrajectory } from "../qe/trajectory.ts";
+import { getSkill, listSkills } from "../roles/skills.ts";
+import type { SkillCategory } from "../roles/skills.ts";
 import { describeBackends } from "../brain/select.ts";
 import type { CompleteFn } from "../brain/client.ts";
 import type { GuardConfig } from "../types.ts";
@@ -56,6 +76,8 @@ export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/favicon.svg": { file: "favicon.svg", type: "image/svg+xml" },
   "/themes.css": { file: "themes.css", type: "text/css; charset=utf-8" },
   "/theme.js": { file: "theme.js", type: "text/javascript; charset=utf-8" },
+  "/overview.js": { file: "overview.js", type: "text/javascript; charset=utf-8" },
+  "/overview.css": { file: "overview.css", type: "text/css; charset=utf-8" },
   "/marks.js": { file: "marks.js", type: "text/javascript; charset=utf-8" },
   "/steps.js": { file: "steps.js", type: "text/javascript; charset=utf-8" },
   "/reveal.js": { file: "reveal.js", type: "text/javascript; charset=utf-8" },
@@ -133,6 +155,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     return { db: cached.db, release: () => {} };
   };
   const lock = new HeavyLock();
+  const liveQa = new LiveSessionController();
   const runProcess = deps.runProcess ?? runMainProcess;
   const commandTable = deps.commandTable ?? loadCommandTable;
   const backendInfo = deps.backendInfo ?? (() => defaultBackendInfo(cfg));
@@ -191,6 +214,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         backend: await cachedBackend().catch(() => ({ wanted: "auto", picked: null, label: "No model" })),
         running: lock.running,
         productName: PRODUCT_NAME,
+        version: appVersion(),
       });
     }
 
@@ -201,6 +225,22 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       } finally {
         h?.release();
       }
+    }
+
+    if (path === "/api/overview" && method === "GET") {
+      const h = openIndex();
+      try {
+        return json(res, 200, buildOverview(dcfg, h?.db ?? null));
+      } finally {
+        h?.release();
+      }
+    }
+
+    // Quick search over notes, commits and files for the top bar. Read-only, internal_dev audience.
+    if (path === "/api/search" && method === "GET") {
+      const q = (new URL(req.url ?? "/", "http://x").searchParams.get("q") ?? "").slice(0, 200);
+      const hits = await withIndex((db) => search(db, q, { audience: "internal_dev", limit: 8 }));
+      return json(res, 200, { hits: (hits ?? []).map((x) => ({ kind: x.kind, ref: x.ref, title: x.title, status: x.status ?? null })) });
     }
 
     if (path === "/api/suggestions" && method === "GET") return json(res, 200, { suggestions: suggestions(dcfg) });
@@ -415,6 +455,200 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     if (path === "/api/qa/governance" && method === "GET") return json(res, 200, listGovernanceAndCost(dcfg));
 
     if (path === "/api/qa/driver" && method === "GET") return json(res, 200, await cuaDriverStatus(dcfg));
+
+    if (path === "/api/qa/live/status" && method === "GET") {
+      return json(res, 200, { ...liveQa.getSnapshot(), hints: loadQaHints(dcfg) });
+    }
+
+    if (path === "/api/qa/live/control" && method === "POST") {
+      const body = await readJson(req);
+      const act = body["action"];
+      if (act === "pause") return json(res, 200, liveQa.pause());
+      if (act === "resume") return json(res, 200, liveQa.resume());
+      if (act === "step") return json(res, 200, liveQa.stepOver());
+      if (act === "abort") return json(res, 200, liveQa.abort());
+      if (act === "hint") {
+        const hint = typeof body["hint"] === "string" ? body["hint"].trim() : "";
+        if (!hint) throw new HttpError(400, "Provide hint text.");
+        return json(res, 200, liveQa.injectHint(hint));
+      }
+      throw new HttpError(400, "Use action: pause, resume, step, hint, or abort.");
+    }
+
+    if (path === "/api/qa/triage" && method === "POST") {
+      const body = await readJson(req);
+      const act = body["action"];
+      if (act !== "real_bug" && act !== "update_baseline" && act !== "flaky_hint") {
+        throw new HttpError(400, "Use action: real_bug, update_baseline, or flaky_hint.");
+      }
+      const runId = typeof body["runId"] === "string" ? body["runId"] : "";
+      const journey = typeof body["journey"] === "string" ? body["journey"] : "";
+      const step = typeof body["step"] === "string" ? body["step"] : "";
+      if (!runId || !journey || !step) throw new HttpError(400, "runId, journey, and step are required.");
+      const resTriage = applyTriageDecision(dcfg, {
+        action: act as TriageAction,
+        runId,
+        journey,
+        step,
+        ...(typeof body["expected"] === "string" ? { expected: body["expected"] } : {}),
+        ...(typeof body["actual"] === "string" ? { actual: body["actual"] } : {}),
+        ...(typeof body["width"] === "number" ? { width: body["width"] } : {}),
+        ...(typeof body["screenshotPath"] === "string" ? { screenshotPath: body["screenshotPath"] } : {}),
+        ...(typeof body["hint"] === "string" ? { hint: body["hint"] } : {}),
+      });
+      return json(res, resTriage.ok ? 200 : 400, resTriage);
+    }
+
+    if (path === "/api/qa/evidence" && method === "GET") {
+      const id = new URL(req.url ?? "/", "http://x").searchParams.get("id") ?? "";
+      const built = await buildPrEvidencePacket(dcfg, id);
+      if (!built) throw new HttpError(404, "No such QA run.");
+      return json(res, 200, built);
+    }
+
+    if (path === "/api/qa/pr-readiness" && method === "GET") {
+      const repo = new URL(req.url ?? "/", "http://x").searchParams.get("repo") ?? undefined;
+      const h = openIndex();
+      try {
+        return json(res, 200, buildPrReadinessReport(dcfg, h?.db ?? null, { ...(repo ? { repo } : {}) }));
+      } finally {
+        h?.release();
+      }
+    }
+
+    if (path === "/api/qa/backend-check" && method === "POST") {
+      return json(res, 200, await runBackendQaSuite(dcfg));
+    }
+
+    if (path === "/api/qa/record/draft" && method === "POST") {
+      const body = await readJson(req);
+      const id = typeof body["id"] === "string" ? body["id"].trim() : "";
+      const title = typeof body["title"] === "string" ? body["title"].trim() : "";
+      const area = typeof body["area"] === "string" ? body["area"].trim() : "ui";
+      const events = Array.isArray(body["events"]) ? (body["events"] as RecordedEvent[]) : [];
+      if (!id || !title) throw new HttpError(400, "id and title are required.");
+      const draft = draftJourneyFromRecording(dcfg, {
+        id,
+        title,
+        area,
+        tier: body["tier"] === 1 ? 1 : 0,
+        events,
+        writeProposal: body["writeProposal"] === true,
+      });
+      return json(res, 200, draft);
+    }
+
+    if (path === "/api/advisor" && method === "GET") {
+      const q = new URL(req.url ?? "/", "http://x").searchParams;
+      const query = q.get("q") ?? "";
+      if (!query.trim()) throw new HttpError(400, "Missing query q.");
+      const repo = q.get("repo") ?? undefined;
+      const filePath = q.get("path") ?? undefined;
+      const h = openIndex();
+      try {
+        return json(res, 200, adviseDeveloper(dcfg, h?.db ?? null, query, { ...(repo ? { repo } : {}), ...(filePath ? { path: filePath } : {}) }));
+      } finally {
+        h?.release();
+      }
+    }
+
+    if (path === "/api/skills" && method === "GET") {
+      const cat = new URL(req.url ?? "/", "http://x").searchParams.get("category");
+      const valid = cat === "security" || cat === "qa" || cat === "qe" || cat === "core" ? (cat as SkillCategory) : undefined;
+      return json(res, 200, { skills: listSkills(dcfg.root, valid) });
+    }
+
+    if (path === "/api/skill" && method === "GET") {
+      const name = new URL(req.url ?? "/", "http://x").searchParams.get("name") ?? "";
+      const skill = getSkill(dcfg.root, name);
+      if (!skill) throw new HttpError(404, "No such skill.");
+      return json(res, 200, skill);
+    }
+
+    if (path === "/api/qe/trajectory" && method === "GET") {
+      const repo = new URL(req.url ?? "/", "http://x").searchParams.get("repo") ?? undefined;
+      const h = openIndex();
+      try {
+        return json(res, 200, analyzeCommitTrajectory(dcfg, h?.db ?? null, { ...(repo ? { repo } : {}) }));
+      } finally {
+        h?.release();
+      }
+    }
+
+    if (path === "/api/qe/refine" && method === "GET") {
+      const repo = new URL(req.url ?? "/", "http://x").searchParams.get("repo") ?? undefined;
+      const h = openIndex();
+      try {
+        return json(res, 200, analyzeRefinementAndKbDrift(dcfg, h?.db ?? null, { ...(repo ? { repo } : {}) }));
+      } finally {
+        h?.release();
+      }
+    }
+
+    if (path === "/api/qa/bug-sheet" && method === "GET") {
+      const id = new URL(req.url ?? "/", "http://x").searchParams.get("id") ?? "";
+      const sheet = buildBugSheet(dcfg, id);
+      if (!sheet) throw new HttpError(404, "No such QA run.");
+      return json(res, 200, sheet);
+    }
+
+    if (path === "/api/qa/openapi" && method === "POST") {
+      const body = await readJson(req);
+      const baseUrl = typeof body["baseUrl"] === "string" ? body["baseUrl"].trim() : "";
+      const specText = typeof body["specText"] === "string" ? body["specText"] : "";
+      if (!baseUrl) throw new HttpError(400, "baseUrl is required.");
+      try {
+        return json(res, 200, await runOpenApiChecks(dcfg, { baseUrl, specText }));
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+    }
+
+    if (path === "/api/qa/security-probes" && method === "POST") {
+      const body = await readJson(req);
+      const baseUrl = typeof body["baseUrl"] === "string" ? body["baseUrl"].trim() : "";
+      const paths = Array.isArray(body["paths"]) ? body["paths"].filter((p): p is string => typeof p === "string") : undefined;
+      if (!baseUrl) throw new HttpError(400, "baseUrl is required.");
+      try {
+        return json(res, 200, await runSecurityProbes(dcfg, { baseUrl, ...(paths ? { paths } : {}) }));
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+    }
+
+    if (path === "/api/qa/crawlers" && method === "GET") {
+      return json(res, 200, await probeDesktopCrawlers(dcfg));
+    }
+
+    if (path === "/api/qa/crawl" && method === "POST") {
+      const body = await readJson(req);
+      const matchTitle = typeof body["matchTitle"] === "string" ? body["matchTitle"].trim() : undefined;
+      const dryRun = body["dryRun"] !== false;
+      const maxActions = typeof body["maxActions"] === "number" ? body["maxActions"] : 5;
+      try {
+        return json(res, 200, await crawlDesktopApp(dcfg, { ...(matchTitle ? { matchTitle } : {}), dryRun, maxActions, tier: body["tier"] === 1 ? 1 : 0 }));
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+    }
+
+    if (path === "/api/qa/features" && method === "GET") {
+      const q = new URL(req.url ?? "/", "http://x").searchParams.get("q") ?? "";
+      return json(res, 200, { features: findFeatureEntry(dcfg, q) });
+    }
+
+    if (path === "/api/qe/constraint" && method === "POST") {
+      const body = await readJson(req);
+      const pattern = typeof body["pattern"] === "string" ? body["pattern"].trim() : "";
+      if (!pattern) throw new HttpError(400, "pattern is required.");
+      return json(res, 200, recommendDurableConstraint({
+        pattern,
+        occurrences: typeof body["occurrences"] === "number" ? body["occurrences"] : 1,
+        mechanicallyDetectable: body["mechanicallyDetectable"] === true,
+        canDesignOutInTypesOrApi: body["canDesignOutInTypesOrApi"] === true,
+        isMultiStepProcedure: body["isMultiStepProcedure"] === true,
+      }));
+    }
 
     if (path === "/api/qa/artifact" && method === "GET") {
       const p = new URL(req.url ?? "/", "http://x").searchParams.get("path") ?? "";

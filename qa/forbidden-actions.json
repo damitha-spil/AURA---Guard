@@ -18,5 +18,16 @@
     "delete", "shift+delete"
   ],
   "allowedHosts": ["127.0.0.1", "localhost", "tauri.localhost"],
-  "allowedUploadDirs": ["qa/fixtures/"]
+  "allowedUploadDirs": ["qa/fixtures/"],
+  "tier1SafeNames": [
+    "new chat", "new", "send", "reset", "test", "apply", "sign in as admin"
+  ],
+  "tier2HardBlockedNames": [
+    "save to spil glass", "send to spil glass", "to spil glass", "confirm order", "place order",
+    "checkout", "delete", "remove", "approve", "publish", "pay", "post", "save draft",
+    "clear list", "forget", "disconnect", "unlink"
+  ],
+  "tier2BlockedScreens": [
+    "whatsapp", "telegram", "messaging", "erp", "spil glass", "order draft", "confirm"
+  ]
 }

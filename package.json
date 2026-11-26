@@ -16,7 +16,9 @@
     "test": "node bin/run-tests.mjs",
     "guard": "node bin/aura-guard.mjs",
     "mcp": "node --experimental-strip-types engine/src/mcp/server.ts",
-    "ui": "node bin/aura-guard.mjs ui"
+    "ui": "node bin/aura-guard.mjs ui",
+    "desktop": "cargo tauri dev",
+    "desktop:build": "cargo tauri build"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

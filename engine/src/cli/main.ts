@@ -29,6 +29,9 @@ import { dailyCommands } from "./commands-daily.ts";
 import { learnCommands } from "./commands-learn.ts";
 import { prCommands } from "./commands-prs.ts";
 import { qaCommands } from "./commands-qa.ts";
+import { adviseDeveloper } from "../chat/advisor.ts";
+import { analyzeRefinementAndKbDrift } from "../qe/refine.ts";
+import { analyzeCommitTrajectory } from "../qe/trajectory.ts";
 import { reviewCommands } from "./commands-review.ts";
 import { uiCommands } from "./commands-ui.ts";
 import { copy } from "./copy.ts";
@@ -128,6 +131,55 @@ EXTRA_COMMANDS.mine = ({ rest, flags, out, cfg }) => {
 
 // Command sets from the feature modules. Each one exports a name -> handler map.
 Object.assign(EXTRA_COMMANDS, uiCommands, qaCommands, prCommands, reviewCommands, dailyCommands, learnCommands, captureCommands);
+
+EXTRA_COMMANDS.advise = ({ rest, out, cfg }) => {
+  const query = rest.join(" ").trim();
+  if (!query) {
+    out(copy.needArgs("advise", "<topic or question>"));
+    return 2;
+  }
+  const db = openExisting(cfg);
+  try {
+    const brief = adviseDeveloper(cfg, db, query);
+    out(`# Wise Advisor: ${brief.topic}`);
+    for (const rec of brief.recommendations) out(`- ${rec}`);
+    if (brief.activeRules.length) {
+      out("\nActive rules:");
+      for (const r of brief.activeRules) out(`  - [${r.id}] ${r.title}: ${r.summary}`);
+    }
+    if (brief.proposedHints.length) {
+      out("\nProposed hints (unapproved):");
+      for (const h of brief.proposedHints) out(`  - [${h.id}] ${h.title}`);
+    }
+    return 0;
+  } finally {
+    db?.close();
+  }
+};
+
+EXTRA_COMMANDS.qe = ({ rest, out, cfg }) => {
+  const sub = rest[0];
+  const repo = rest[1];
+  const db = openExisting(cfg);
+  try {
+    if (sub === "trajectory") {
+      const rep = analyzeCommitTrajectory(cfg, db, { ...(repo ? { repo } : {}) });
+      out(`Commit Trajectory (${rep.repo}): risk=${rep.riskLevel.toUpperCase()}, ${rep.commitsAnalyzed} commits, ${rep.churnHotspots.length} churn hotspot(s).`);
+      for (const r of rep.recommendations) out(`- ${r}`);
+      return 0;
+    }
+    if (sub === "refine") {
+      const rep = analyzeRefinementAndKbDrift(cfg, db, { ...(repo ? { repo } : {}) });
+      out(`Refinement & KB Drift (${rep.repo}): ${rep.refinements.length} refinement(s), ${rep.staleAnchors.length} stale note(s), ${rep.undocumentedPatterns.length} undocumented pattern(s).`);
+      for (const f of rep.refinements.slice(0, 8)) out(`- [${f.kind}] ${f.file}:${f.line} — ${f.message}`);
+      return 0;
+    }
+    out(copy.needArgs("qe", "trajectory [repo] | refine [repo]"));
+    return 2;
+  } finally {
+    db?.close();
+  }
+};
 
 function localToday(): string {
   const d = new Date();

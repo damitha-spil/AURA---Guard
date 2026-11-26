@@ -14,6 +14,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+export type SafetyTier = 0 | 1 | 2;
+
 export interface ForbiddenList {
   /** Words and phrases an element name/text must not contain. `word*` matches a prefix. */
   names: string[];
@@ -25,6 +27,12 @@ export interface ForbiddenList {
   allowedHosts: string[];
   /** File uploads are only allowed from these folders (relative, forward slashes). */
   allowedUploadDirs: string[];
+  /** Local-only sandbox UI actions allowed in Tier 1 when not on a Tier 2 screen. */
+  tier1SafeNames?: string[];
+  /** Hard-blocked ERP/destructive actions never permitted in any tier. */
+  tier2HardBlockedNames?: string[];
+  /** Screen contexts where interactive mutations (like "send") are always Tier 2 blocked. */
+  tier2BlockedScreens?: string[];
 }
 
 export interface SafetyFinding {
@@ -54,12 +62,21 @@ function readList(file: string): Partial<ForbiddenList> {
 /** Add `extra` to `base`. A company can only make the list longer, never shorter. */
 export function extendForbidden(base: ForbiddenList, extra: Partial<ForbiddenList>): ForbiddenList {
   const merge = (a: string[], b: string[] | undefined) => [...new Set([...a, ...(b ?? [])])];
+  const tier2HardBlockedNames = merge(base.tier2HardBlockedNames ?? [], extra.tier2HardBlockedNames);
+  const blockedSet = new Set(tier2HardBlockedNames.map((s) => words(s).trim()));
+  // tier1SafeNames can never override any Tier 2 hard-blocked phrase.
+  const tier1SafeNames = (base.tier1SafeNames ?? []).filter((n) => !blockedSet.has(words(n).trim()));
   return {
     names: merge(base.names, extra.names),
     selectors: merge(base.selectors, extra.selectors),
     keys: merge(base.keys, extra.keys),
     allowedHosts: base.allowedHosts, // hosts are never widened by extra
     allowedUploadDirs: base.allowedUploadDirs,
+    ...(tier1SafeNames.length ? { tier1SafeNames } : {}),
+    ...(tier2HardBlockedNames.length ? { tier2HardBlockedNames } : {}),
+    ...(merge(base.tier2BlockedScreens ?? [], extra.tier2BlockedScreens).length
+      ? { tier2BlockedScreens: merge(base.tier2BlockedScreens ?? [], extra.tier2BlockedScreens) }
+      : {}),
   };
 }
 
@@ -78,13 +95,111 @@ export function words(s: string): string {
 
 /** The first forbidden name found in `text`, or null. */
 export function matchForbiddenText(text: string, list: ForbiddenList): string | null {
+  return matchPhraseList(text, list.names);
+}
+
+function matchPhraseList(text: string, phrases: string[]): string | null {
   const w = words(text);
-  for (const term of list.names) {
+  for (const term of phrases) {
     const prefix = term.endsWith("*");
     const t = words(prefix ? term.slice(0, -1) : term).trimEnd();
-    if (prefix ? w.includes(t) : w.includes(t + " ")) return term;
+    if (t && (prefix ? w.includes(t) : w.includes(t + " "))) return term;
   }
   return null;
+}
+
+export interface TierActionInfo {
+  tag?: string;
+  role?: string | null;
+  type?: string | null;
+  name?: string;
+  text?: string;
+  title?: string;
+  value?: string;
+  id?: string;
+  testid?: string;
+  submits?: boolean;
+  control?: boolean;
+}
+
+export interface TierJudgment {
+  allowed: boolean;
+  tier: SafetyTier;
+  reason: string | null;
+}
+
+/**
+ * Tiered safety gate (0 = pure read, 1 = local interactive sandbox, 2 = hard-blocked mutation).
+ * Tier 2 hard-blocked names, blocked screens, and forbidden selectors are always refused.
+ */
+export function judgeActionByTier(
+  info: TierActionInfo,
+  selectorText: string,
+  list: ForbiddenList,
+  opts: { tier: 0 | 1; screenContext?: string },
+): TierJudgment {
+  const text = info.text ?? "";
+  const textIsLabel = info.control ? text.length <= 200 : text.length <= 40;
+  const named: [string, string][] = [
+    ["name", info.name ?? ""],
+    ["title", info.title ?? ""],
+    ["value", info.value ?? ""],
+    ["id", info.id ?? ""],
+    ["test id", info.testid ?? ""],
+    ...(textIsLabel ? ([["text", text]] as [string, string][]) : []),
+  ];
+
+  const hardList = list.tier2HardBlockedNames ?? [];
+  const blockedScreens = list.tier2BlockedScreens ?? [];
+  const screenHit = opts.screenContext ? matchPhraseList(opts.screenContext, blockedScreens) : null;
+
+  for (const [what, v] of named) {
+    if (!v) continue;
+    const hardHit = matchPhraseList(v, hardList);
+    if (hardHit) {
+      return { allowed: false, tier: 2, reason: `the element's ${what} ("${v.slice(0, 60)}") matches hard-blocked Tier 2 action "${hardHit}"` };
+    }
+    if (screenHit && words(v).includes(" send ")) {
+      return { allowed: false, tier: 2, reason: `"send" is Tier 2 hard-blocked on "${screenHit}" screen` };
+    }
+  }
+
+  if (matchForbiddenSelector(selectorText, list)) {
+    return { allowed: false, tier: 2, reason: "the selector looks like a save, submit or delete control" };
+  }
+  if (info.submits && screenHit) {
+    return { allowed: false, tier: 2, reason: `form submission is Tier 2 hard-blocked on "${screenHit}" screen` };
+  }
+
+  if (opts.tier === 0) {
+    for (const [what, v] of named) {
+      const hit = v ? matchForbiddenText(v, list) : null;
+      if (hit) {
+        return { allowed: false, tier: 0, reason: `the element's ${what} ("${v.slice(0, 60)}") matches forbidden word "${hit}"` };
+      }
+    }
+    if (info.submits) return { allowed: false, tier: 0, reason: "the element would submit a form" };
+    return { allowed: true, tier: 0, reason: null };
+  }
+
+  // Tier 1: allow configured local-sandbox safe actions when not on a Tier 2 screen or hard-blocked.
+  const tier1Safe = list.tier1SafeNames ?? [];
+  for (const [what, v] of named) {
+    if (!v) continue;
+    const hit = matchForbiddenText(v, list);
+    if (!hit) continue;
+    const isTier1Safe = !screenHit && matchPhraseList(v, tier1Safe) !== null && matchPhraseList(hit, tier1Safe) !== null;
+    if (!isTier1Safe) {
+      return { allowed: false, tier: 1, reason: `the element's ${what} ("${v.slice(0, 60)}") matches forbidden word "${hit}"` };
+    }
+  }
+  if (info.submits && !screenHit) {
+    // Only allow submits in Tier 1 if explicitly matched by a tier1Safe name (e.g. "send" in chat).
+    const labelStr = named.map(([, v]) => v).join(" ");
+    const safeSubmit = matchPhraseList(labelStr, tier1Safe) !== null;
+    if (!safeSubmit) return { allowed: false, tier: 1, reason: "the element would submit a form" };
+  }
+  return { allowed: true, tier: 1, reason: null };
 }
 
 /** The first forbidden selector pattern found in `raw`, or null. */

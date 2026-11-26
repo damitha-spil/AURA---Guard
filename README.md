@@ -31,9 +31,31 @@ the full picture.
 ```
 npm install
 npm run guard -- index          # read the vault and repos (about 5 s)
-npm run ui                      # open the chat window
+npm run desktop                 # launch the native Tauri 2 desktop app
+npm run ui                      # fallback: open in Edge/Chrome --app mode
 npm run guard -- help           # every command
 ```
+
+### Run as Native Desktop App (Tauri 2)
+
+AURA Sentinel ships with a lightweight **Tauri 2** (`src-tauri/`) native desktop shell:
+
+```
+npm run desktop                 # dev mode: spawns the Node engine + opens native WebView2 window
+npm run desktop:build           # builds a standalone Windows installer/executable
+```
+
+**Prerequisites:** Node.js 26+, Rust (`cargo`), and Tauri CLI 2 (`cargo install tauri-cli` or `npm i -D @tauri-apps/cli`).
+
+### Tech Stack & Architecture
+
+| Layer | Technology | Role |
+|---|---|---|
+| Desktop Shell | **Tauri 2** (Rust + WebView2) | Native window, process lifecycle, hidden Node sidecar |
+| Core Engine | **Node.js 26 + TypeScript** (`--experimental-strip-types`) | Zero-build QA, QE, DevSecOps, MCP server, HTTP/SSE server |
+| Knowledge & Memory | **SQLite (`node:sqlite` FTS5)** + Obsidian Vault + `graphify` (Python) | Full-text search, AST code graph, blast radius |
+| Control Room UI | **Vanilla JS + HTML + CSS** (CSP-strict, zero-build) | 4-zone IDE workstation, live telemetry, triage |
+| UI & Desktop Drivers | **Windows UIA** (`win-uia-crawler.ps1`), `cua-driver`, **Playwright CDP** | Background/live desktop & web automation |
 
 ## Developer activity capture (VS Code)
 
@@ -43,9 +65,8 @@ entries. See [docs/vscode-extension.md](docs/vscode-extension.md) and
 
 ## Names
 
-The product name is **SPIL AURA QA Bot**. The command is still `aura-guard`, and the
-plugin and extension ids still start with `aura-guard`, so existing setups keep working. These
-identifiers will be renamed together with the GitHub repository.
+The platform name is **AURA Sentinel**. The CLI command is still `aura-guard`, and the
+plugin and extension ids still start with `aura-guard`, so existing setups keep working.
 
 ## Use it from Claude Code (plugin)
 

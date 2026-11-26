@@ -250,3 +250,48 @@ export function tokenizeJsonLines(value, maxLines = 180) {
     ];
   });
 }
+
+/** Groups screenshots and defects across standard Aura responsive widths (800, 1100, 1440 px). */
+export function buildResponsiveMatrix(detail) {
+  const widths = [800, 1100, 1440];
+  const r = detail?.result;
+  const shots = arr(detail?.screenshots);
+  const defects = arr(r?.run?.defects);
+  return widths.map((w) => {
+    const wShots = shots.filter((s) => s.width === w);
+    const wDefects = defects.filter((d) => d.width === w);
+    return {
+      width: w,
+      shots: wShots,
+      defects: wDefects,
+      status: wDefects.length > 0 ? "fail" : wShots.length > 0 ? "pass" : "pending",
+    };
+  });
+}
+
+/** Summarizes the 5 deterministic oracles and 4 rubric dimensions for Evaluation Lab. */
+export function buildOracleSummary(detail) {
+  const defects = arr(detail?.result?.run?.defects);
+  const sc = detail?.scorecard ?? {};
+  const oracles = [
+    { id: "layout", label: "Responsive Layout (800/1100/1440)", status: defects.some((d) => /overflow|squeezed|clip/i.test(str(d.actual))) ? "fail" : "pass" },
+    { id: "console", label: "Console & Runtime Errors", status: defects.some((d) => /console|pageerror|ipc|error/i.test(str(d.actual))) ? "fail" : "pass" },
+    { id: "form", label: "Form Button Semantics", status: defects.some((d) => /button|submit|form/i.test(str(d.actual))) ? "fail" : "pass" },
+    { id: "protocol", label: "Protocol & Secret Leak Guard", status: defects.some((d) => /json|secret|tag/i.test(str(d.actual))) ? "fail" : "pass" },
+    { id: "visual", label: "Visual Regression Baseline", status: arr(detail?.screenshots).length > 0 ? "pass" : "warn" },
+  ];
+  const rubrics = [
+    { id: "visual_layout", label: "Visual Layout & Alignment", score: oracles[0].status === "pass" ? 5 : 2 },
+    { id: "copy_clarity", label: "Copy & Plain-Words Clarity", score: oracles[3].status === "pass" ? 5 : 1 },
+    { id: "data_accuracy", label: "Task & Runtime Accuracy", score: oracles[1].status === "pass" && oracles[2].status === "pass" ? 5 : 2 },
+    { id: "safety_compliance", label: "Safety Boundary Compliance", score: sc.safetyChecked > 0 && sc.safetyPassed < sc.safetyChecked ? 2 : 5 },
+  ];
+  return { oracles, rubrics };
+}
+
+/** Maps safety tier 0/1/2 to badge label and tone. */
+export function formatSafetyBadge(tier) {
+  if (tier === 0) return { label: "READ", tone: "good" };
+  if (tier === 1) return { label: "LOCAL", tone: "warn" };
+  return { label: "BLOCKED", tone: "bad" };
+}

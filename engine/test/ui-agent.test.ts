@@ -311,10 +311,10 @@ test("marks and style descriptors: every style has its own mark, rule set and de
   // The CSS has a rule set for every style, in both the colour file and the structure file.
   const css = readFileSync(join(uiDir, "styles.css"), "utf8");
   const themes = readFileSync(join(uiDir, "themes.css"), "utf8");
-  for (const s of m.STYLES) {
-    assert.ok(css.includes(`[data-style="${s}"] .msg`) || css.includes(`[data-style="${s}"] .`), `${s}: structure rules`);
-    assert.ok(themes.includes(`:root[data-style="${s}"][data-mode="dark"]`) && themes.includes(`:root[data-style="${s}"][data-mode="light"]`), `${s}: light and dark colours`);
-  }
+  // The four old looks were replaced by light and dark colour modes: only Noir keeps structure rules,
+  // and themes.css has one token set per mode.
+  assert.ok(css.includes(`[data-style="noir"] .msg`) || css.includes(`[data-style="noir"] .`), "noir: structure rules");
+  assert.ok(themes.includes(`:root[data-mode="dark"]`) && themes.includes(`:root[data-mode="light"]`), "light and dark colours");
   // A tiny fake document proves marks build without a browser.
   const made: string[] = [];
   const doc = {
@@ -347,14 +347,15 @@ test("preferences: Noir is the default; bad or throwing storage never breaks; sa
   const store = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
   assert.equal(P["load"](store).style, "noir", "empty storage gives Noir");
   assert.equal(P["save"](store, { style: "pulse", mode: "dark", motion: "reduced", showWork: "on" }), true);
-  assert.deepEqual(P["load"](store), { style: "pulse", mode: "dark", motion: "reduced", showWork: "on" });
+  assert.deepEqual(P["load"](store), { style: "noir", mode: "dark", motion: "reduced", showWork: "on" }, "old styles migrate to the one layout");
+  assert.equal(P["DEFAULTS"].mode, "light", "light is the default theme");
   mem.set(P["KEY"], "{not json");
   assert.equal(P["load"](store).style, "noir");
   mem.set(P["KEY"], JSON.stringify({ style: "<script>", mode: 5, motion: null, showWork: {} }));
   assert.deepEqual(P["load"](store), P["DEFAULTS"], "unknown values fall back");
   const attrs: Record<string, string> = {};
   P["apply"]({ style: "aurora", mode: "light" }, { setAttribute: (k: string, v: string) => { attrs[k] = v; } });
-  assert.deepEqual(attrs, { "data-style": "aurora", "data-mode": "light", "data-motion": "auto" });
+  assert.deepEqual(attrs, { "data-style": "noir", "data-mode": "light", "data-motion": "auto" });
   // A first visit opens in Noir before any script runs.
   const html = readFileSync(join(uiDir, "index.html"), "utf8");
   assert.match(html, /<html lang="en" data-style="noir"/);

@@ -1,8 +1,122 @@
-# AI handoff: SPIL AURA QA Bot
+# AI handoff: AURA QA
 
 > **Standing instruction for all future AIs:**
 > Read this entire file and run `git status --short` before making any changes.
 > **Every AI session MUST update `AI_HANDOFF.md`** after every meaningful implementation, test run, architectural decision, or blocker, and again before handing off or stopping. Record: what changed (exact file paths and symbols), exact commands and observed test/check results, what remains unverified (e.g., live UI visual proof), and the concrete next action. **Never record credentials, tokens, connection strings, or other secrets.**
+
+---
+
+## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
+
+- **Tauri 2 Desktop Shell (`src-tauri/`):**
+  - Scaffolded `src-tauri/Cargo.toml`, `src-tauri/build.rs`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`, `src-tauri/icons/icon.ico`, and `src-tauri/src/main.rs`.
+  - `main.rs` spawns `node bin/aura-guard.mjs ui --no-open` hidden (`CREATE_NO_WINDOW`), reads `http://127.0.0.1:<port>/?t=<token>` from stdout, navigates the `main` WebviewWindow, and kills the child Node process on window close/exit.
+  - Added `"desktop"` (`cargo tauri dev --manifest-path src-tauri/Cargo.toml`) and `"desktop:build"` (`cargo tauri build --manifest-path src-tauri/Cargo.toml`) to `package.json`.
+  - Verified: `cargo check --manifest-path src-tauri/Cargo.toml` (`CARGO_BUILD_JOBS=1`) -> Passed (0 errors).
+- **Documentation Restructure (`README.md`, `STATUS.md`, `AGENTS.md`):**
+  - Updated product name to **AURA Sentinel**, documented Tauri 2 run/build commands, and added the Tech Stack & Architecture summary.
+
+---
+
+## Lauren Poteto Rules & Windows UIA Desktop App Crawler (2026-11-26)
+
+- **`lauren-poteto-rules` Integration (`plugin/aura-guard/skills/lauren-poteto-rules/SKILL.md`, `qa/feature-map.json`, `engine/src/qa/feature_map.ts`, `engine/src/qe/constraints.ts`):**
+  - Extracted all 8 engineering & verification rules from `unicodef1wn/lauren-poteto-rules` into a dedicated skill.
+  - Added `loadFeatureMap`, `findFeatureEntry`, and `verifyClaimEvidence` (`appearance`, `interaction`, `performance`, `api`) in `feature_map.ts`.
+  - Added `recommendDurableConstraint` (smallest effective mechanism: `architecture` → `mechanical_check` → `vault_rule` → `skill`) and `evaluateSkillEffectiveness` in `constraints.ts`.
+- **Open-Source Windows UIA & Multi-Backend Desktop Crawler (`bin/win-uia-crawler.ps1`, `engine/src/qa/desktop_crawler.ts`):**
+  - Built a zero-install Windows UIA crawler (`bin/win-uia-crawler.ps1` using .NET `UIAutomationClient` + `UIAutomationTypes`) supporting `list-windows`, `inspect-tree`, `click` (`InvokePattern`/`SelectionItemPattern`/`TogglePattern`/`ExpandCollapsePattern`), `type` (`ValuePattern`), and window `screenshot`.
+  - Created `probeDesktopCrawlers`, `createWindowsUiaTransport`, and `crawlDesktopApp` enforcing `selectTargetWindow` (denylist + `allowedApps`) and `judgeActionByTier` before every click/type, plus drafting declarative `JourneyDsl` flows.
+- **Wiring & Verification:**
+  - Added HTTP routes (`GET /api/qa/crawlers`, `POST /api/qa/crawl`, `GET /api/qa/features`, `POST /api/qe/constraint`), 3 MCP tools (`qa_crawl_desktop_app`, `qa_feature_map`, `qe_recommend_constraint` — 21 tools total on `dev`/`qa`, `support` strictly 2 tools), CLI subcommands (`qa crawl`, `qa features`), and Test Lab `Crawl Desktop UI` button.
+  - `npx.cmd tsc -p engine --noEmit` (0 errors), `npm.cmd run typecheck` (0 errors), `npm.cmd test` (**364 / 364 passed across 46 test files**, including `crawler-poteto.test.ts`), `git diff --check` clean.
+
+---
+
+## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
+
+- **Tauri 2 Desktop Shell (`src-tauri/`):**
+  - Scaffolded `src-tauri/Cargo.toml`, `src-tauri/build.rs`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`, `src-tauri/icons/icon.ico`, and `src-tauri/src/main.rs`.
+  - `main.rs` spawns `node bin/aura-guard.mjs ui --no-open` hidden (`CREATE_NO_WINDOW`), reads `http://127.0.0.1:<port>/?t=<token>` from stdout, navigates the `main` WebviewWindow, and kills the child Node process on window close/exit.
+  - Added `"desktop"` (`cargo tauri dev --manifest-path src-tauri/Cargo.toml`) and `"desktop:build"` (`cargo tauri build --manifest-path src-tauri/Cargo.toml`) to `package.json`.
+  - Verified: `cargo check --manifest-path src-tauri/Cargo.toml` (`CARGO_BUILD_JOBS=1`) -> Passed (0 errors).
+- **Documentation Restructure (`README.md`, `STATUS.md`, `AGENTS.md`):**
+  - Updated product name to **AURA Sentinel**, documented Tauri 2 run/build commands, and added the Tech Stack & Architecture summary.
+
+---
+
+## AURA Sentinel Platform: 5 QA + QE + DevSecOps Pillars & Rebrand (2026-11-26)
+
+- **Platform Rebrand (`engine/src/brand.ts`, `ui/brand.js`, `ui/index.html`):** Renamed display brand to **AURA Sentinel** (`Sentinel`, monogram `AS`), keeping `aura-guard` CLI/MCP/plugin identifiers backwards-compatible.
+- **Pillar 1 — QE Commit Trajectory & Churn Engine (`engine/src/qe/trajectory.ts`):** Added `analyzeCommitTrajectory` detecting fixup/wip churn hotspots, mid-branch pivot leftovers, scope atomicity drift, and cross-author file overlaps (author names hashed).
+- **Pillar 2 — Swagger / OpenAPI Contract & Endpoint Engine (`engine/src/qa/openapi.ts`):** Added `parseOpenApiSpec`, `generateApiTestCases`, and `runOpenApiChecks` (hard-locked to `allowedHosts` local test URLs, safe read-only execution).
+- **Pillar 3 — Safe Adversarial Security Probes & Network Telemetry (`engine/src/qa/security_probes.ts`, `engine/src/qa/oracles.ts`, `engine/src/qa/driver.ts`):** Added `runSecurityProbes` (SQLi canary, XSS reflection, path traversal, oversized body DoS cap, security headers, secret leaks; local-only) plus `NetworkEvent` / `checkNetworkTraffic` and passive Playwright `response` / `requestfailed` listeners.
+- **Pillar 4 — Defect Fingerprinting & Bug Sheets (`engine/src/qa/defects.ts`):** Added `fingerprintDefect` and `buildBugSheet` exporting deduplicated JSON/Markdown/CSV Bug Sheets, developer ticket drafts, and PR warning blocks under `.artifacts/qa/<runId>/`.
+- **Pillar 5 — Structural Code Refinement & KB Drift (`engine/src/qe/refine.ts`):** Added `analyzeRefinementAndKbDrift` detecting large changes, deep nesting, duplicate logic, magic numbers, stale Vault anchors, and undocumented added modules.
+- **Wiring & Tests:** Added HTTP routes (`/api/qe/trajectory`, `/api/qe/refine`, `/api/qa/bug-sheet`, `/api/qa/openapi`, `/api/qa/security-probes`), 4 MCP tools (`qe_commit_trajectory`, `qe_code_refine_drift`, `qa_bug_sheet`, `qa_security_probes` — 18 tools total on `dev`/`qa`, `support` strictly 2 tools), CLI subcommands (`qa bugs|openapi|security`, `qe trajectory|refine`), and Control Room UI panels.
+- **Verification:** `npx.cmd tsc -p engine --noEmit` (0 errors), `npm.cmd run typecheck` (0 errors), `npm.cmd test` (**362 / 362 passed across 45 test files**, including `qe-devsecops-pillars.test.ts`), `git diff --check` clean.
+
+---
+
+## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
+
+- **Tauri 2 Desktop Shell (`src-tauri/`):**
+  - Scaffolded `src-tauri/Cargo.toml`, `src-tauri/build.rs`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`, `src-tauri/icons/icon.ico`, and `src-tauri/src/main.rs`.
+  - `main.rs` spawns `node bin/aura-guard.mjs ui --no-open` hidden (`CREATE_NO_WINDOW`), reads `http://127.0.0.1:<port>/?t=<token>` from stdout, navigates the `main` WebviewWindow, and kills the child Node process on window close/exit.
+  - Added `"desktop"` (`cargo tauri dev --manifest-path src-tauri/Cargo.toml`) and `"desktop:build"` (`cargo tauri build --manifest-path src-tauri/Cargo.toml`) to `package.json`.
+  - Verified: `cargo check --manifest-path src-tauri/Cargo.toml` (`CARGO_BUILD_JOBS=1`) -> Passed (0 errors).
+- **Documentation Restructure (`README.md`, `STATUS.md`, `AGENTS.md`):**
+  - Updated product name to **AURA Sentinel**, documented Tauri 2 run/build commands, and added the Tech Stack & Architecture summary.
+
+---
+
+## Agentic QA Control Room, Hybrid Driver, Oracles, PR Manager & Wise Advisor (2026-11-26)
+
+- **Repo Boundary:** All implementation below was done strictly inside `D:\AURA - Guard` (uncommitted); `d:\SPIL AURA` was not modified.
+- **1. Tiered Safety & Cua Enhancements (`qa/forbidden-actions.json`, `engine/src/qa/safety.ts`, `engine/src/qa/cua_client.ts`):**
+  - Added `SafetyTier` (`0 | 1 | 2`), `tier1SafeNames`, `tier2HardBlockedNames`, `tier2BlockedScreens`, `extendForbidden` hard-block protections, and `judgeActionByTier` so local sandbox interactions (e.g. `New chat`, chat `Send`) are allowed in Tier 1 while ERP writes and messaging sends remain Tier 2 hard-blocked.
+  - Added `CuaBounds` normalization (`normalizeBounds`) and `CuaClient.setWindowFrame(pid, windowId, width, height)` in `delivery_mode: "background"` with frame dimension bounds (`320..3840` x `240..2160`).
+- **2. Deterministic Oracles, Rubric Judge, Trajectory Eval, Triage & PR Evidence (`engine/src/qa/oracles.ts`, `engine/src/qa/judge.ts`, `engine/src/qa/evidence.ts`):**
+  - `oracles.ts`: Implemented 5 zero-token oracles (`checkResponsiveLayout`, `checkConsoleAndRuntime`, `checkFormSemantics`, `checkProtocolAndPrivacyLeaks`, pure-JS PNG `comparePngBuffers`, and `runAllOracles`).
+  - `judge.ts`: Implemented `evaluateWithRubric` (4 rubrics, outgoing text masked via `maskOutgoing`, deterministic fallback when offline), `evaluateTrajectory`, `applyTriageDecision` (`real_bug` -> proposed `vault/inbox/incident-qa-triage-*.md` + PR comment; `update_baseline` -> `.artifacts/qa/baselines/`; `flaky_hint` -> `data/qa/hints.json`), and `loadQaHints`.
+  - `evidence.ts`: Implemented `buildPrEvidencePacket` writing redacted `.artifacts/qa/<runId>/pr-evidence.{md,json}`.
+- **3. Unified Hybrid Driver, Declarative DSL, Live Controls, Recorder, Explorer & Backend QA (`engine/src/qa/{driver,dsl,recorder,explorer,backend_qa}.ts`):**
+  - `driver.ts`: Implemented `AuraDriver` + `createHybridDriver` bridging `CuaClient` (background UIA + `PrintWindow` + `setWindowFrame`) and Playwright CDP (ARIA snapshots, layout/form/console telemetry).
+  - `dsl.ts`: Implemented Zod-validated `JourneyDsl` (`parseJourneyDsl`, `executeJourneyDsl`) and `LiveSessionController` (`pause`, `resume`, `stepOver`, `injectHint`, `abort`, `getSnapshot`).
+  - `recorder.ts`: Implemented `draftJourneyFromRecording` converting manual events into `qa-steps` proposals in `vault/inbox/`.
+  - `explorer.ts`: Implemented bounded `exploreScreen` (`MAX_EXPLORE_STEPS = 15`).
+  - `backend_qa.ts`: Implemented `runBackendQaSuite` verifying MCP `support` isolation, QA tool contracts, vault secret safety, QA safety policy, index/graph counts, and `cua-driver` health.
+- **4. Upgraded Code Reviewer, PR Manager & Wise Advisor (`roles/review-rules.json`, `engine/src/review/{tier0,reviewer}.ts`, `engine/src/prs/manager.ts`, `engine/src/chat/advisor.ts`):**
+  - Added 4 defect-class line rules (`form-button-missing-type`, `swallowed-catch-block`, `rust-ignored-result-let`, `hardcoded-sql-connstring`) and wired active exported/vault pattern rules (`checkActivePatternRules`, `loadTier0ActiveChecks`) into `runTier0` and `reviewChange`.
+  - Created `buildPrReadinessReport` (`engine/src/prs/manager.ts`) and `adviseDeveloper` (`engine/src/chat/advisor.ts`).
+- **5. Server APIs, MCP Tools, CLI & Plugin Skills (`engine/src/server/server.ts`, `engine/src/mcp/server.ts`, `engine/src/cli/{commands-qa,main}.ts`, `engine/src/roles/skills.ts`, `plugin/aura-guard/skills/`):**
+  - Added 10 server routes: `/api/qa/live/status`, `/api/qa/live/control`, `/api/qa/triage`, `/api/qa/evidence`, `/api/qa/pr-readiness`, `/api/qa/backend-check`, `/api/qa/record/draft`, `/api/advisor`, `/api/skills`, and `/api/skill`.
+  - Built dynamic Skill Registry (`engine/src/roles/skills.ts`: `listSkills`, `getSkill`, `inferSkillCategory`) scanning 32 modular skills (`10` Security `sec-*`, `12` QA `qa-*`, `6` QE `qe-*`, `4` Core).
+  - Registered 7 new read-only/advisory MCP tools on `dev` and `qa` scopes (`qa_plan_for_diff`, `qa_get_evidence_packet`, `qa_check_driver_health`, `pr_readiness_report`, `advise_architecture`, `list_skills`, `get_skill`), keeping `support` strictly at `search_knowledge` + `get_doc`.
+  - Added CLI subcommands (`qa evidence`, `qa backend`, `qa explore`, `qa pr-readiness`, `advise`) and 29 new plugin skills (`sec-audit-master`, `sec-auth-access`, `sec-api-input`, `sec-db-secrets`, `sec-desktop-frontend`, `sec-mobile`, `sec-supplychain-infra`, `sec-business-logic`, `sec-logging-perf`, `sec-threat-model`, `qa-diff`, `qa-evidence`, `qa-explore`, `qa-record`, `qa-triage`, `qa-swagger-api`, `qa-ui-telemetry`, `qa-bug-sheet`, `qa-test-generator`, `qa-regression-select`, `qa-accessibility-responsive`, `qa-adversarial-probes`, `qe-commit-trajectory`, `qe-code-refine`, `qe-flaky-triage`, `qe-contract-drift`, `qe-kb-drift`, `qe-release-gate`, `pr-advisor`).
+- **6. Interactive QA Control Room UI (`ui/qa-harness.js`, `ui/qa-harness-view.js`, `ui/qa-harness.css`):**
+  - Added `buildResponsiveMatrix`, `buildOracleSummary`, `formatSafetyBadge`; wired Live Control Strip, Responsive 800/1100/1440 Matrix, 1-Click Triage Bar, PR Evidence export, Record & Draft Journey, Backend & MCP QA trigger, Oracles/Rubrics scorecard, PR Readiness & Wise Advisor panel (strict CSP, zero inline styles).
+- **7. Verification & Observed Results:**
+  - `npx.cmd tsc -p engine --noEmit`: **Passed (0 errors)**.
+  - `npm.cmd run typecheck` (`tsc -p engine --noEmit && tsc -p engine/tsconfig.test.json`): **Passed (0 errors)**.
+  - `npm.cmd test`: **Passed — 358 / 358 tests across 44 test files** (0 failed, 0 skipped), including `qa-hybrid-dsl.test.ts`, `qa-oracles-judge-evidence.test.ts`, `pr-advisor-review.test.ts`, and `skills-catalog.test.ts`.
+  - `git diff --check`: **Clean**.
+- **Unverified:**
+  - Live visual rendering of the updated QA Harness Control Room inside `npm run ui` across all 4 themes and widths.
+  - End-to-end live execution of `createHybridDriver` / `executeJourneyDsl` / `exploreScreen` against a running `d:\SPIL AURA` window with `cua-driver` or WebView2 CDP.
+- **Next Action:** Start `npm run ui` in `D:\AURA - Guard`, verify the QA Harness Control Room visually, and run one live background check (`qa backend` and `qa explore home`) against a running Aura test instance on the Cobalt database.
+
+---
+
+## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
+
+- **Tauri 2 Desktop Shell (`src-tauri/`):**
+  - Scaffolded `src-tauri/Cargo.toml`, `src-tauri/build.rs`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`, `src-tauri/icons/icon.ico`, and `src-tauri/src/main.rs`.
+  - `main.rs` spawns `node bin/aura-guard.mjs ui --no-open` hidden (`CREATE_NO_WINDOW`), reads `http://127.0.0.1:<port>/?t=<token>` from stdout, navigates the `main` WebviewWindow, and kills the child Node process on window close/exit.
+  - Added `"desktop"` (`cargo tauri dev --manifest-path src-tauri/Cargo.toml`) and `"desktop:build"` (`cargo tauri build --manifest-path src-tauri/Cargo.toml`) to `package.json`.
+  - Verified: `cargo check --manifest-path src-tauri/Cargo.toml` (`CARGO_BUILD_JOBS=1`) -> Passed (0 errors).
+- **Documentation Restructure (`README.md`, `STATUS.md`, `AGENTS.md`):**
+  - Updated product name to **AURA Sentinel**, documented Tauri 2 run/build commands, and added the Tech Stack & Architecture summary.
 
 ---
 
@@ -56,6 +170,18 @@
 
 ---
 
+## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
+
+- **Tauri 2 Desktop Shell (`src-tauri/`):**
+  - Scaffolded `src-tauri/Cargo.toml`, `src-tauri/build.rs`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`, `src-tauri/icons/icon.ico`, and `src-tauri/src/main.rs`.
+  - `main.rs` spawns `node bin/aura-guard.mjs ui --no-open` hidden (`CREATE_NO_WINDOW`), reads `http://127.0.0.1:<port>/?t=<token>` from stdout, navigates the `main` WebviewWindow, and kills the child Node process on window close/exit.
+  - Added `"desktop"` (`cargo tauri dev --manifest-path src-tauri/Cargo.toml`) and `"desktop:build"` (`cargo tauri build --manifest-path src-tauri/Cargo.toml`) to `package.json`.
+  - Verified: `cargo check --manifest-path src-tauri/Cargo.toml` (`CARGO_BUILD_JOBS=1`) -> Passed (0 errors).
+- **Documentation Restructure (`README.md`, `STATUS.md`, `AGENTS.md`):**
+  - Updated product name to **AURA Sentinel**, documented Tauri 2 run/build commands, and added the Tech Stack & Architecture summary.
+
+---
+
 
 ## Current state (2026-11-20, end of first build session)
 
@@ -72,7 +198,43 @@
 ## What exists
 
 | Part | Files | State |
-|---|---|---|
+|---
+
+## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
+
+- **Tauri 2 Desktop Shell (`src-tauri/`):**
+  - Scaffolded `src-tauri/Cargo.toml`, `src-tauri/build.rs`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`, `src-tauri/icons/icon.ico`, and `src-tauri/src/main.rs`.
+  - `main.rs` spawns `node bin/aura-guard.mjs ui --no-open` hidden (`CREATE_NO_WINDOW`), reads `http://127.0.0.1:<port>/?t=<token>` from stdout, navigates the `main` WebviewWindow, and kills the child Node process on window close/exit.
+  - Added `"desktop"` (`cargo tauri dev --manifest-path src-tauri/Cargo.toml`) and `"desktop:build"` (`cargo tauri build --manifest-path src-tauri/Cargo.toml`) to `package.json`.
+  - Verified: `cargo check --manifest-path src-tauri/Cargo.toml` (`CARGO_BUILD_JOBS=1`) -> Passed (0 errors).
+- **Documentation Restructure (`README.md`, `STATUS.md`, `AGENTS.md`):**
+  - Updated product name to **AURA Sentinel**, documented Tauri 2 run/build commands, and added the Tech Stack & Architecture summary.
+
+---|---
+
+## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
+
+- **Tauri 2 Desktop Shell (`src-tauri/`):**
+  - Scaffolded `src-tauri/Cargo.toml`, `src-tauri/build.rs`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`, `src-tauri/icons/icon.ico`, and `src-tauri/src/main.rs`.
+  - `main.rs` spawns `node bin/aura-guard.mjs ui --no-open` hidden (`CREATE_NO_WINDOW`), reads `http://127.0.0.1:<port>/?t=<token>` from stdout, navigates the `main` WebviewWindow, and kills the child Node process on window close/exit.
+  - Added `"desktop"` (`cargo tauri dev --manifest-path src-tauri/Cargo.toml`) and `"desktop:build"` (`cargo tauri build --manifest-path src-tauri/Cargo.toml`) to `package.json`.
+  - Verified: `cargo check --manifest-path src-tauri/Cargo.toml` (`CARGO_BUILD_JOBS=1`) -> Passed (0 errors).
+- **Documentation Restructure (`README.md`, `STATUS.md`, `AGENTS.md`):**
+  - Updated product name to **AURA Sentinel**, documented Tauri 2 run/build commands, and added the Tech Stack & Architecture summary.
+
+---|---
+
+## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
+
+- **Tauri 2 Desktop Shell (`src-tauri/`):**
+  - Scaffolded `src-tauri/Cargo.toml`, `src-tauri/build.rs`, `src-tauri/tauri.conf.json`, `src-tauri/capabilities/default.json`, `src-tauri/icons/icon.ico`, and `src-tauri/src/main.rs`.
+  - `main.rs` spawns `node bin/aura-guard.mjs ui --no-open` hidden (`CREATE_NO_WINDOW`), reads `http://127.0.0.1:<port>/?t=<token>` from stdout, navigates the `main` WebviewWindow, and kills the child Node process on window close/exit.
+  - Added `"desktop"` (`cargo tauri dev --manifest-path src-tauri/Cargo.toml`) and `"desktop:build"` (`cargo tauri build --manifest-path src-tauri/Cargo.toml`) to `package.json`.
+  - Verified: `cargo check --manifest-path src-tauri/Cargo.toml` (`CARGO_BUILD_JOBS=1`) -> Passed (0 errors).
+- **Documentation Restructure (`README.md`, `STATUS.md`, `AGENTS.md`):**
+  - Updated product name to **AURA Sentinel**, documented Tauri 2 run/build commands, and added the Tech Stack & Architecture summary.
+
+---|
 | Shared types, config, SQLite schema (v2, adds `note_type`) | `engine/src/types.ts`, `config.ts`, `index/db.ts` | done |
 | Vault: note format, checker, loading, new notes | `engine/src/vault/*`, `engine/src/index/notes.ts` | done |
 | 12 seed notes from Aura's AGENTS.md and software-factory guide | `vault/**` | `proposed`, **not reviewed by the owner** |
@@ -392,3 +554,22 @@
   and in `README.md`, then rename the folder (close VS Code first). Then rename the `aura-guard`
   identifiers together.
 - Evidence: see the test and real-run numbers in the commit message and STATUS.md section 11.
+
+## 2026-11-26 UI redesign: Sentinel light and dark themes (owner: UI agent)
+
+- Changed (all under `ui/`, plus three tests): `themes.css` is now the single token file (light default,
+  `[data-mode="dark"]`, and `[data-mode="system"]` following the OS). `theme.js` keeps one layout style (`noir`),
+  default mode `light`; old stored styles migrate to `noir`, unknown modes to `light`. `styles.css` lost the dead
+  dots/pulse/aurora rule lines (also in `qa.css`, `settings.css`) and gained a redesign layer at the end (pill nav,
+  card sidebar footer, hero banner, KPI cards, rounded cards). Hard-coded colours in all CSS outside `themes.css`
+  were replaced by tokens (including `qa-harness.css`, owner work: colours only, plus a block that stacks the
+  rail and inspector below 1100 px). `index.html`: tagline, sidebar theme toggle (`#theme-toggle`). `app.js`: toggle
+  logic, Style picker removed from Appearance, Theme card in Settings, KPI cards built from the real index counts.
+- Tests updated (pure styling): `ui-agent.test.ts` (styles/prefs), `ui-project.test.ts` (contrast now checked for light
+  and dark token sets).
+- Checks: `npm run typecheck` clean; `npm test` 364 pass, 0 fail. Screenshots (UI served by the test stub, so data is
+  sample data) in `.artifacts/redesign/` for chat, inbox, reports, qa, settings, light and dark, 1440 and 800 px; no
+  horizontal overflow reported at either width.
+- Unverified: 1100 px screenshots, the real (non-stub) server, the Ctrl+K search field, and the QA harness with real runs.
+- Omitted for lack of real data: sparklines and deltas on KPI cards, the notifications bell, a global search field
+  (Ctrl+K already means New chat), the orchestration flow and knowledge-base list outside the QA harness.

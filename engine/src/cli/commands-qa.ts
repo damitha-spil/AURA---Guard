@@ -12,6 +12,19 @@ import { CliError } from "../brain/backends.ts";
 import { createBrain, describeBackends, NoBackendError } from "../brain/select.ts";
 import { openDb } from "../index/db.ts";
 import type { Db } from "../index/db.ts";
+import { runBackendQaSuite } from "../qa/backend_qa.ts";
+import { buildBugSheet } from "../qa/defects.ts";
+import { crawlDesktopApp, probeDesktopCrawlers } from "../qa/desktop_crawler.ts";
+import { buildPrEvidencePacket } from "../qa/evidence.ts";
+import { findFeatureEntry } from "../qa/feature_map.ts";
+import { runOpenApiChecks } from "../qa/openapi.ts";
+import { runSecurityProbes } from "../qa/security_probes.ts";
+import { buildPrReadinessReport } from "../prs/manager.ts";
+import { CuaClient, createMcpCuaTransport, probeCuaDriver } from "../qa/cua_client.ts";
+import { selectTargetWindow } from "../qa/cua_harness.ts";
+import { createHybridDriver } from "../qa/driver.ts";
+import { exploreScreen } from "../qa/explorer.ts";
+import { attachAura } from "../qa/harness.ts";
 import { runQaAgent } from "../qa/agent.ts";
 import { generateSpec, isRejectedSpec } from "../qa/generate.ts";
 import { CDP_ENV, cdpHowTo, probeCdp } from "../qa/harness.ts";
@@ -22,7 +35,7 @@ import { checkSpec, describeFindings, loadForbidden } from "../qa/safety.ts";
 import type { CommandContext } from "./main.ts";
 
 const copy = {
-  usage: "qa <agent \"<request>\" [--no-model] [--json] | plan [repo] [--base ref] [--head ref] [--no-model] | generate <journey-id> | check <spec> | run <spec|journey-id> [--widths 800,1100,1440] [--video] [--note] | status>",
+  usage: "qa <agent \"<request>\" [--no-model] [--json] | plan [repo] [--base ref] [--head ref] [--no-model] | generate <journey-id> | check <spec> | run <spec|journey-id> [--widths 800,1100,1440] [--video] [--note] | evidence <run-id> | backend | explore <area> | pr-readiness [repo] | status>",
   needArgs: (what: string) => `Missing argument. Usage: ${what}`,
   noRepo: (id: string, known: string) => `Unknown repo "${id}". Configured repos: ${known || "(none)"}.`,
   planWritten: (path: string, n: number, gaps: number, model: string) =>
@@ -188,6 +201,108 @@ export const qaCommands: Record<string, (ctx: CommandContext) => Promise<number>
       if (specs.length === 0) out("  (none yet)");
       for (const s of specs) out(copy.specRow(s, isRejectedSpec(readFileSync(join(dir, s), "utf8"))));
       return code;
+    }
+
+    if (sub === "evidence") {
+      if (!arg) { out(copy.needArgs("qa evidence <run-id>")); return 2; }
+      const built = await buildPrEvidencePacket(cfg, arg);
+      if (!built) { out(`No QA run found for ID: ${arg}`); return 1; }
+      out(built.markdown.trimEnd());
+      out(`\nSaved: ${built.markdownPath}`);
+      return 0;
+    }
+
+    if (sub === "backend") {
+      const report = await runBackendQaSuite(cfg);
+      for (const c of report.checks) {
+        out(`[${c.status.toUpperCase()}] ${c.label} (${c.ms} ms) — ${c.detail}`);
+      }
+      out(`Summary: ${report.passed} pass, ${report.warned} warn, ${report.failed} fail`);
+      return report.ok ? 0 : 1;
+    }
+
+    if (sub === "pr-readiness") {
+      const db = openDbIfAny(cfg);
+      try {
+        const rep = buildPrReadinessReport(cfg, db, { ...(arg ? { repo: arg } : {}) });
+        out(rep.prSummaryMarkdown.trimEnd());
+        return rep.releaseGate === "block" ? 1 : 0;
+      } finally {
+        db?.close();
+      }
+    }
+
+    if (sub === "explore") {
+      const area = rest.slice(1).join(" ").trim() || "home";
+      const cdpUrl = process.env[CDP_ENV];
+      const cuaProbe = await probeCuaDriver(cfg);
+      if (!cdpUrl && !cuaProbe.available) {
+        out(`Explore requires either ${CDP_ENV} or an installed cua-driver in background mode.`);
+        out(cdpHowTo().join("\n"));
+        return 1;
+      }
+      let attached: Awaited<ReturnType<typeof attachAura>> | undefined;
+      let cuaClient: CuaClient | undefined;
+      try {
+        if (cdpUrl) attached = await attachAura(cdpUrl);
+        if (cuaProbe.available) cuaClient = new CuaClient(await createMcpCuaTransport(cfg));
+        const win = cuaClient ? selectTargetWindow(await cuaClient.listWindows(), cfg) : undefined;
+        const driver = createHybridDriver({
+          cfg,
+          ...(cuaClient && win ? { cuaClient, window: win } : {}),
+          ...(attached ? { page: attached.page } : {}),
+          forbidden: loadForbidden(cfg.root),
+          shotDir: join(cfg.root, ".artifacts", "qa", `explore-${Date.now().toString(36)}`),
+        });
+        const res = await exploreScreen(driver, { area });
+        await driver.close();
+        out(`Explored "${area}" (${res.telemetryMode}): ${res.visitedControls.length} controls, ${res.defects.length} defect(s).`);
+        out(res.evaluation.summary);
+        return res.defects.length > 0 ? 1 : 0;
+      } finally {
+        await attached?.browser.close().catch(() => {});
+      }
+    }
+
+    if (sub === "bugs") {
+      if (!arg) { out(copy.needArgs("qa bugs <run-id>")); return 2; }
+      const sheet = buildBugSheet(cfg, arg);
+      if (!sheet) { out(`No QA run found for ID: ${arg}`); return 1; }
+      out(sheet.markdown.trimEnd());
+      out(`\nSaved JSON/MD/CSV under: ${sheet.paths.markdownPath}`);
+      return 0;
+    }
+
+    if (sub === "openapi") {
+      const specPath = rest[1];
+      const baseUrl = rest[2];
+      if (!specPath || !baseUrl) { out(copy.needArgs("qa openapi <spec-path> <local-base-url>")); return 2; }
+      const rep = await runOpenApiChecks(cfg, { specPath, baseUrl });
+      out(`OpenAPI checks on ${rep.baseUrl}: ${rep.passed} pass, ${rep.failed} fail, ${rep.skipped} skipped (${rep.endpointsFound} endpoints).`);
+      return rep.failed > 0 ? 1 : 0;
+    }
+
+    if (sub === "security") {
+      if (!arg) { out(copy.needArgs("qa security <local-base-url>")); return 2; }
+      const rep = await runSecurityProbes(cfg, { baseUrl: arg });
+      for (const p of rep.probes) out(`[${p.status.toUpperCase()}] ${p.category} ${p.target} — ${p.detail}`);
+      return rep.ok ? 0 : 1;
+    }
+
+    if (sub === "crawl") {
+      const avail = await probeDesktopCrawlers(cfg);
+      out(`Crawlers: WindowsUIA=${avail.windowsUia.available}, Cua=${avail.cuaDriver.available}, Python=${avail.python.available}`);
+      const dryRun = flags["dry-run"] === true;
+      const maxActions = typeof flags["max"] === "string" ? Number(flags["max"]) : 5;
+      const rep = await crawlDesktopApp(cfg, { ...(arg ? { matchTitle: arg } : {}), dryRun, maxActions });
+      out(`Crawled "${rep.window.title}" (${rep.window.processName}): ${rep.nodesCount} UIA nodes, ${rep.controls.length} controls, ${rep.clicked.length} clicked, ${rep.blockedControls.length} Tier-2 blocked.`);
+      return 0;
+    }
+
+    if (sub === "features") {
+      const list = findFeatureEntry(cfg, arg ?? "");
+      for (const f of list) out(`- [${f.id}] ${f.title} (${f.entryPoint}) -> ${f.journeyId ?? "no journey"}`);
+      return 0;
     }
 
     out(copy.usage);

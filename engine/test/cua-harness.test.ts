@@ -87,8 +87,8 @@ test("CuaClient blocks dangerous tools and enforces background delivery_mode", a
   await assert.rejects(() => (client as unknown as { invoke: (t: string, a: Record<string, unknown>) => Promise<unknown> }).invoke("get_desktop_state", {}), CuaToolBlockedError);
 
   await client.clickToken("tok-orders");
-  assert.equal(calls[0].name, "click");
-  assert.equal(calls[0].args["delivery_mode"], "background");
+  assert.equal(calls[0]!.name, "click");
+  assert.equal(calls[0]!.args["delivery_mode"], "background");
 });
 
 test("judgeTargetWindow refuses shells/ERP and selectTargetWindow picks Aura", () => {
@@ -100,9 +100,9 @@ test("judgeTargetWindow refuses shells/ERP and selectTargetWindow picks Aura", (
       { pid: 101, windowId: "w-erp", title: "SPIL Glass", processName: "spilglass.exe" },
       { pid: 200, windowId: "w-aura", title: "SPIL AURA", processName: "personal-agent.exe" },
     ];
-    assert.ok(judgeTargetWindow(wins[0], cfg));
-    assert.ok(judgeTargetWindow(wins[1], cfg));
-    assert.equal(judgeTargetWindow(wins[2], cfg), null);
+    assert.ok(judgeTargetWindow(wins[0]!, cfg));
+    assert.ok(judgeTargetWindow(wins[1]!, cfg));
+    assert.equal(judgeTargetWindow(wins[2]!, cfg), null);
     assert.equal(selectTargetWindow(wins, cfg).windowId, "w-aura");
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -155,8 +155,8 @@ test("runJourneyWithCua records defects, saves screenshots, and handles backgrou
 
     assert.equal(res.status, "failed");
     assert.equal(res.defects.length, 1);
-    assert.ok(res.defects[0].actual.includes("background_unavailable"));
-    assert.ok(res.defects[0].screenshot && existsSync(res.defects[0].screenshot));
+    assert.ok(res.defects[0]!.actual.includes("background_unavailable"));
+    assert.ok(res.defects[0]!.screenshot && existsSync(res.defects[0]!.screenshot));
 
     const drv = await cuaDriverStatus(cfg);
     assert.equal(drv.available, false);

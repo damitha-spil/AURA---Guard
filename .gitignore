@@ -39,3 +39,6 @@ qa/generated/*
 extension/node_modules/
 extension/dist/
 *.vsix
+
+# Rust / Tauri build artifacts
+src-tauri/target/

@@ -5,6 +5,9 @@ import { join } from "node:path";
 import type { Db } from "../index/db.ts";
 import { coChanged } from "../index/cochange.ts";
 import { detectSecrets } from "../mask/detectors.ts";
+import { activeChecksPath, loadActiveChecks, parseExported } from "../rules/checks.ts";
+import type { ActiveCheck } from "../rules/checks.ts";
+import type { GuardConfig } from "../types.ts";
 import type { DiffFile, DiffResult } from "./diff.ts";
 import { skipReason } from "./diff.ts";
 
@@ -368,6 +371,58 @@ export interface Tier0Options {
   skipCochange?: boolean;
   /** The file as committed at the reviewed head. Lets Rust checks skip the #[cfg(test)] part of a file. */
   readFile?: (path: string) => string | null;
+  /** Approved co-change/pattern rules from vault or data/tier0/active-checks.json. */
+  activeChecks?: ActiveCheck[];
+}
+
+function globToRegex(glob: string): RegExp {
+  const esc = glob
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*\//g, "(?:.+/)?")
+    .replace(/\*\*/g, ".*")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\?/g, "[^/]");
+  return new RegExp(`^${esc}$`, "i");
+}
+
+/** Evaluates approved pattern/co-change rules exported from active vault notes. */
+export function checkActivePatternRules(diff: DiffResult, activeChecks: ActiveCheck[], repoId?: string): Finding[] {
+  if (!activeChecks.length || !diff.files.length) return [];
+  const changedPaths = [...diff.files.map((f) => f.path), ...diff.skipped.map((s) => s.path)];
+  const out: Finding[] = [];
+  for (const ac of activeChecks) {
+    if (repoId && ac.check.evidence.repo && ac.check.evidence.repo !== repoId) continue;
+    const ifRes = ac.check.if_changed.map(globToRegex);
+    const thenRes = ac.check.then_changed.map(globToRegex);
+    const triggerFile = diff.files.find((f) => ifRes.some((re) => re.test(f.path)));
+    if (!triggerFile) continue;
+    const partnerTouched = changedPaths.some((p) => thenRes.some((re) => re.test(p)));
+    if (partnerTouched) continue;
+    out.push({
+      rule: `approved-pattern-${ac.id}`,
+      severity: "risk",
+      file: triggerFile.path,
+      line: firstAdded(triggerFile),
+      message: `Approved rule "${ac.title}": changes matching ${ac.check.if_changed.join(", ")} usually also update ${ac.check.then_changed.join(", ")}.`,
+      evidence: `Active pattern rule (${ac.check.evidence.commits} commits, ${Math.round(ac.check.evidence.ratio * 100)}% co-change).`,
+      class: "defect",
+      confidence: Math.min(0.85, Math.max(0.5, ac.check.evidence.ratio)),
+    });
+  }
+  return out;
+}
+
+/** Loads active checks from exported tier0 file first, falling back to active vault notes. */
+export function loadTier0ActiveChecks(cfg: GuardConfig): ActiveCheck[] {
+  const file = activeChecksPath(cfg);
+  if (existsSync(file)) {
+    try {
+      return parseExported(readFileSync(file, "utf8"));
+    } catch {
+      /* fall back to vault */
+    }
+  }
+  return loadActiveChecks(cfg);
 }
 
 /** Line where a Rust file starts its test module (tests sit at the bottom by convention), or null. */
@@ -402,6 +457,9 @@ export function runTier0(diff: DiffResult, opts: Tier0Options): Finding[] {
   }
   if (!opts.skipCochange && opts.db && opts.repoId && opts.exists) {
     out.push(...checkCoChange(diff, opts.db, opts.repoId, opts.rules, opts.exists));
+  }
+  if (opts.activeChecks?.length) {
+    out.push(...checkActivePatternRules(diff, opts.activeChecks, opts.repoId));
   }
   return sortFindings(annotate(out, opts.rules));
 }

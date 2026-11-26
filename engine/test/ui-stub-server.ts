@@ -360,6 +360,28 @@ export function startStub(opts: StubOpts = {}): Promise<StubHandle> {
       }
       return send(404, { error: "Not found." });
     }
+    if (p === "/api/overview") {
+      const perDay = Array.from({ length: 30 }, (_, i) => ({ day: dayStr(29 - i), n: [0, 2, 5, 3, 1, 0, 0, 4, 6, 2][i % 10]! }));
+      return send(200, {
+        commitsPerDay: perDay,
+        recentCommits: [
+          { ref: "aura-app@a1b2c3d", title: "Check prices before saving", repo: "aura-app", date: iso(0) },
+          { ref: "aura-app@b2c3d4e", title: "Match shapes with a timeout", repo: "aura-app", date: iso(1) },
+          { ref: "erp-mcp@c3d4e5f", title: "Add a read-only price lookup", repo: "erp-mcp", date: iso(2) },
+        ],
+        recentNotes: [
+          { ref: "note:order-flow", title: "Order flow overview", status: "active", type: "adr", date: dayStr(2) },
+          { ref: "note:saving-rules", title: "Saving rules", status: "proposed", type: "rule", date: dayStr(3) },
+        ],
+        noteTypes: [{ type: "rule", n: 31 }, { type: "adr", n: 14 }, { type: "pattern", n: 9 }],
+        inbox: { total: 5, groups: [{ type: "rule", count: 2 }, { type: "pattern", count: 3 }] },
+        qa: { totalRuns: 3, passRate: 88, totalDefects: 2, passSeries: [70, 82, 90, 88], recent: [
+          { id: "r3", generatedAt: iso(0), request: "QA the latest change", riskLevel: "medium", passRate: 88, defects: 1, seconds: 41.2 },
+          { id: "r2", generatedAt: iso(1), request: "QA offline plan", riskLevel: "low", passRate: null, defects: 0, seconds: 3.4 },
+        ] },
+      });
+    }
+    if (p === "/api/search") return send(200, { hits: /order/i.test(url.searchParams.get("q") ?? "") ? [{ kind: "note", ref: "note:order-flow", title: "Order flow overview", status: "active" }, { kind: "commit", ref: "aura-app@a1b2c3d", title: "Check prices before saving", status: null }] : [] });
     if (p === "/api/project") return opts.failProject ? send(500, { error: "No project facts." }) : send(200, project);
     if (p === "/api/suggestions") return opts.failSuggestions ? send(500, { error: "No suggestions." }) : send(200, { suggestions: SUGGESTIONS });
     if (p === "/api/status") return send(200, { index: project["index"].indexedAt ? { note: 64, commit: 812, file: 2140 } : null, vault: { notes: project["vault"].notes, problems: 0 }, backend: { wanted: "auto", picked: "claude-cli", label: "Claude plan" }, running: null });

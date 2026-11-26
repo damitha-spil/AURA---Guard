@@ -1,0 +1,45 @@
+{
+  "$comment": "Feature Map (Lauren Poteto Rule 3): connects user-visible SPIL AURA features to entry points, prerequisites, navigation steps, code anchors, and expected results.",
+  "features": [
+    {
+      "id": "home-chat",
+      "title": "Home Chat & Co-work Panel",
+      "entryPoint": "Sidebar -> Chat",
+      "prerequisites": ["Aura running on local/Cobalt test config"],
+      "navigationSteps": ["Open Chat view", "Resize window across 800, 1100, 1440 px"],
+      "codeAnchors": ["apps/aura-ui/src/home/HomeScreen.tsx", "apps/aura-ui/src/shell/Shell.tsx"],
+      "expectedResult": "Chat pane stays >= 320 px wide with zero horizontal overflow or raw JSON leaks.",
+      "journeyId": "journey-home-overview"
+    },
+    {
+      "id": "orders-list",
+      "title": "Orders List & Search",
+      "entryPoint": "Sidebar -> Orders",
+      "prerequisites": ["Cobalt test DB connected"],
+      "navigationSteps": ["Click Orders", "Type query in Search orders", "Open an order drawer"],
+      "codeAnchors": ["apps/aura-ui/src/orders/", "apps/personal-agent/crates/agent-core/src/orders/"],
+      "expectedResult": "Orders load read-only without console/IPC errors; no ERP write is triggered.",
+      "journeyId": "journey-orders-list"
+    },
+    {
+      "id": "settings-ai-models",
+      "title": "Settings -> AI Models & Providers",
+      "entryPoint": "Profile -> Settings -> AI models",
+      "prerequisites": ["Aura running"],
+      "navigationSteps": ["Open Settings", "Navigate to AI models", "Inspect form buttons"],
+      "codeAnchors": ["apps/aura-ui/src/areas/tools/ModelsPage.tsx"],
+      "expectedResult": "Every <button> inside a <form> has an explicit type attribute; no secret values rendered.",
+      "journeyId": "journey-settings-sections"
+    },
+    {
+      "id": "helpers-desk",
+      "title": "Helpers & Desk Sign Routing",
+      "entryPoint": "Sidebar -> Helpers",
+      "prerequisites": ["bundled-agents/desk.json loaded"],
+      "navigationSteps": ["Click Helpers", "Inspect helper cards and signs"],
+      "codeAnchors": ["apps/personal-agent/crates/agent-core/src/desk/"],
+      "expectedResult": "Helpers display by sign; zero errors in console or IPC.",
+      "journeyId": "journey-helpers-list"
+    }
+  ]
+}

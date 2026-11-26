@@ -1,11 +1,36 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeScorecard, groupDefects } from "../../ui/qa.js";
-import { computeWaterfall, stepKindLabel } from "../../ui/steps.js";
-import {
-  WORKSPACES, buildExecutionLogs, buildReplayFrames, buildWaterfallSpans, buildWorkflowGraph,
-  filterExecutionLogs, filterSuiteCases, regressionSeries, searchPalette, tokenizeJsonLines,
-} from "../../ui/qa-harness.js";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const uiDir = join(import.meta.dirname, "..", "..", "ui");
+const { computeScorecard, groupDefects } = (await import(pathToFileURL(join(uiDir, "qa.js")).href)) as {
+  computeScorecard: (qa: unknown) => { gate: string; counts: Record<string, number> };
+  groupDefects: (d: unknown[]) => { items: unknown[] }[];
+};
+const { computeWaterfall, stepKindLabel } = (await import(pathToFileURL(join(uiDir, "steps.js")).href)) as {
+  computeWaterfall: (s: unknown[]) => { leftPct: number }[];
+  stepKindLabel: (k: string) => string;
+};
+const {
+  WORKSPACES, buildExecutionLogs, buildOracleSummary, buildReplayFrames, buildResponsiveMatrix,
+  buildWaterfallSpans, buildWorkflowGraph, filterExecutionLogs, filterSuiteCases, formatSafetyBadge,
+  regressionSeries, searchPalette, tokenizeJsonLines,
+} = (await import(pathToFileURL(join(uiDir, "qa-harness.js")).href)) as {
+  WORKSPACES: unknown[];
+  buildExecutionLogs: (d: unknown, g: unknown, drv: unknown) => { level: string; source: string }[];
+  buildOracleSummary: (d: unknown) => { oracles: unknown[]; rubrics: unknown[] };
+  buildReplayFrames: (d: unknown) => { screenshot: string | null }[];
+  buildResponsiveMatrix: (d: unknown) => { width: number; status: string }[];
+  buildWaterfallSpans: (s: unknown[]) => { widthPct: number }[];
+  buildWorkflowGraph: (d: unknown) => { nodes: unknown[]; edges: unknown[] };
+  filterExecutionLogs: (logs: unknown[], f: unknown) => unknown[];
+  filterSuiteCases: (c: unknown[], f: unknown) => unknown[];
+  formatSafetyBadge: (tier: number) => { label: string; tone: string };
+  regressionSeries: (r: unknown[]) => unknown[];
+  searchPalette: (q: string, o: unknown) => { kind: string; view?: string }[];
+  tokenizeJsonLines: (v: unknown) => { kind: string; text: string }[][];
+};
 
 test("ui/qa.js computeScorecard & groupDefects compute gate and groups", () => {
   const sc = computeScorecard({
@@ -14,10 +39,10 @@ test("ui/qa.js computeScorecard & groupDefects compute gate and groups", () => {
     run: { status: "failed", runs: [{ journeyId: "j1", status: "failed", defects: 1 }], defects: [{ journeyId: "j1", step: "click", expected: "ok", actual: "err" }] },
   });
   assert.equal(sc.gate, "block");
-  assert.equal(sc.counts.P0, 1);
+  assert.equal(sc.counts["P0"], 1);
   const grouped = groupDefects([{ journeyId: "j1", step: "s1" }, { journeyId: "j1", step: "s2" }]);
   assert.equal(grouped.length, 1);
-  assert.equal(grouped[0].items.length, 2);
+  assert.equal(grouped[0]!.items.length, 2);
 });
 
 test("ui/steps.js computeWaterfall builds proportional offsets", () => {
@@ -27,8 +52,8 @@ test("ui/steps.js computeWaterfall builds proportional offsets", () => {
   ]);
   assert.equal(wf.length, 2);
   assert.equal(stepKindLabel("design"), "LLM");
-  assert.equal(wf[0].leftPct, 0);
-  assert.ok(wf[1].leftPct > 0);
+  assert.equal(wf[0]!.leftPct, 0);
+  assert.ok(wf[1]!.leftPct > 0);
 });
 
 test("ui/qa-harness.js workstation workspaces, logs, palette, JSON tokenizer, graph, replay, and trend", () => {
@@ -45,13 +70,13 @@ test("ui/qa-harness.js workstation workspaces, logs, palette, JSON tokenizer, gr
       run: { status: "failed", runs: [{ journeyId: "j1", status: "failed", defects: 1 }], defects: [{ journeyId: "j1", step: "open", width: 800, expected: "a", actual: "b", screenshot: "s.png" }] },
     },
   };
-  assert.equal(buildWaterfallSpans(detail.spans)[0].widthPct, 100);
+  assert.equal(buildWaterfallSpans(detail.spans)[0]!.widthPct, 100);
   const graph = buildWorkflowGraph(detail);
   assert.equal(graph.nodes.length, 7);
   assert.equal(graph.edges.length, 7);
   const frames = buildReplayFrames(detail);
   assert.equal(frames.length, 2);
-  assert.equal(frames[1].screenshot, "s.png");
+  assert.equal(frames[1]!.screenshot, "s.png");
   assert.equal(filterSuiteCases([{ id: "C1", priority: "P0", type: "functional", title: "Order login", area: "orders" }], { priority: "P0", query: "login" }).length, 1);
   assert.equal(regressionSeries([{ id: "r1", generatedAt: "2026-11-23T00:00:00Z", scorecard: { passRate: 100, defectsCount: 0, totalCases: 2, releaseGate: "pass" } }]).length, 1);
 
@@ -64,4 +89,17 @@ test("ui/qa-harness.js workstation workspaces, logs, palette, JSON tokenizer, gr
 
   const toks = tokenizeJsonLines({ ok: true, count: 3 });
   assert.ok(toks.some((line) => line.some((t) => t.kind === "key" && t.text === "\"ok\"")));
+
+  const matrix = buildResponsiveMatrix(detail);
+  assert.equal(matrix.length, 3);
+  assert.equal(matrix[0]!.width, 800);
+  assert.equal(matrix[0]!.status, "fail");
+
+  const oracleSummary = buildOracleSummary(detail);
+  assert.equal(oracleSummary.oracles.length, 5);
+  assert.equal(oracleSummary.rubrics.length, 4);
+
+  assert.equal(formatSafetyBadge(0).label, "READ");
+  assert.equal(formatSafetyBadge(1).label, "LOCAL");
+  assert.equal(formatSafetyBadge(2).label, "BLOCKED");
 });

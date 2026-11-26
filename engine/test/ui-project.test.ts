@@ -157,29 +157,35 @@ test("no department wording or plumbing is left in the web UI", () => {
   for (const gone of ["depts.js", "depts.css", "departments.js", "wizard.js", "deptapi.js"]) assert.ok(!files.includes(gone), `${gone} is deleted`);
   const html = readFileSync(join(uiDir, "index.html"), "utf8");
   assert.ok(!/depts\.css|view-landing|view-dept|tab-dept|id="wizard"/.test(html));
-  assert.match(html, /<title>SPIL AURA QA Bot<\/title>/);
+  assert.match(html, /<title>AURA Sentinel<\/title>/);
 });
 
-test("brand: the product is SPIL AURA QA Bot with a fixed accent per style and mode", async () => {
+test("brand: the product is AURA Sentinel with a fixed accent per style and mode", async () => {
   const b = (await import(pathToFileURL(join(uiDir, "brand.js")).href)) as Record<string, string>;
-  assert.equal(b["PRODUCT_NAME"], "SPIL AURA QA Bot");
-  assert.equal(b["PRODUCT_SHORT"], "AURA QA");
-  assert.equal(b["MONOGRAM"], "AQ");
+  assert.equal(b["PRODUCT_NAME"], "AURA Sentinel");
+  assert.equal(b["PRODUCT_SHORT"], "Sentinel");
+  assert.equal(b["MONOGRAM"], "AS");
   const themes = readFileSync(join(uiDir, "themes.css"), "utf8");
   const lum = (hex: string): number => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
     return 0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
   };
   const ratio = (a: string, b2: string): number => (Math.max(lum(a), lum(b2)) + 0.05) / (Math.min(lum(a), lum(b2)) + 0.05);
+  // One token set per mode. Light is the default (:root), dark is [data-mode="dark"].
   let seen = 0;
-  for (const m of themes.matchAll(/:root\[data-style="(\w+)"\]\[data-mode="(\w+)"\]\{(--brand:[^}]*)\}/g)) {
-    const v = Object.fromEntries(m[3]!.split(";").map((s) => s.split(":") as [string, string]));
+  for (const [name, re] of [["light", /:root,:root\[data-mode="light"\]\{([^}]*)\}/], ["dark", /:root\[data-mode="dark"\]\{([^}]*)\}/]] as const) {
+    const block = re.exec(themes)?.[1] ?? "";
+    const v = Object.fromEntries(block.split(/;\s*/).filter((x) => x.includes(":")).map((x) => { const i = x.indexOf(":"); return [x.slice(0, i).trim(), x.slice(i + 1).trim()]; })) as Record<string, string>;
     seen++;
-    assert.ok(ratio(v["--brand-on"]!, v["--brand"]!) >= 4.5, `${m[1]} ${m[2]}: text on the accent`);
-    assert.ok(ratio(v["--tile-ink"]!, v["--tile-a"]!) >= 4.5, `${m[1]} ${m[2]}: monogram on the tile start`);
-    assert.ok(ratio(v["--tile-ink"]!, v["--tile-b"]!) >= 4.5, `${m[1]} ${m[2]}: monogram on the tile end`);
+    assert.ok(ratio(v["--brand-on"]!, v["--brand"]!) >= 4.5, `${name}: text on the accent`);
+    assert.ok(ratio(v["--accent-text"]!, v["--accent"]!) >= 4.5, `${name}: button text`);
+    assert.ok(ratio(v["--tile-ink"]!, v["--tile-a"]!) >= 4.5, `${name}: monogram on the tile start`);
+    assert.ok(ratio(v["--tile-ink"]!, v["--tile-b"]!) >= 4.5, `${name}: monogram on the tile end`);
+    assert.ok(ratio(v["--text"]!, v["--surface"]!) >= 4.5, `${name}: text on surface`);
+    assert.ok(ratio(v["--muted"]!, v["--surface"]!) >= 4.5, `${name}: muted text on surface`);
+    for (const t of ["ok", "warn", "bad", "info"]) assert.ok(ratio(v[`--${t}`]!, v[`--${t}-soft`]!) >= 4.5, `${name}: ${t} on its soft background`);
   }
-  assert.equal(seen, 8, "four styles, light and dark");
+  assert.equal(seen, 2, "light and dark");
 });
 
 /* ---------- the real page, driven in Edge against the stub ---------- */
@@ -213,11 +219,11 @@ test("first screen: a new empty chat for SPIL AURA with four question cards and 
   if (!needBrowser(t)) return;
   const { page, stub, close } = await open();
   try {
-    assert.equal(await page.title(), "SPIL AURA QA Bot");
+    assert.equal(await page.title(), "AURA Sentinel");
     assert.equal(await page.locator("#view-chat").isVisible(), true, "the app opens in Chat");
     assert.equal((await page.locator(".empty h2").textContent()), "Ask anything about SPIL AURA");
     assert.match((await page.locator(".empty .empty-sub").textContent()) ?? "", /Answers come only from the vault notes and the indexed code, with sources\. Type \/ for commands\./);
-    assert.equal(await page.locator(".hero-tile").textContent(), "AQ");
+    assert.equal(await page.locator(".hero-tile").textContent(), "AS");
     assert.equal(await page.locator("#chat-title").textContent(), "New chat");
     assert.equal(await page.locator(".chat-item.active").count(), 0, "no old chat is opened");
     assert.ok((await page.locator(".chat-item").count()) >= 5, "the latest chats are listed in the sidebar");

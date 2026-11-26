@@ -138,6 +138,52 @@
       "pattern": "(?:\\.lock\\(\\)|\\.recv\\(\\)|\\.send\\([^)]*\\)|\\.join\\(\\)|\\.parse(?:::<[^>]*>)?\\(\\)|env::var\\([^)]*\\)|read_to_string\\([^)]*\\)|fs::[a-z_]+\\([^)]*\\)|from_str(?:::<[^>]*>)?\\([^)]*\\)|serde_json::[a-z_]+\\([^)]*\\)|File::(?:open|create)\\([^)]*\\)|\\.await)\\s*\\.(?:unwrap\\(\\)|expect\\()",
       "skipComments": true,
       "skipInRustTestModule": true
+    },
+    {
+      "id": "form-button-missing-type",
+      "class": "defect",
+      "confidence": 0.75,
+      "severity": "risk",
+      "message": "A <button> element is missing an explicit type attribute. Inside a <form>, browsers default to type=\"submit\" and trigger unintended submits.",
+      "pathMatch": "\\.tsx$",
+      "pathSkip": "(^|/)(tests?|__tests__|plico)/|\\.(test|spec|stories)\\.",
+      "pattern": "<button\\b(?![^>]*\\btype\\s*=)",
+      "skipComments": true
+    },
+    {
+      "id": "swallowed-catch-block",
+      "class": "defect",
+      "confidence": 0.7,
+      "severity": "risk",
+      "message": "Empty catch block silently swallows errors instead of logging or returning a checked failure.",
+      "pathMatch": "\\.(ts|tsx)$",
+      "pathSkip": "(^|/)(tests?|__tests__)/|\\.(test|spec)\\.",
+      "pattern": "\\bcatch\\s*(?:\\([^)]*\\))?\\s*\\{\\s*\\}",
+      "skipComments": true
+    },
+    {
+      "id": "rust-ignored-result-let",
+      "class": "defect",
+      "confidence": 0.75,
+      "severity": "risk",
+      "message": "Result of a save/write/send/invoke/call_tool operation is discarded with `let _ =`. Propagate or handle the error.",
+      "pathMatch": "\\.rs$",
+      "pathSkip": "(^|/)tests?/|(^|[/_])tests?\\.rs$",
+      "pattern": "let\\s+_\\s*=\\s*.*\\.(?:save|write|send|invoke|call_tool)[a-z0-9_]*\\s*\\(",
+      "skipComments": true,
+      "skipInRustTestModule": true
+    },
+    {
+      "id": "hardcoded-sql-connstring",
+      "class": "defect",
+      "confidence": 0.9,
+      "severity": "blocker",
+      "message": "A SQL Server connection attribute (Server=/Data Source=/Initial Catalog=) is hardcoded in source code. Database settings belong in configuration.",
+      "pathMatch": "\\.(ts|tsx|js|mjs|rs|py|cs)$",
+      "pathSkip": "(^|/)(tests?|__tests__|docs?|fixtures?)/|\\.(test|spec|stories)\\.|(^|[/_])tests?\\.rs$",
+      "pattern": "(?:Data Source|Initial Catalog)\\s*=\\s*[^;\"'`\\s]+",
+      "skipComments": true,
+      "skipInRustTestModule": true
     }
   ]
 }

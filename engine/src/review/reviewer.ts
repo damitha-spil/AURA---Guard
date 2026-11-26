@@ -6,7 +6,7 @@ import type { CompleteFn } from "../brain/client.ts";
 import { MAX_TOTAL_PATCH_CHARS, readDiff } from "./diff.ts";
 import type { DiffFile, DiffResult, SkippedFile } from "./diff.ts";
 import { gitTry, pathExistsAt } from "./git.ts";
-import { loadRules, runTier0 } from "./tier0.ts";
+import { loadRules, loadTier0ActiveChecks, runTier0 } from "./tier0.ts";
 import type { Finding } from "./tier0.ts";
 import { confidenceOf, triage } from "./rank.ts";
 import type { Triage } from "./rank.ts";
@@ -195,6 +195,7 @@ export async function reviewChange(
     rules: loadRules(cfg.root), db, repoId: repo.id,
     exists: (p) => pathExistsAt(repo.path, diff.headSha, p),
     readFile: (p) => gitTry(repo.path, ["show", `${diff.headSha}:${p}`]),
+    activeChecks: loadTier0ActiveChecks(cfg),
     ...(req.skipCochange ? { skipCochange: true } : {}),
   });
   const stats: ReviewStats = {

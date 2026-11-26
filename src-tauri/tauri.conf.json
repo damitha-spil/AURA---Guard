@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AURA Sentinel",
+  "version": "0.1.0",
+  "identifier": "com.spil.aura.sentinel",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "AURA Sentinel",
+        "width": 1240,
+        "height": 820,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": false
+  }
+}

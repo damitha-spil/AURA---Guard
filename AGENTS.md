@@ -44,8 +44,10 @@ Do not commit or push unless the owner asks.
 | `engine/src/mcp/` | read-only MCP server |
 | `engine/src/cli/` | `aura-guard` command line; words in `copy.ts` |
 | `engine/src/capture/` | read the capture spool, draft ai-log entries |
-| `engine/src/{review,qa,prs,quiz,rules,logcheck,support}/` | roles and learning |
-| `engine/src/{chat,server}/` and `ui/` | chat app, landing page, dashboard (four themes) |
+| `engine/src/{review,qa,qe,prs,quiz,rules,logcheck,support}/` | roles, QA/DevSecOps, QE brain, and learning |
+| `engine/src/{chat,server}/` and `ui/` | chat app, Control Room UI (four themes) |
+| `src-tauri/` | Tauri 2 (Rust + WebView2) native desktop shell |
+| `bin/` | `aura-guard.mjs` CLI/UI entry + `win-uia-crawler.ps1` |
 | `extension/` | VS Code companion extension (own package) |
 | `plugin/` | Claude Code plugin |
 | `vault/` | Obsidian vault: the source of truth |
@@ -76,6 +78,7 @@ Stop heavy builds first; this PC runs out of memory.
 ```
 npx tsc -p engine --noEmit
 npm test
+cargo check --manifest-path src-tauri/Cargo.toml   # with CARGO_BUILD_JOBS=1
 git diff --check
 ```
 

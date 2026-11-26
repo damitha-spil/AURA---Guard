@@ -4,8 +4,9 @@
 // Zero inline styles; zero innerHTML on model/server data; 100% CSP-compliant.
 
 import {
-  GATE_INFO, WORKSPACES, buildExecutionLogs, buildReplayFrames, buildWaterfallSpans,
-  buildWorkflowGraph, filterExecutionLogs, filterSuiteCases, regressionSeries, searchPalette, tokenizeJsonLines,
+  GATE_INFO, WORKSPACES, buildExecutionLogs, buildOracleSummary, buildReplayFrames, buildResponsiveMatrix,
+  buildWaterfallSpans, buildWorkflowGraph, filterExecutionLogs, filterSuiteCases, formatSafetyBadge,
+  regressionSeries, searchPalette, tokenizeJsonLines,
 } from "./qa-harness.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -49,6 +50,29 @@ export function createQaHarnessController({ api, root, statusEl, refreshBtn, onA
     playing: false,
     playTimer: null,
     loadedOnce: false,
+    liveSession: null,
+    liveHintInput: "",
+    diffMode: "current",
+    triageMsg: "",
+    evidenceMarkdown: "",
+    backendReport: null,
+    prReadiness: null,
+    advisorQuery: "",
+    advisorBrief: null,
+    recordId: "smoke-check",
+    recordTitle: "Smoke Check Journey",
+    recordArea: "home",
+    recordStepsText: "click:Settings\nresize:800\nresize:1100\nresize:1440",
+    recordStatus: "",
+    bugSheetMarkdown: "",
+    probeBaseUrl: "http://127.0.0.1:4310",
+    openApiSpecText: "",
+    probeReport: null,
+    openApiReport: null,
+    qeTrajectory: null,
+    qeRefine: null,
+    crawlResult: null,
+    crawlMatch: "AURA",
   };
 
   function stopReplay() {
@@ -86,11 +110,13 @@ export function createQaHarnessController({ api, root, statusEl, refreshBtn, onA
 
   async function loadAll(preferredId) {
     statusEl.textContent = "Syncing...";
-    const [runsRes, suiteRes, govRes, drvRes] = await Promise.all([
+    const [runsRes, suiteRes, govRes, drvRes, liveRes, prRes] = await Promise.all([
       api("/api/qa/runs"),
       api("/api/qa/suite"),
       api("/api/qa/governance"),
       api("/api/qa/driver"),
+      api("/api/qa/live/status"),
+      api("/api/qa/pr-readiness"),
     ]);
     if (runsRes.ok) {
       state.runsData = runsRes.data;
@@ -113,8 +139,124 @@ export function createQaHarnessController({ api, root, statusEl, refreshBtn, onA
     if (suiteRes.ok) state.suite = suiteRes.data;
     if (govRes.ok) state.governance = govRes.data;
     if (drvRes.ok) state.driver = drvRes.data;
+    if (liveRes.ok) state.liveSession = liveRes.data;
+    if (prRes.ok) state.prReadiness = prRes.data;
     state.loadedOnce = true;
     render();
+  }
+
+  async function sendLiveControl(action, hint) {
+    const res = await api("/api/qa/live/control", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, ...(hint ? { hint } : {}) }),
+    });
+    if (res.ok) {
+      state.liveSession = { ...state.liveSession, ...res.data };
+      if (action === "hint") state.liveHintInput = "";
+      render();
+    }
+  }
+
+  async function runTriage(action, frame) {
+    if (!state.selectedId || !frame) return;
+    const res = await api("/api/qa/triage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        runId: state.selectedId,
+        journey: frame.journey || state.selectedId,
+        step: frame.step || "step",
+        expected: frame.expected,
+        actual: frame.actual,
+        width: frame.width,
+        screenshotPath: frame.screenshot,
+        ...(action === "flaky_hint" ? { hint: state.liveHintInput || `Retry or verify selector for ${frame.step}` } : {}),
+      }),
+    });
+    state.triageMsg = res.ok ? res.data.message : (res.data?.error || "Triage action failed.");
+    render();
+  }
+
+  async function exportEvidence() {
+    if (!state.selectedId) return;
+    const res = await api(`/api/qa/evidence?id=${encodeURIComponent(state.selectedId)}`);
+    state.evidenceMarkdown = res.ok ? res.data.markdown : "Could not build PR evidence packet.";
+    render();
+  }
+
+  async function exportBugSheet() {
+    if (!state.selectedId) return;
+    const res = await api(`/api/qa/bug-sheet?id=${encodeURIComponent(state.selectedId)}`);
+    state.bugSheetMarkdown = res.ok ? res.data.markdown : "Could not build Bug Sheet.";
+    render();
+  }
+
+  async function runSecurityProbesUi() {
+    const res = await api("/api/qa/security-probes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ baseUrl: state.probeBaseUrl }),
+    });
+    if (res.ok) { state.probeReport = res.data; render(); }
+  }
+
+  async function runOpenApiUi() {
+    const res = await api("/api/qa/openapi", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ baseUrl: state.probeBaseUrl, specText: state.openApiSpecText }),
+    });
+    if (res.ok) { state.openApiReport = res.data; render(); }
+  }
+
+  async function loadQeInsights() {
+    const [trajRes, refRes] = await Promise.all([api("/api/qe/trajectory"), api("/api/qe/refine")]);
+    if (trajRes.ok) state.qeTrajectory = trajRes.data;
+    if (refRes.ok) state.qeRefine = refRes.data;
+    render();
+  }
+
+  async function runDesktopCrawlUi(dryRun) {
+    const res = await api("/api/qa/crawl", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ matchTitle: state.crawlMatch, dryRun, maxActions: 5 }),
+    });
+    if (res.ok) { state.crawlResult = res.data; render(); }
+  }
+
+  async function runBackendChecks() {
+    const res = await api("/api/qa/backend-check", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    if (res.ok) { state.backendReport = res.data; render(); }
+  }
+
+  async function draftRecordedJourney() {
+    const lines = state.recordStepsText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const events = lines.map((line) => {
+      const [actRaw, ...rest] = line.split(":");
+      const act = (actRaw || "click").trim().toLowerCase();
+      const val = rest.join(":").trim();
+      if (act === "resize") return { action: "resize", width: Number(val) || 1100 };
+      if (act === "type") return { action: "type", target: val.split("=")[0] || "input", text: val.split("=")[1] || "sample" };
+      if (act === "press") return { action: "press", key: val || "Escape" };
+      return { action: "click", target: val || "Home" };
+    });
+    const res = await api("/api/qa/record/draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: state.recordId, title: state.recordTitle, area: state.recordArea, events, writeProposal: true }),
+    });
+    state.recordStatus = res.ok ? `Proposed journey saved: ${res.data.proposedPath || res.data.id}` : (res.data?.error || "Draft failed.");
+    render();
+  }
+
+  async function askAdvisor() {
+    const q = state.advisorQuery.trim();
+    if (!q) return;
+    const res = await api(`/api/advisor?q=${encodeURIComponent(q)}`);
+    if (res.ok) { state.advisorBrief = res.data; render(); }
   }
 
   /* ---------- Top Toolbar + Multi-Tab Execution Strip ---------- */
@@ -363,34 +505,64 @@ export function createQaHarnessController({ api, root, statusEl, refreshBtn, onA
   }
 
   function renderSuites(journeysOnly) {
+    const wrap = el("div", "qh-wf-list");
     const panel = el("section", "qh-panel");
     const head = el("div", "qh-panel-head");
     head.appendChild(el("h2", "qh-panel-title", journeysOnly ? "Journey Specs & Coverage" : "Test Case Explorer"));
     if (journeysOnly) {
       panel.appendChild(head);
       const list = state.suite?.journeys ?? [];
-      if (!list.length) { panel.appendChild(el("p", "qh-empty", "No journeys found in vault/journeys/.")); return panel; }
-      const tw = el("div", "qh-table-wrap");
-      const tbl = el("table", "qh-table");
-      const thr = el("tr");
-      for (const h of ["Journey", "Area", "Steps", "Spec", "Action"]) thr.appendChild(el("th", "", h));
-      tbl.appendChild(el("thead")).appendChild(thr);
-      const tb = el("tbody");
-      for (const j of list) {
-        const tr = el("tr");
-        tr.append(el("td", "", j.title), el("td", "", j.area), el("td", "", String(j.stepsCount)), el("td", "", j.hasSpec ? "Generated" : "Missing"));
-        const td = el("td");
-        const b = el("button", "btn btn-quiet", "Run in Chat");
-        b.type = "button";
-        b.addEventListener("click", () => onAskInChat(`/qa ${j.title}`));
-        td.appendChild(b);
-        tr.appendChild(td);
-        tb.appendChild(tr);
+      if (!list.length) { panel.appendChild(el("p", "qh-empty", "No journeys found in vault/journeys/.")); }
+      else {
+        const tw = el("div", "qh-table-wrap");
+        const tbl = el("table", "qh-table");
+        const thr = el("tr");
+        for (const h of ["Journey", "Area", "Steps", "Spec", "Action"]) thr.appendChild(el("th", "", h));
+        tbl.appendChild(el("thead")).appendChild(thr);
+        const tb = el("tbody");
+        for (const j of list) {
+          const tr = el("tr");
+          tr.append(el("td", "", j.title), el("td", "", j.area), el("td", "", String(j.stepsCount)), el("td", "", j.hasSpec ? "Generated" : "DSL Ready"));
+          const td = el("td");
+          const b = el("button", "btn btn-quiet", "Run in Chat");
+          b.type = "button";
+          b.addEventListener("click", () => onAskInChat(`/qa ${j.title}`));
+          td.appendChild(b);
+          tr.appendChild(td);
+          tb.appendChild(tr);
+        }
+        tbl.appendChild(tb);
+        tw.appendChild(tbl);
+        panel.appendChild(tw);
       }
-      tbl.appendChild(tb);
-      tw.appendChild(tbl);
-      panel.appendChild(tw);
-      return panel;
+
+      const recPanel = el("section", "qh-panel");
+      recPanel.appendChild(el("h2", "qh-panel-title", "Record & Draft Declarative Journey"));
+      const form = el("div", "qh-record-form");
+      const idIn = el("input", "qh-input");
+      idIn.value = state.recordId;
+      idIn.placeholder = "journey-id";
+      idIn.addEventListener("input", () => { state.recordId = idIn.value; });
+      const titleIn = el("input", "qh-input");
+      titleIn.value = state.recordTitle;
+      titleIn.placeholder = "Journey title";
+      titleIn.addEventListener("input", () => { state.recordTitle = titleIn.value; });
+      const areaIn = el("input", "qh-input");
+      areaIn.value = state.recordArea;
+      areaIn.placeholder = "Area (e.g. orders, settings)";
+      areaIn.addEventListener("input", () => { state.recordArea = areaIn.value; });
+      const stepsIn = el("textarea", "qh-input");
+      stepsIn.rows = 3;
+      stepsIn.value = state.recordStepsText;
+      stepsIn.addEventListener("input", () => { state.recordStepsText = stepsIn.value; });
+      const draftBtn = el("button", "btn btn-quiet", "Draft Proposed Journey");
+      draftBtn.type = "button";
+      draftBtn.addEventListener("click", () => void draftRecordedJourney());
+      form.append(idIn, titleIn, areaIn, stepsIn, draftBtn);
+      if (state.recordStatus) form.appendChild(el("div", "qh-kpi-sub", state.recordStatus));
+      recPanel.appendChild(form);
+      wrap.append(panel, recPanel);
+      return wrap;
     }
 
     const ctrls = el("div", "qh-controls");
@@ -407,9 +579,57 @@ export function createQaHarnessController({ api, root, statusEl, refreshBtn, onA
       pri.appendChild(o);
     }
     pri.addEventListener("change", () => { state.suiteFilter.priority = pri.value; render(); });
-    ctrls.append(q, pri);
+    const beBtn = el("button", "btn btn-quiet", "Run Backend & MCP QA");
+    beBtn.type = "button";
+    beBtn.addEventListener("click", () => void runBackendChecks());
+    const secBtn = el("button", "btn btn-quiet", "Security Probes");
+    secBtn.type = "button";
+    secBtn.addEventListener("click", () => void runSecurityProbesUi());
+    const apiBtn = el("button", "btn btn-quiet", "OpenAPI Checks");
+    apiBtn.type = "button";
+    apiBtn.addEventListener("click", () => void runOpenApiUi());
+    const crawlBtn = el("button", "btn btn-quiet", "Crawl Desktop UI");
+    crawlBtn.type = "button";
+    crawlBtn.addEventListener("click", () => void runDesktopCrawlUi(true));
+    ctrls.append(q, pri, beBtn, secBtn, apiBtn, crawlBtn);
     head.appendChild(ctrls);
     panel.appendChild(head);
+
+    if (state.crawlResult) {
+      const cr = state.crawlResult;
+      panel.appendChild(el("div", "qh-diff-card", `Desktop Crawl (${cr.backend}): "${cr.window?.title}" · ${cr.nodesCount} UIA nodes · ${cr.controls?.length ?? 0} interactive · ${cr.blockedControls?.length ?? 0} Tier-2 blocked`));
+    }
+
+    if (state.probeReport) {
+      const pr = state.probeReport;
+      const box = el("div", "qh-diff-grid");
+      for (const pb of (pr.probes || []).slice(0, 6)) {
+        const card = el("div", "qh-diff-card");
+        const pill = el("span", "qh-pill", pb.status.toUpperCase());
+        pill.setAttribute("data-tone", pb.status === "pass" ? "good" : "bad");
+        card.append(el("strong", "", `${pb.category.toUpperCase()} `), pill, el("div", "qh-kpi-sub", pb.detail));
+        box.appendChild(card);
+      }
+      panel.appendChild(box);
+    }
+
+    if (state.openApiReport) {
+      const oa = state.openApiReport;
+      panel.appendChild(el("div", "qh-diff-card", `OpenAPI (${oa.baseUrl}): ${oa.passed} pass, ${oa.failed} fail, ${oa.skipped} skipped (${oa.endpointsFound} endpoints).`));
+    }
+
+    if (state.backendReport) {
+      const rep = state.backendReport;
+      const box = el("div", "qh-diff-grid");
+      for (const ch of rep.checks || []) {
+        const card = el("div", "qh-diff-card");
+        const pill = el("span", "qh-pill", ch.status.toUpperCase());
+        pill.setAttribute("data-tone", ch.status === "pass" ? "good" : ch.status === "warn" ? "warn" : "bad");
+        card.append(el("strong", "", ch.label + " "), pill, el("div", "qh-kpi-sub", ch.detail));
+        box.appendChild(card);
+      }
+      panel.appendChild(box);
+    }
 
     const filtered = filterSuiteCases([...(state.suite?.recentCases ?? []), ...(state.suite?.templates ?? [])], state.suiteFilter);
     if (!filtered.length) { panel.appendChild(el("p", "qh-empty", "No matching test cases.")); return panel; }
@@ -480,54 +700,222 @@ export function createQaHarnessController({ api, root, statusEl, refreshBtn, onA
   }
 
   function renderReplay() {
+    const wrap = el("div", "qh-wf-list");
     const panel = el("section", "qh-panel");
     const frames = buildReplayFrames(state.detail);
     const head = el("div", "qh-panel-head");
-    head.appendChild(el("h2", "qh-panel-title", "Playwright / Cua Action Replay"));
-    if (!frames.length) { panel.appendChild(el("p", "qh-empty", "No executed steps or defect screenshots on the selected run.")); return panel; }
+    head.appendChild(el("h2", "qh-panel-title", "Background Theatre, Responsive Matrix & Triage"));
 
-    const ctrls = el("div", "qh-controls");
-    const prev = el("button", "btn btn-quiet", "Prev");
-    prev.type = "button";
-    prev.disabled = state.replayIdx <= 0;
-    prev.addEventListener("click", () => { stopReplay(); state.replayIdx = Math.max(0, state.replayIdx - 1); render(); });
-    const play = el("button", "btn btn-quiet", state.playing ? "Pause" : "Play");
-    play.type = "button";
-    play.addEventListener("click", () => {
-      if (state.playing) { stopReplay(); render(); }
-      else {
-        state.playing = true;
-        state.playTimer = setInterval(() => {
-          if (state.replayIdx >= frames.length - 1) stopReplay();
-          else state.replayIdx += 1;
-          render();
-        }, 1600);
-        render();
-      }
-    });
-    const next = el("button", "btn btn-quiet", "Next");
-    next.type = "button";
-    next.disabled = state.replayIdx >= frames.length - 1;
-    next.addEventListener("click", () => { stopReplay(); state.replayIdx = Math.min(frames.length - 1, state.replayIdx + 1); render(); });
-    ctrls.append(prev, play, next, el("span", "qh-kpi-sub", `${state.replayIdx + 1} / ${frames.length}`));
-    head.appendChild(ctrls);
+    const topCtrls = el("div", "qh-controls");
+    const diffBtn = el("button", "btn btn-quiet", state.diffMode === "baseline" ? "Mode: Baseline Diff" : "Mode: Current Frame");
+    diffBtn.type = "button";
+    diffBtn.addEventListener("click", () => { state.diffMode = state.diffMode === "current" ? "baseline" : "current"; render(); });
+    const expBtn = el("button", "btn btn-quiet", "Export PR Evidence Packet");
+    expBtn.type = "button";
+    expBtn.addEventListener("click", () => void exportEvidence());
+    const bugBtn = el("button", "btn btn-quiet", "Export Bug Sheet");
+    bugBtn.type = "button";
+    bugBtn.addEventListener("click", () => void exportBugSheet());
+    topCtrls.append(diffBtn, expBtn, bugBtn);
+    head.appendChild(topCtrls);
     panel.appendChild(head);
 
-    const frame = frames[Math.min(state.replayIdx, frames.length - 1)];
-    const stage = el("div", "qh-replay-stage");
-    stage.append(
-      el("strong", "", `${frame.journey} — ${frame.step}${frame.width ? ` (${frame.width} px)` : ""}`),
-      el("div", "qh-kpi-sub", `Expected: ${frame.expected}`),
-      el("div", "qh-kpi-sub", `Actual: ${frame.actual}`),
-    );
-    if (frame.screenshot) {
-      const img = el("img", "qh-replay-img");
-      img.alt = `Screenshot at ${frame.step}`;
-      img.src = `/api/qa/artifact?path=${encodeURIComponent(frame.screenshot)}`;
-      stage.appendChild(img);
+    if (state.detail) {
+      const matrix = el("div", "qh-matrix-grid");
+      for (const m of buildResponsiveMatrix(state.detail)) {
+        const mc = el("div", "qh-matrix-card");
+        const pill = el("span", "qh-pill", `${m.width} px · ${m.status.toUpperCase()}`);
+        pill.setAttribute("data-tone", m.status === "pass" ? "good" : m.status === "fail" ? "bad" : "warn");
+        mc.append(pill, el("div", "qh-kpi-sub", `${m.shots.length} shot(s) · ${m.defects.length} defect(s)`));
+        matrix.appendChild(mc);
+      }
+      panel.appendChild(matrix);
     }
-    panel.appendChild(stage);
-    return panel;
+
+    if (!frames.length) {
+      panel.appendChild(el("p", "qh-empty", "No executed steps or defect screenshots on the selected run."));
+    } else {
+      const ctrls = el("div", "qh-controls");
+      const prev = el("button", "btn btn-quiet", "Prev");
+      prev.type = "button";
+      prev.disabled = state.replayIdx <= 0;
+      prev.addEventListener("click", () => { stopReplay(); state.replayIdx = Math.max(0, state.replayIdx - 1); render(); });
+      const play = el("button", "btn btn-quiet", state.playing ? "Pause" : "Play");
+      play.type = "button";
+      play.addEventListener("click", () => {
+        if (state.playing) { stopReplay(); render(); }
+        else {
+          state.playing = true;
+          state.playTimer = setInterval(() => {
+            if (state.replayIdx >= frames.length - 1) stopReplay();
+            else state.replayIdx += 1;
+            render();
+          }, 1600);
+          render();
+        }
+      });
+      const next = el("button", "btn btn-quiet", "Next");
+      next.type = "button";
+      next.disabled = state.replayIdx >= frames.length - 1;
+      next.addEventListener("click", () => { stopReplay(); state.replayIdx = Math.min(frames.length - 1, state.replayIdx + 1); render(); });
+      ctrls.append(prev, play, next, el("span", "qh-kpi-sub", `${state.replayIdx + 1} / ${frames.length}`));
+      panel.appendChild(ctrls);
+
+      const frame = frames[Math.min(state.replayIdx, frames.length - 1)];
+      const stage = el("div", "qh-replay-stage");
+      stage.append(
+        el("strong", "", `${frame.journey} — ${frame.step}${frame.width ? ` (${frame.width} px)` : ""} [${state.diffMode}]`),
+        el("div", "qh-kpi-sub", `Expected: ${frame.expected}`),
+        el("div", "qh-kpi-sub", `Actual: ${frame.actual}`),
+      );
+      if (frame.screenshot) {
+        const img = el("img", "qh-replay-img");
+        img.alt = `Screenshot at ${frame.step}`;
+        img.src = `/api/qa/artifact?path=${encodeURIComponent(frame.screenshot)}`;
+        stage.appendChild(img);
+      }
+      const triageBar = el("div", "qh-triage-bar");
+      const bBug = el("button", "btn btn-quiet", "Real Bug");
+      bBug.type = "button";
+      bBug.addEventListener("click", () => void runTriage("real_bug", frame));
+      const bBase = el("button", "btn btn-quiet", "Update Baseline");
+      bBase.type = "button";
+      bBase.addEventListener("click", () => void runTriage("update_baseline", frame));
+      const bHint = el("button", "btn btn-quiet", "Flaky Hint");
+      bHint.type = "button";
+      bHint.addEventListener("click", () => void runTriage("flaky_hint", frame));
+      triageBar.append(bBug, bBase, bHint);
+      if (state.triageMsg) triageBar.appendChild(el("span", "qh-kpi-sub", state.triageMsg));
+      stage.appendChild(triageBar);
+      panel.appendChild(stage);
+    }
+
+    wrap.appendChild(panel);
+    if (state.evidenceMarkdown) {
+      const evPanel = el("section", "qh-panel");
+      const evHead = el("div", "qh-panel-head");
+      evHead.appendChild(el("h2", "qh-panel-title", "PR Evidence Packet (Redacted)"));
+      const copyBtn = el("button", "btn btn-quiet", "Copy Markdown");
+      copyBtn.type = "button";
+      copyBtn.addEventListener("click", () => void navigator.clipboard?.writeText(state.evidenceMarkdown));
+      evHead.appendChild(copyBtn);
+      const pre = el("pre", "qh-json", state.evidenceMarkdown);
+      evPanel.append(evHead, pre);
+      wrap.appendChild(evPanel);
+    }
+    if (state.bugSheetMarkdown) {
+      const bgPanel = el("section", "qh-panel");
+      bgPanel.append(el("h2", "qh-panel-title", "Fingerprinted Bug Sheet & Developer Tickets"), el("pre", "qh-json", state.bugSheetMarkdown));
+      wrap.appendChild(bgPanel);
+    }
+    return wrap;
+  }
+
+  function renderEvaluationsAndAdvisor() {
+    const wrap = el("div", "qh-wf-list");
+    if (state.detail) {
+      const { oracles, rubrics } = buildOracleSummary(state.detail);
+      const op = el("section", "qh-panel");
+      op.appendChild(el("h2", "qh-panel-title", "Deterministic Oracles (5) & Rubric Scorecard (4)"));
+      const og = el("div", "qh-oracle-grid");
+      for (const o of oracles) {
+        const c = el("div", "qh-diff-card");
+        const p = el("span", "qh-pill", o.status.toUpperCase());
+        p.setAttribute("data-tone", o.status === "pass" ? "good" : o.status === "warn" ? "warn" : "bad");
+        c.append(el("strong", "", o.label + " "), p);
+        og.appendChild(c);
+      }
+      for (const rb of rubrics) {
+        const c = el("div", "qh-diff-card");
+        c.append(el("strong", "", `${rb.label}: ${rb.score}/5`), el("div", "qh-kpi-sub", "Rubric evaluation"));
+        og.appendChild(c);
+      }
+      op.appendChild(og);
+      wrap.appendChild(op);
+    }
+
+    const prPanel = el("section", "qh-panel");
+    prPanel.appendChild(el("h2", "qh-panel-title", "PR Readiness & Wise Knowledge Advisor"));
+    if (state.prReadiness) {
+      const pr = state.prReadiness;
+      const pill = el("span", "qh-pill", `PR GATE: ${pr.releaseGate.toUpperCase()}`);
+      pill.setAttribute("data-tone", GATE_INFO[pr.releaseGate]?.tone ?? "warn");
+      prPanel.append(pill, el("div", "qh-kpi-sub", `${pr.repo} · ${pr.changedFiles?.length ?? 0} changed file(s) · ${pr.defectFindings?.length ?? 0} defect finding(s)`));
+      for (const s of (pr.developerSuggestions ?? []).slice(0, 5)) {
+        prPanel.appendChild(el("div", "qh-diff-card", `[${s.priority.toUpperCase()}] ${s.title} — ${s.action}`));
+      }
+    }
+    const advCtrls = el("div", "qh-controls");
+    const advIn = el("input", "qh-input");
+    advIn.placeholder = "Ask Wise Advisor (e.g. order entry, erp create, sidebar)...";
+    advIn.value = state.advisorQuery;
+    advIn.addEventListener("input", () => { state.advisorQuery = advIn.value; });
+    const advBtn = el("button", "btn btn-quiet", "Advise");
+    advBtn.type = "button";
+    advBtn.addEventListener("click", () => void askAdvisor());
+    advCtrls.append(advIn, advBtn);
+    prPanel.appendChild(advCtrls);
+    if (state.advisorBrief) {
+      const b = state.advisorBrief;
+      for (const rec of b.recommendations || []) {
+        prPanel.appendChild(el("div", "qh-diff-card", rec));
+      }
+    }
+    wrap.appendChild(prPanel);
+
+    const qePanel = el("section", "qh-panel");
+    const qeHead = el("div", "qh-panel-head");
+    qeHead.appendChild(el("h2", "qh-panel-title", "QE Commit Trajectory & Code Refinement / KB Drift"));
+    const qeBtn = el("button", "btn btn-quiet", "Analyze Trajectory & Drift");
+    qeBtn.type = "button";
+    qeBtn.addEventListener("click", () => void loadQeInsights());
+    qeHead.appendChild(qeBtn);
+    qePanel.appendChild(qeHead);
+    if (state.qeTrajectory) {
+      const t = state.qeTrajectory;
+      qePanel.appendChild(el("div", "qh-diff-card", `Trajectory (${t.repo}): risk=${t.riskLevel.toUpperCase()} · ${t.commitsAnalyzed} commits · ${t.churnHotspots.length} churn hotspot(s)`));
+    }
+    if (state.qeRefine) {
+      const rf = state.qeRefine;
+      qePanel.appendChild(el("div", "qh-diff-card", `Refinement & Drift (${rf.repo}): ${rf.refinements.length} smell(s) · ${rf.staleAnchors.length} stale note(s) · ${rf.undocumentedPatterns.length} undocumented pattern(s)`));
+    }
+    wrap.appendChild(qePanel);
+
+    wrap.appendChild(renderCompare());
+    return wrap;
+  }
+
+  function renderLiveStrip() {
+    const strip = el("section", "qh-live-strip");
+    const left = el("div", "qh-controls");
+    const liveState = state.liveSession?.state ?? "idle";
+    const sPill = el("span", "qh-pill", `LIVE: ${liveState.toUpperCase()}`);
+    sPill.setAttribute("data-tone", liveState === "running" || liveState === "stepping" ? "good" : liveState === "paused" ? "warn" : "good");
+    left.appendChild(sPill);
+    for (const tier of [0, 1, 2]) {
+      const b = formatSafetyBadge(tier);
+      const tp = el("span", "qh-pill", `T${tier} ${b.label}`);
+      tp.setAttribute("data-tone", b.tone);
+      left.appendChild(tp);
+    }
+
+    const ctrls = el("div", "qh-controls");
+    for (const [act, lbl] of [["pause", "Pause"], ["resume", "Resume"], ["step", "Step Over"], ["abort", "Abort"]]) {
+      const btn = el("button", "btn btn-quiet", lbl);
+      btn.type = "button";
+      btn.addEventListener("click", () => void sendLiveControl(act));
+      ctrls.appendChild(btn);
+    }
+    const hintIn = el("input", "qh-input");
+    hintIn.placeholder = "Inject hint...";
+    hintIn.value = state.liveHintInput;
+    hintIn.addEventListener("input", () => { state.liveHintInput = hintIn.value; });
+    const hintBtn = el("button", "btn btn-quiet", "Inject Hint");
+    hintBtn.type = "button";
+    hintBtn.addEventListener("click", () => void sendLiveControl("hint", state.liveHintInput));
+    ctrls.append(hintIn, hintBtn);
+    strip.append(left, ctrls);
+    return strip;
   }
 
   function renderGovernance() {
@@ -580,6 +968,7 @@ export function createQaHarnessController({ api, root, statusEl, refreshBtn, onA
 
   function renderCenter() {
     const center = el("div", "qh-center");
+    center.appendChild(renderLiveStrip());
     center.appendChild(renderKpis());
     if (state.detail) {
       const sc = state.detail.scorecard;
@@ -596,7 +985,7 @@ export function createQaHarnessController({ api, root, statusEl, refreshBtn, onA
     else if (state.view === "artifacts") { center.appendChild(renderReplay()); }
     else if (state.view === "suites") { center.appendChild(renderSuites(false)); }
     else if (state.view === "journeys") { center.appendChild(renderSuites(true)); }
-    else if (state.view === "evaluations") { center.append(renderCompare(), renderWorkflowAndWaterfall()); }
+    else if (state.view === "evaluations") { center.append(renderEvaluationsAndAdvisor(), renderWorkflowAndWaterfall()); }
     else if (state.view === "compare") { center.appendChild(renderCompare()); }
     else { center.appendChild(renderGovernance()); }
     return center;

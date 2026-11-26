@@ -3,11 +3,12 @@
 // its helpers as globalThis.GuardPrefs. Storage can throw (private windows); every use is guarded.
 (function () {
   var KEY = "guard.prefs.v1";
-  var STYLES = ["dots", "pulse", "noir", "aurora"];
+  // One layout style. The four old looks were replaced by light and dark colour modes (themes.css).
+  var STYLES = ["noir"];
   var MODES = ["system", "light", "dark"];
   var MOTIONS = ["auto", "reduced"];
   var WORK = ["auto", "on", "off"];
-  var DEFAULTS = { style: "noir", mode: "system", motion: "auto", showWork: "auto" };
+  var DEFAULTS = { style: "noir", mode: "light", motion: "auto", showWork: "auto" };
 
   function pick(v, list, fallback) {
     return list.indexOf(v) >= 0 ? v : fallback;
