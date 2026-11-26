@@ -573,3 +573,46 @@
 - Unverified: 1100 px screenshots, the real (non-stub) server, the Ctrl+K search field, and the QA harness with real runs.
 - Omitted for lack of real data: sparklines and deltas on KPI cards, the notifications bell, a global search field
   (Ctrl+K already means New chat), the orchestration flow and knowledge-base list outside the QA harness.
+
+## 2026-11-26 UI redesign v2: Overview home, plico-ui component language (owner: UI agent)
+
+- Owner rejected v1. v2 changes: new `ui/overview.js` + `ui/overview.css` (Overview home: greeting hero, 4 KPI cards with
+  sparklines from real data, memory pipeline, recent QA runs, recent activity, knowledge base, repositories, quick actions).
+  The app now opens on Overview; Chat is its own page. Sidebar has Workspace / Knowledge / Quality groups, a status card and
+  a user/version footer. A global bar has search (Ctrl+Shift+F; Ctrl+K and Ctrl+/ were already taken) over chats and
+  notes/commits/files, an engine connection dot and an inbox bell.
+- New read-only endpoints (`engine/src/server/overview.ts`, wired in `server.ts`): `GET /api/overview` (commits per day for 30
+  days, recent commits/notes, note types, inbox groups, QA runs and pass-rate series) and `GET /api/search?q=` (internal_dev
+  audience, 8 hits). `GET /api/status` now also returns `version`. Tests: `engine/test/overview-api.test.ts`; the stub server
+  serves sample versions of both for screenshots and UI tests. `/overview.js` and `/overview.css` are on the server's allow list.
+- Palettes (`ui/themes.css`): light = white cards on cool grey, slate text, violet #5b3df5, dark = deep navy with violet glow.
+  Button, card, composer, segmented-control and motion styles are ported from plico-ui (MIT, (c) 2026 Plico UI contributors;
+  attribution is in the CSS comments). No React or Tailwind added.
+- QA Harness: controls restyled; below 1100 px the rail, centre, inspector and log drawer stack in one scrolling column, so the
+  drawer no longer overlaps content at 800 px.
+- Tests changed: `ui-project.test.ts` (helper opens Overview then Chat; new Overview test; contrast test now checks accent
+  button text and soft status backgrounds), `ui-agent.test.ts` (from v1). Checks: `npm run typecheck` clean; `npm test` 367 pass, 0 fail.
+- Screenshots: `.artifacts/redesign-v2/` (overview, chat, inbox, reports, qa, settings; light and dark; 1440, 1100, 800), taken
+  against the stub server, so numbers are sample data. No horizontal overflow reported.
+- Unverified: real server with a real index; Mobbin/Refero etc. were not fetched; the QA harness with real runs.
+
+## 2026-11-26 UI redesign v3: landing home, pairing fix, icon, process wave, chat page, three-pane review (owner: UI agent)
+
+- Error fix. Root cause: the desktop shell (src-tauri/src/main.rs, owner change) opens `/landing.html?t=<token>`, but the server
+  only turned `?t=` into the cookie for the path `/`, so the landing request had no cookie and got `{"error":"Open Guard from its own
+  window."}`. Fixed in `engine/src/server/server.ts`: `?t=` pairs on `/` and `/landing.html` (302 to `/`); a wrong or old token or a
+  stale cookie no longer returns JSON to a page navigation: it gets a friendly HTML page with an Open Guard button (`/pair`, which
+  pairs only on a same-origin user click via Sec-Fetch headers); typing the address (Sec-Fetch-Site: none) pairs directly; `/api` and
+  fetch calls still get JSON 401. Host, Origin, loopback and SameSite=Strict cookie checks are unchanged; added frame-ancestors
+  none and X-Frame-Options DENY. The launch token is now stable (`data/launch-token`, git-ignored) so a window or bookmark that
+  outlives a restart still pairs. Tests: `engine/test/pairing.test.ts`. Note: `ui/landing.html` (owner file, untracked) is not
+  served as its own page; `/landing.html` redirects to the app home. Its inline styles would be blocked by the CSP.
+- Home is now a full-width landing hero (no sidebar): glow sky, real composer in the hero (the same `#composer` is moved between
+  hero and Chat page), source chips from real counts, big stat blocks, the process wave (`ui/process.js`, reusable via
+  `buildProcess` and `guardProcessSteps`), then the Overview panels. The chat history column shows on the Chat page only; the top-right
+  gear menu reaches New chat, Project status, Appearance, Model and keys. New icon: `ui/favicon.svg`, PNGs, `.ico`, also copied to
+  `src-tauri/icons/icon.ico`. Chat empty state: headline, quick pills, three real-data cards, tabbed suggestions, full-body robot
+  (`#robot-sym`, states is-happy, is-wave, is-thinking). Inbox and Reports: three-pane folders / list / reading pane.
+- Found changed outside this task: `ui/themes.css` light and dark palettes were rewritten to emerald / zinc (not by me). My new
+  tokens are kept; hero sky colours are still blue. Decide whether to align them.
+- Checks and screenshots: see the final report; screenshots are in `.artifacts/redesign-v3/`.

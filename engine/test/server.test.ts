@@ -67,7 +67,7 @@ test("token: requests without the cookie get 401; the token link sets an HttpOnl
     assert.equal(page.status, 200);
     assert.match(page.body, /<title>AURA Sentinel<\/title>/);
     assert.equal(page.headers["x-content-type-options"], "nosniff");
-    assert.equal(page.headers["content-security-policy"], "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'");
+    assert.equal(page.headers["content-security-policy"], "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'");
     assert.equal(page.headers["access-control-allow-origin"], undefined);
     assert.equal((await http(s.port, { path: "/api/status", method: "OPTIONS", headers: s.auth })).status, 404);
   } finally {

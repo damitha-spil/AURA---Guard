@@ -1,6 +1,7 @@
 import { renderSafe } from "/render.js";
 import { initReview } from "/review.js";
 import { mountOverview } from "/overview.js";
+import { startParticles } from "/hero.js";
 import { buildMark, remountMarks, setMarkState, STYLES, STYLE_NAMES, STYLE_BLURBS, WORK_DEFAULTS, styleDescriptor } from "/marks.js";
 import { applyStep, workSteps, summarize, totalMs, formatDuration, stepIcon, splitEvents } from "/steps.js";
 import { planReveal, revealedLength, shouldReveal } from "/reveal.js";
@@ -105,22 +106,28 @@ function setSide(collapsed, remember) {
   const label = collapsed ? "Expand sidebar (Ctrl+B)" : "Collapse sidebar (Ctrl+B)";
   b.setAttribute("aria-label", label);
   b.title = label;
-  if (remember) {
-    state.sideSet = true;
-    try {
-      storage && storage.setItem("guard.side", collapsed ? "1" : "0");
-    } catch {
-      /* storage may be blocked; the sidebar still works */
-    }
-  }
+  $("drawer-btn").setAttribute("aria-expanded", String(!collapsed));
+  // The menu drawer is transient: it always starts closed, so nothing is stored.
+  if (remember) state.sideSet = true;
 }
 const sideCollapsed = () => $("app").classList.contains("side-collapsed");
 function followStyleSidebar() {
   const stored = sideStored();
-  setSide(stored === null ? desc().sidebarDefault === "collapsed" : stored, false);
+  void stored;
+  setSide(typeof innerWidth === "number" && innerWidth < 1100, false);
 }
 
 /* ---------- api ---------- */
+/** A 401 means this window's cookie is out of date (Guard was restarted). Reload "/" once so it pairs again. */
+function recoverPairing() {
+  try {
+    if (sessionStorage.getItem("guard.repair") === "1") return;
+    sessionStorage.setItem("guard.repair", "1");
+  } catch {
+    return;
+  }
+  location.replace("/");
+}
 async function api(path, opts = {}) {
   const init = { ...opts };
   if (opts.body !== undefined) {
@@ -129,6 +136,7 @@ async function api(path, opts = {}) {
     init.body = JSON.stringify(opts.body);
   }
   const r = await fetch(path, init);
+  if (r.status === 401) recoverPairing();
   const data = await r.json().catch(() => ({}));
   if (!r.ok && !data.error) data.error = `Request failed (${r.status})`;
   return { status: r.status, ok: r.ok, data };
@@ -232,6 +240,10 @@ async function refreshStatus() {
   state.status = st.ok ? st.data : null;
   state.project = pr.ok ? pr.data : null;
   paintStatus();
+  api("/api/overview").then((r) => {
+    state.overview = r.ok ? r.data : null;
+    if (!state.busy && state.view === "chat" && !(state.chat && state.chat.messages && state.chat.messages.length)) renderMessages();
+  });
   if (st.ok) setBusy(st.data.running);
   if (state.project && state.project.inbox) setInboxBadge(Number(state.project.inbox.pending) || 0);
   else review.refreshCount();
@@ -260,10 +272,39 @@ function paintStatus() {
   $("status-dot").className = "status-dot " + s.tone;
   $("gbar-dot").className = "status-dot " + (state.status ? s.tone : "bad");
   $("gbar-conn-text").textContent = state.status ? "Engine connected" : "Engine not reachable";
+  paintHero();
   if (state.view === "overview") overviewView.paint();
   $("status-toggle").title = `Project status. ${s.title}`;
   for (const f of document.querySelectorAll(".empty-facts")) fillFacts(f);
   if (!$("status-detail").hidden) renderStatusPanel();
+}
+
+/** The hero's badge and source chips: only what the project summary really holds. */
+function paintHero() {
+  const s = state.summary;
+  const badge = $("land-badge-text");
+  if (badge) {
+    const c = s && s.counts;
+    badge.textContent = c && (c.notes || c.commits) ? `${(c.notes || 0).toLocaleString("en")} notes and ${(c.commits || 0).toLocaleString("en")} commits in memory` : "Read-only engineering assistant";
+  }
+  const list = $("land-sources");
+  if (!list) return;
+  list.replaceChildren();
+  const p = state.project;
+  const items = [];
+  if (p && p.repos && p.repos.length) items.push([`${p.repos.length} ${p.repos.length === 1 ? "repository" : "repositories"}`, "overview"]);
+  if (p && p.vault && p.vault.notes) items.push([`${p.vault.notes} vault notes`, "reports"]);
+  if (p && p.index && p.index.files) items.push([`${p.index.files.toLocaleString("en")} indexed files`, "overview"]);
+  items.push(["QA harness", "qa"]);
+  if (p && p.inbox && p.inbox.pending) items.push([`${p.inbox.pending} awaiting review`, "inbox"]);
+  for (const [label, view] of items) {
+    const li = el("li", "");
+    const b = el("button", "land-source", label);
+    b.type = "button";
+    b.addEventListener("click", () => (view === "overview" ? $("input").focus() : setView(view)));
+    li.appendChild(b);
+    list.appendChild(li);
+  }
 }
 
 function setBusy(name) {
@@ -334,9 +375,6 @@ function createTrace(initial) {
     }
     box.appendChild(list);
     if (ctl.live) box.appendChild(el("span", "trace-bar"));
-    if (!ctl.live && ctl.sources.length) {
-      box.appendChild(el("p", "trace-sources", "Sources used: " + ctl.sources.map((s) => s.title).join("; ")));
-    }
   };
   ctl.set = (patch) => {
     Object.assign(ctl, patch);
@@ -375,9 +413,58 @@ function sourceChip(s) {
   b.appendChild(svg(KIND_ICON[s.kind] || KIND_ICON.note, 1.8));
   b.append(el("span", "src-title", s.title));
   b.setAttribute("aria-label", `${KIND_LABEL[s.kind] || s.kind}: ${s.title}${s.status === "proposed" ? " (unapproved)" : ""}`);
-  if (s.status === "proposed") b.appendChild(el("span", "tag-unapproved", "Unapproved"));
+  b.title = `${s.title}\n${s.ref}${s.status === "proposed" ? "\nUnapproved: the owner has not approved this note yet" : ""}`;
+  b.setAttribute("data-kind", s.kind || "note");
+  if (s.status === "proposed") {
+    b.setAttribute("data-unapproved", "true");
+    b.appendChild(el("span", "tag-unapproved", "Unapproved"));
+  }
   b.addEventListener("click", () => openSource(s));
   return b;
+}
+
+const SRC_SHOWN = 6;
+/** Sources as one tidy block: chips grouped by type, the first few visible, the rest behind "N more". */
+function sourceBlock(sources) {
+  const box = el("div", "src-block");
+  box.setAttribute("role", "group");
+  box.setAttribute("aria-label", "Sources");
+  const head = el("div", "src-head");
+  head.append(el("span", "src-title-label", "Sources"), el("span", "src-count", String(sources.length)));
+  box.appendChild(head);
+  const order = ["note", "commit", "file", "context"];
+  const kinds = [...new Set(sources.map((s) => s.kind || "note"))].sort((x, y) => order.indexOf(x) - order.indexOf(y));
+  const row = el("div", "src-row");
+  let shown = 0;
+  const hidden = [];
+  for (const k of kinds) {
+    const g = el("div", "src-group");
+    g.append(el("span", "src-kind", KIND_LABEL[k] || k));
+    for (const s of sources.filter((x) => (x.kind || "note") === k)) {
+      const chip = sourceChip(s);
+      if (shown >= SRC_SHOWN) {
+        chip.hidden = true;
+        hidden.push(chip);
+      }
+      shown++;
+      g.appendChild(chip);
+    }
+    row.appendChild(g);
+  }
+  box.appendChild(row);
+  if (hidden.length) {
+    const more = el("button", "src-more", `${hidden.length} more`);
+    more.type = "button";
+    more.setAttribute("aria-expanded", "false");
+    more.addEventListener("click", () => {
+      const open = more.getAttribute("aria-expanded") !== "true";
+      for (const c of hidden) c.hidden = !open;
+      more.setAttribute("aria-expanded", String(open));
+      more.textContent = open ? "Show fewer" : `${hidden.length} more`;
+    });
+    box.appendChild(more);
+  }
+  return box;
 }
 
 function actionButton(icon, label, onClick, pressable) {
@@ -472,7 +559,19 @@ function metaText(m) {
 function messageShell(role, m) {
   const wrap = el("div", `msg ${role}${m && m.error ? " error" : ""}`);
   const av = el("div", "msg-avatar");
-  av.appendChild(role === "user" ? svg(ICON.user, 1.5) : mark("idle"));
+  if (role === "user") av.appendChild(el("span", "user-initial", "Y"));
+  else {
+    av.appendChild(mark("idle"));
+    const NSV = "http://www.w3.org/2000/svg";
+    const bot = document.createElementNS(NSV, "svg");
+    bot.setAttribute("class", "robot robot-sm");
+    bot.setAttribute("viewBox", "-30 -12 260 286");
+    bot.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS(NSV, "use");
+    use.setAttribute("href", "#robot-sym");
+    bot.appendChild(use);
+    av.appendChild(bot);
+  }
   const top = el("div", "msg-top");
   top.append(el("span", "msg-role", role === "user" ? "You" : PRODUCT_SHORT), el("span", "msg-meta", m ? metaText(m) : ""));
   const main = el("div", "msg-main");
@@ -643,10 +742,7 @@ function messageNode(m, index, prev) {
   decorateCode(ans);
   main.appendChild(ans);
   if (m.sources && m.sources.length) {
-    const row = el("div", "src-row");
-    row.setAttribute("aria-label", "Sources");
-    for (const s of m.sources) row.appendChild(sourceChip(s));
-    main.appendChild(row);
+    main.appendChild(sourceBlock(m.sources));
   }
   main.appendChild(actionsFor(m, index).wrap);
   return wrap;
@@ -684,34 +780,153 @@ function fillFacts(node) {
   }
 }
 
-/** The first screen: the project tile, one plain sentence and the suggestion cards. */
+/** A little section card: a small title, a body and an optional "View all" link. */
+function featCard(cls, title, linkLabel, onLink) {
+  const c = el("section", `feat ${cls}`);
+  const head = el("header", "feat-head");
+  head.appendChild(el("h3", "feat-title", title));
+  if (linkLabel) {
+    const l = el("button", "feat-link", linkLabel);
+    l.type = "button";
+    l.addEventListener("click", onLink);
+    head.appendChild(l);
+  }
+  c.appendChild(head);
+  return c;
+}
+function featRow(title, meta, onClick) {
+  const b = el("button", "feat-row");
+  b.type = "button";
+  b.append(el("span", "feat-row-title", title), el("span", "feat-row-meta", meta || ""));
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+/** The empty chat: a short headline, quick actions, three cards of real project facts, and the suggestion list. */
 function emptyState() {
   const box = el("div", "empty");
-  const hero = el("div", "hero-mark");
-  const tile = el("span", "tile hero-tile", MONOGRAM);
-  tile.setAttribute("aria-hidden", "true");
-  hero.appendChild(tile);
-  box.append(hero);
-  box.append(el("h2", "", `Ask anything about ${PROJECT_NAME}`));
+  const NSV = "http://www.w3.org/2000/svg";
+  const bot = document.createElementNS(NSV, "svg");
+  bot.setAttribute("class", "robot");
+  bot.setAttribute("id", "mascot");
+  bot.setAttribute("viewBox", "-30 -12 260 286");
+  bot.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS(NSV, "use");
+  use.setAttribute("href", "#robot-sym");
+  bot.appendChild(use);
+  box.append(bot);
+  const h = el("h2", "empty-title");
+  h.append("Ask your ", el("strong", "", "codebase"), ", get ", el("strong", "", "sources"));
+  box.append(h);
   box.append(el("p", "empty-sub", "Answers come only from the vault notes and the indexed code, with sources. Type / for commands."));
-  const facts = el("div", "empty-facts");
-  fillFacts(facts);
-  box.appendChild(facts);
-  const grid = el("div", "examples");
-  for (const s of suggestionCards(state.suggestions)) {
-    const b = el("button", "suggest" + (s.fill ? " suggest-qa" : ""));
+
+  const quick = el("div", "quick-pills");
+  const qp = (label, tone, d, fn, extra) => {
+    const b = el("button", "qpill");
     b.type = "button";
-    b.setAttribute("data-suggest", s.id);
-    const ic = el("span", "suggest-ic");
-    ic.appendChild(svg(ICON[s.icon] || ICON.note, 1.5));
-    const tx = el("span", "suggest-text");
-    tx.append(el("span", "suggest-title", s.title), el("span", "suggest-hint", s.hint));
-    b.append(ic, tx);
-    // A question card sends at once. "QA this change" only fills the box: the person decides when to send.
-    b.addEventListener("click", () => (s.fill ? qaCtx.fillComposer(s.fill) : send(s.text)));
-    grid.appendChild(b);
+    if (extra) b.setAttribute("data-quick", extra);
+    const ic = el("span", `qpill-ic ${tone}`);
+    ic.appendChild(svg(d, 1.7));
+    b.append(ic, el("span", "", label));
+    b.addEventListener("click", fn);
+    return b;
+  };
+  quick.append(
+    qp("QA this change", "green", ICON.qa, () => qaCtx.fillComposer("QA the latest change"), "qa"),
+    qp("Review inbox", "amber", ICON.inbox, () => setView("inbox"), "inbox"),
+    qp("Reports", "blue", ICON.draft, () => setView("reports"), "reports"),
+    qp("Show work", "violet", ICON.list, () => $("pill-work").click(), "work"),
+  );
+  box.appendChild(quick);
+
+  const ov = state.overview;
+  const feats = el("div", "feats");
+  const proj = featCard("feat-dark", "Project");
+  const s = state.summary;
+  proj.append(el("p", "feat-big", PROJECT_NAME));
+  proj.append(el("p", "feat-sub", s && s.index ? s.index.label.replace(/. It is getting old.$/, "") : "The index has not been built yet"));
+  if (s && s.counts) proj.append(el("p", "feat-sub", [["notes", s.counts.notes], ["commits", s.counts.commits], ["files", s.counts.files]].filter(([, n]) => n).map(([w, n]) => `${n.toLocaleString("en")} ${w}`).join(" · ")));
+  const ask = el("button", "feat-cta", "Ask what changed");
+  ask.type = "button";
+  ask.addEventListener("click", () => send("What changed in the last few days?"));
+  proj.append(ask);
+
+  const runs = featCard("feat-runs", "Latest QA runs", "View all", () => setView("qa"));
+  const list = ov && ov.qa ? ov.qa.recent.slice(0, 3) : [];
+  if (list.length) for (const r of list) runs.append(featRow(r.request || r.id, r.passRate === null ? "plan only" : `${r.passRate}% passed`, () => { setView("qa"); ensureQaHarness().show(r.id); }));
+  else runs.append(el("p", "feat-empty", ov ? "No QA runs yet." : "Loading..."));
+  if (ov && ov.inbox && ov.inbox.total) runs.append(featRow(`${ov.inbox.total} waiting in the inbox`, "review", () => setView("inbox")));
+
+  const notes = featCard("feat-notes", "Recent notes", "View all", () => setView("reports"));
+  const nl = ov ? ov.recentNotes.slice(0, 3) : [];
+  if (nl.length) for (const n of nl) notes.append(featRow(n.title, [n.type, n.status].filter(Boolean).join(", "), () => openSource({ ref: n.ref, kind: "note", title: n.title })));
+  else notes.append(el("p", "feat-empty", ov ? "No notes are indexed yet." : "Loading..."));
+  feats.append(proj, runs, notes);
+  box.appendChild(feats);
+
+  // Tabbed suggestion card: real suggestions, real recent chats, real commands.
+  const card = el("section", "sug-card");
+  const tabs = el("div", "sug-tabs");
+  tabs.setAttribute("role", "tablist");
+  const body = el("div", "examples");
+  const fill = (kind) => {
+    body.replaceChildren();
+    if (kind === "suggested") {
+      for (const sg of suggestionCards(state.suggestions)) {
+        const b = el("button", "suggest" + (sg.fill ? " suggest-qa" : ""));
+        b.type = "button";
+        b.setAttribute("data-suggest", sg.id);
+        const ic = el("span", "suggest-ic");
+        ic.appendChild(svg(ICON[sg.icon] || ICON.note, 1.5));
+        const tx = el("span", "suggest-text");
+        tx.append(el("span", "suggest-title", sg.title), el("span", "suggest-hint", sg.hint));
+        b.append(ic, tx, el("span", "suggest-go", "→"));
+        // A question card sends at once. "QA this change" only fills the box: the person decides when to send.
+        b.addEventListener("click", () => (sg.fill ? qaCtx.fillComposer(sg.fill) : send(sg.text)));
+        body.appendChild(b);
+      }
+    } else if (kind === "recent") {
+      const chats = (state.chats || []).slice(0, 5);
+      if (!chats.length) body.appendChild(el("p", "feat-empty", "No saved chats yet."));
+      for (const c of chats) {
+        const b = el("button", "suggest");
+        b.type = "button";
+        b.append(el("span", "suggest-text", ""), el("span", "suggest-go", "→"));
+        b.firstChild.append(el("span", "suggest-title", shortTitle(c.title || "Untitled", 70)), el("span", "suggest-hint", relTime(c.updated)));
+        b.addEventListener("click", () => openChat(c.id));
+        body.appendChild(b);
+      }
+    } else {
+      const cmds = state.commands || [];
+      if (!cmds.length) body.appendChild(el("p", "feat-empty", "No commands are available."));
+      for (const c of cmds) {
+        const b = el("button", "suggest");
+        b.type = "button";
+        b.append(el("span", "suggest-text", ""), el("span", "suggest-go", "→"));
+        b.firstChild.append(el("span", "suggest-title", c.usage || `/${c.name}`), el("span", "suggest-hint", c.help || ""));
+        b.addEventListener("click", () => {
+          $("input").value = `/${c.name} `;
+          growInput();
+          $("input").focus();
+        });
+        body.appendChild(b);
+      }
+    }
+  };
+  for (const [id, label] of [["suggested", "Suggested"], ["recent", "Recent chats"], ["commands", "Commands"]]) {
+    const t = el("button", "sug-tab", label);
+    t.type = "button";
+    t.setAttribute("role", "tab");
+    t.setAttribute("aria-selected", String(id === "suggested"));
+    t.addEventListener("click", () => {
+      for (const x of tabs.children) x.setAttribute("aria-selected", String(x === t));
+      fill(id);
+    });
+    tabs.appendChild(t);
   }
-  box.appendChild(grid);
+  fill("suggested");
+  card.append(tabs, body);
+  box.appendChild(card);
   return box;
 }
 
@@ -1020,6 +1235,8 @@ function syncPills() {
   $("top-work").setAttribute("aria-checked", String(on));
 }
 function syncSend() {
+  $("robot-busy").hidden = !state.busy;
+  $("work-note").hidden = !state.busy;
   $("send").disabled = !$("input").value.trim();
 }
 function toggleWork() {
@@ -1134,7 +1351,7 @@ function openNoteDoc(n) {
 }
 
 /* ---------- views ---------- */
-const review = initReview({ api, el, $, openNote: openNoteDoc, closePanel });
+const review = initReview({ api, el, $, openNote: openNoteDoc, closePanel, getProject: () => state.project, goto: (v) => setView(v) });
 function toast(text, opts = {}) {
   const t = el("div", "toast" + (opts.error ? " toast-error" : ""));
   t.appendChild(el("span", "toast-text", text));
@@ -1162,7 +1379,6 @@ const overviewView = mountOverview({
     focusSearch: () => $("global-search").focus(),
   },
 });
-$("overview-refresh").addEventListener("click", () => overviewView.refresh());
 let settingsView = null;
 let qaHarnessView = null;
 function ensureQaHarness() {
@@ -1187,6 +1403,17 @@ function setView(name) {
   if (state.view === "qa" && name !== "qa") qaHarnessView?.stopReplay();
   if (name === "settings" && state.view !== "settings") state.viewBeforeSettings = state.view;
   state.view = name;
+  $("app").setAttribute("data-view", name);
+  for (const n of document.querySelectorAll("[data-nav]")) {
+    if (n.getAttribute("data-nav") === name) n.setAttribute("aria-current", "page");
+    else n.removeAttribute("aria-current");
+  }
+  // One composer, two homes: in the hero on Overview, at the bottom of the Chat page.
+  const slot = $("hero-composer-slot");
+  const wrap = $("composer-wrap");
+  if (wrap && name === "overview") slot.appendChild(wrap);
+  else if (wrap && wrap.parentNode === slot) $("view-chat").appendChild(wrap);
+  wrap?.classList.toggle("is-hero", name === "overview");
   $("settings-btn")?.classList.toggle("active", name === "settings");
   for (const v of ["overview", "chat", "inbox", "reports", "qa", "settings"]) {
     $(`view-${v}`).hidden = v !== name;
@@ -1200,7 +1427,10 @@ function setView(name) {
   if (name === "inbox" || name === "reports") review.show(name);
   if (name === "qa") ensureQaHarness().show();
   if (name === "overview") overviewView.show();
-  if (name === "chat") $("input").focus();
+  if (name === "chat") {
+    if (!state.busy && !(state.chat && state.chat.messages && state.chat.messages.length)) renderMessages();
+    $("input").focus();
+  }
   if (name === "settings") {
     if (!settingsView) {
       settingsView = mountSettings({ root: $("view-settings"), onBack: closeSettings });
@@ -1353,6 +1583,7 @@ function syncThemeToggle() {
   const b = $("theme-toggle");
   if (!b) return;
   b.setAttribute("aria-pressed", String(dark));
+  b.setAttribute("aria-checked", String(dark));
   b.setAttribute("title", dark ? "Switch to light theme" : "Switch to dark theme");
   b.querySelector(".theme-label").textContent = dark ? "Dark" : "Light";
 }
@@ -1650,6 +1881,64 @@ $("input").addEventListener("keydown", (e) => {
 $("stop").addEventListener("click", () => state.abort?.abort());
 $("new-chat").addEventListener("click", newChat);
 $("gbar-bell").addEventListener("click", () => setView("inbox"));
+/* The top-right menu reaches what lives in the chat column on other pages. */
+function closeMenu() {
+  $("menu-pop").hidden = true;
+  $("menu-btn").setAttribute("aria-expanded", "false");
+}
+document.addEventListener("pointermove", (e) => {
+  const m = $("mascot");
+  if (!m || reducedMotion() || $("app").getAttribute("data-empty") !== "true") return;
+  const r = m.getBoundingClientRect();
+  const dx = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / 400));
+  const dy = Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height / 2)) / 300));
+  m.style.setProperty("--lx", dx.toFixed(2));
+  m.style.setProperty("--ly", dy.toFixed(2));
+});
+$("overview-scroll").addEventListener("scroll", () => $("app").setAttribute("data-scrolled", String($("overview-scroll").scrollTop > 24)), { passive: true });
+/** A small wave and happy eyes when the person starts to type. */
+function robotReact() {
+  const m = $("mascot");
+  if (!m || reducedMotion()) return;
+  m.classList.remove("is-wave", "is-happy");
+  void m.getBoundingClientRect();
+  m.classList.add("is-wave", "is-happy");
+  setTimeout(() => m.classList.remove("is-wave", "is-happy"), 2300);
+}
+$("input").addEventListener("focus", robotReact);
+$("menu-btn").addEventListener("click", () => {
+  const open = $("menu-pop").hidden;
+  $("menu-pop").hidden = !open;
+  $("menu-btn").setAttribute("aria-expanded", String(open));
+  if (open) $("menu-pop").querySelector("button")?.focus();
+});
+$("menu-pop").addEventListener("click", (e) => {
+  const b = e.target instanceof Element ? e.target.closest("[data-menu]") : null;
+  if (!b) return;
+  closeMenu();
+  $(b.getAttribute("data-menu")).click();
+});
+$("menu-pop").addEventListener("keydown", (e) => {
+  const items = [...$("menu-pop").querySelectorAll("button")];
+  const i = items.indexOf(document.activeElement);
+  if (e.key === "Escape") {
+    closeMenu();
+    $("menu-btn").focus();
+  } else if (e.key === "ArrowDown") items[(i + 1) % items.length].focus();
+  else if (e.key === "ArrowUp") items[(i + items.length - 1) % items.length].focus();
+  else return;
+  e.preventDefault();
+});
+document.addEventListener("pointerdown", (e) => {
+  if (!$("menu-pop").hidden && e.target instanceof Node && !e.target.closest(".menu-wrap")) closeMenu();
+});
+$("drawer-btn").addEventListener("click", () => setSide(!sideCollapsed(), true));
+for (const n of document.querySelectorAll("[data-nav]")) {
+  n.addEventListener("click", (e) => {
+    e.preventDefault();
+    setView(n.getAttribute("data-nav"));
+  });
+}
 
 /* ---------- global search: chats by title (here) and notes, commits and files (GET /api/search) ---------- */
 let gsTimer = 0;
@@ -1772,7 +2061,7 @@ document.addEventListener("keydown", (e) => {
   } else if (mod && !e.altKey && e.key.toLowerCase() === "b") {
     e.preventDefault();
     setSide(!sideCollapsed(), true);
-  } else if (!mod && e.key === "/" && !(e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]")) && !$("view-chat").hidden) {
+  } else if (!mod && e.key === "/" && !(e.target instanceof Element && e.target.closest("input, textarea, select, [contenteditable]")) && (!$("view-chat").hidden || !$("view-overview").hidden)) {
     e.preventDefault();
     $("input").focus();
     $("input").value = "/";
@@ -1789,6 +2078,7 @@ async function boot() {
   document.body.appendChild(live);
   if (Prefs) Prefs.apply(state.prefs, document.documentElement);
   syncThemeToggle();
+  startParticles($("hero-particles"));
   remountMarks(document, document, style());
   followStyleSidebar();
   syncPills();

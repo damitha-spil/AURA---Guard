@@ -74,8 +74,17 @@ export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/render.js": { file: "render.js", type: "text/javascript; charset=utf-8" },
   "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
   "/favicon.svg": { file: "favicon.svg", type: "image/svg+xml" },
+  "/favicon-16.png": { file: "favicon-16.png", type: "image/png" },
+  "/favicon-32.png": { file: "favicon-32.png", type: "image/png" },
+  "/favicon-48.png": { file: "favicon-48.png", type: "image/png" },
+  "/favicon-256.png": { file: "favicon-256.png", type: "image/png" },
+  "/apple-touch-icon.png": { file: "apple-touch-icon.png", type: "image/png" },
+  "/favicon.ico": { file: "favicon.ico", type: "image/x-icon" },
   "/themes.css": { file: "themes.css", type: "text/css; charset=utf-8" },
   "/theme.js": { file: "theme.js", type: "text/javascript; charset=utf-8" },
+  "/pair.css": { file: "pair.css", type: "text/css; charset=utf-8" },
+  "/process.js": { file: "process.js", type: "text/javascript; charset=utf-8" },
+  "/hero.js": { file: "hero.js", type: "text/javascript; charset=utf-8" },
   "/overview.js": { file: "overview.js", type: "text/javascript; charset=utf-8" },
   "/overview.css": { file: "overview.css", type: "text/css; charset=utf-8" },
   "/marks.js": { file: "marks.js", type: "text/javascript; charset=utf-8" },
@@ -93,7 +102,12 @@ export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/settings.css": { file: "settings.css", type: "text/css; charset=utf-8" },
 };
 
-export const CSP = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'";
+export const CSP = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'";
+
+/** Files the "Open Guard" page may load before a browser is paired: colours and the icon only. */
+const PUBLIC_FILES = new Set(["/themes.css", "/pair.css", "/favicon.svg", "/favicon-32.png"]);
+
+const PAIR_PAGE = `<!doctype html><html lang="en" data-style="noir" data-mode="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AURA Sentinel</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/themes.css"><link rel="stylesheet" href="/pair.css"></head><body><main class="pair"><img class="pair-logo" src="/favicon.svg" alt="" width="64" height="64"><h1>AURA Sentinel</h1><p>This browser tab is not paired with the running Guard yet. Press the button to open Guard here. Nothing is saved to your company systems; Guard only reads and suggests.</p><a class="pair-btn" href="/pair">Open Guard</a><p class="pair-small">If the button does not work, start Guard again with <code>npm run ui</code> and use the window that opens.</p></main></body></html>`;
 
 export interface BackendInfo { wanted: string; picked: string | null; label: string }
 
@@ -669,6 +683,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       res.setHeader("Content-Security-Policy", CSP);
       res.setHeader("Cache-Control", "no-store");
       res.setHeader("Referrer-Policy", "no-referrer");
+      res.setHeader("X-Frame-Options", "DENY");
     };
     h();
     const fail = (status: number, message: string): void => json(res, status, { error: message });
@@ -685,8 +700,11 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         const url = new URL(req.url ?? "/", `http://${host}`);
         const method = req.method ?? "GET";
         const supplied = url.searchParams.get("t");
-        if (method === "GET" && url.pathname === "/" && supplied !== null) {
-          if (!safeEqual(supplied, deps.token)) return fail(401, "Open Guard from its own window.");
+        // The desktop shell opens "/landing.html?t=<token>" and a browser window opens "/?t=<token>". Both mean
+        // the same thing: pair this browser, then show the app at "/". A wrong or old token is not an error page
+        // of its own: it falls through to the normal pairing rules below (friendly page, never raw JSON).
+        const isEntry = url.pathname === "/" || url.pathname === "/landing.html";
+        if (method === "GET" && isEntry && supplied !== null && safeEqual(supplied, deps.token)) {
           res.writeHead(302, {
             "Set-Cookie": `${COOKIE_NAME}=${deps.token}; HttpOnly; SameSite=Strict; Path=/`,
             Location: "/",
@@ -694,7 +712,49 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
           return void res.end();
         }
         const cookie = cookieValue(req.headers.cookie, COOKIE_NAME);
-        if (cookie === null || !safeEqual(cookie, deps.token)) return fail(401, "Open Guard from its own window.");
+        const paired = cookie !== null && safeEqual(cookie, deps.token);
+        if (!paired && method === "GET" && PUBLIC_FILES.has(url.pathname)) {
+          const pub = STATIC_FILES[url.pathname];
+          if (pub && existsSync(join(uiDir, pub.file))) {
+            res.writeHead(200, { "Content-Type": pub.type });
+            return void res.end(readFileSync(join(uiDir, pub.file)));
+          }
+        }
+        if (!paired && method === "GET" && (isEntry || url.pathname === "/pair")) {
+          // Pairing without a token link. A browser sends Sec-Fetch-* headers that a web page on another
+          // site cannot forge: "none" means the person typed or bookmarked the address, "same-origin" with
+          // user activation means they pressed the button on our own page. Anything else gets the plain page.
+          const h = (n: string): string | undefined => { const v = req.headers[n]; return Array.isArray(v) ? v[0] : v; };
+          const typed = isEntry && h("sec-fetch-site") === "none" && h("sec-fetch-mode") === "navigate" && (h("sec-fetch-dest") ?? "document") === "document";
+          const pressed = url.pathname === "/pair" && h("sec-fetch-site") === "same-origin" && h("sec-fetch-mode") === "navigate" && h("sec-fetch-user") === "?1";
+          if (typed || pressed) {
+            res.writeHead(302, { "Set-Cookie": `${COOKIE_NAME}=${deps.token}; HttpOnly; SameSite=Strict; Path=/`, Location: "/" });
+            return void res.end();
+          }
+          res.setHeader("X-Frame-Options", "DENY");
+          res.writeHead(401, { "Content-Type": "text/html; charset=utf-8" });
+          return void res.end(PAIR_PAGE);
+        }
+        if (!paired) {
+          // Page navigations get the friendly page; only API and fetch calls get JSON.
+          const dest = req.headers["sec-fetch-dest"];
+          const accept = String(req.headers["accept"] ?? "");
+          const navigation = !url.pathname.startsWith("/api/") && method === "GET" && (dest === "document" || dest === "iframe" || (dest === undefined && accept.includes("text/html")));
+          if (navigation) {
+            res.setHeader("X-Frame-Options", "DENY");
+            res.writeHead(401, { "Content-Type": "text/html; charset=utf-8" });
+            return void res.end(PAIR_PAGE);
+          }
+          return fail(401, "Open Guard from its own window.");
+        }
+        if (url.pathname === "/landing.html") {
+          res.writeHead(302, { Location: "/" });
+          return void res.end();
+        }
+        if (url.pathname === "/pair") {
+          res.writeHead(302, { Location: "/" });
+          return void res.end();
+        }
 
         if (url.pathname.startsWith("/api/")) return await api(req, res, url.pathname, method);
 

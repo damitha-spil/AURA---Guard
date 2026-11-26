@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
@@ -40,6 +40,25 @@ export function browserArgs(url: string, profileDir: string): string[] {
   ];
 }
 
+/**
+ * The launch token lives in the data folder and is reused on every start, so a window or bookmark that
+ * outlives a restart (or a second Guard on another port, which shares the same browser cookie jar) still
+ * pairs. A new one is made when the file is missing or damaged. The file is user-only where the OS allows it.
+ */
+export function loadOrCreateToken(dataDir: string): string {
+  const file = join(dataDir, "launch-token");
+  try {
+    const t = readFileSync(file, "utf8").trim();
+    if (/^[0-9a-f]{48}$/.test(t)) return t;
+  } catch { /* missing: make one */ }
+  const t = newToken();
+  try {
+    mkdirSync(dataDir, { recursive: true });
+    writeFileSync(file, t, { mode: 0o600 });
+  } catch { /* read-only data folder: the token then lasts for this run only */ }
+  return t;
+}
+
 export function listen(server: Server, port: number): Promise<number> {
   return new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -55,7 +74,7 @@ export interface UiOptions {
 
 /** Resolves with an exit code when the window closes or the process is interrupted. */
 export async function runUi(cfg: GuardConfig, opts: UiOptions): Promise<number> {
-  const token = newToken();
+  const token = loadOrCreateToken(cfg.dataDir);
   const brain = createBrain(cfg);
   const server = createGuardServer(cfg, { token, complete: brain.complete });
   const port = await listen(server, opts.port);
@@ -74,7 +93,7 @@ export async function runUi(cfg: GuardConfig, opts: UiOptions): Promise<number> 
       stop(0);
     });
     if (!opts.open) {
-      opts.out(`Open this link in a browser (it works once per launch): ${url}`);
+      opts.out(`Open this link in a browser: ${url}`);
       opts.out("Press Ctrl+C to stop.");
       return;
     }

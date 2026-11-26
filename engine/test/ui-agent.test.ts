@@ -208,7 +208,9 @@ test("static: favicon and the new UI modules are served; the CSP still forbids i
     assert.equal(f.status, 200);
     assert.match(String(f.headers["content-type"]), /image\/svg\+xml/);
     assert.ok(f.body.includes("<svg"));
-    assert.equal((await http(s.port, { path: "/favicon.svg" })).status, 401);
+    assert.equal((await http(s.port, { path: "/favicon.svg" })).status, 200, "the icon is public so the pairing page can show it");
+    assert.equal((await http(s.port, { path: "/app.js" })).status, 401, "the app code still needs the cookie");
+    for (const icon of ["/favicon-16.png", "/favicon-32.png", "/favicon-48.png", "/favicon-256.png", "/apple-touch-icon.png", "/favicon.ico"]) assert.equal((await http(s.port, { path: icon, headers: s.auth })).status, 200, icon);
     for (const p of ["/theme.js", "/themes.css", "/marks.js", "/steps.js", "/reveal.js", "/titles.js"]) assert.equal((await http(s.port, { path: p, headers: s.auth })).status, 200, p);
     const page = await http(s.port, { path: "/", headers: s.auth });
     assert.match(page.body, /<link rel="icon" type="image\/svg\+xml" href="\/favicon.svg">/);

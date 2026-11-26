@@ -3,6 +3,8 @@
 // DOM only through createElement/createElementNS (no innerHTML), so commit or note text is never markup.
 // Sizes that depend on data are set through the CSSOM, which the page's CSP allows.
 
+import { buildProcess, guardProcessSteps } from "/process.js";
+
 const NS = "http://www.w3.org/2000/svg";
 
 export function greeting(hour) {
@@ -113,58 +115,37 @@ export function mountOverview({ root, api, getProject, actions }) {
   let data = null;
   let failed = false;
 
-  function hero(project) {
-    const h = el("section", "ov-hero");
-    const left = el("div", "ov-hero-text");
-    left.appendChild(el("p", "ov-hero-kicker", "Overview"));
-    left.appendChild(el("h2", "ov-hero-title", `${greeting(new Date().getHours())}.`));
-    const bits = [];
-    const pending = data?.inbox?.total ?? project?.inbox?.pending ?? 0;
-    bits.push(pending ? `${pending} ${pending === 1 ? "note is" : "notes are"} waiting for your review` : "Nothing is waiting for your review");
-    if (project?.index?.indexedAt) bits.push(`the index was updated ${ago(project.index.indexedAt)}`);
-    left.appendChild(el("p", "ov-hero-sub", `${bits.join(", and ")}.`));
-    const row = el("div", "ov-hero-actions");
-    for (const [label, fn, primary] of [["Ask a question", () => actions.openChat(), true], ["Review inbox", () => actions.openView("inbox"), false]]) {
-      const b = el("button", primary ? "ov-btn ov-btn-solid" : "ov-btn ov-btn-ghost", label);
-      b.type = "button";
-      b.addEventListener("click", fn);
-      row.appendChild(b);
-    }
-    left.appendChild(row);
-    h.appendChild(left);
-    h.appendChild(el("span", "ov-hero-wave"));
-    return h;
+  function stat({ label, value, sub, visual, tone }) {
+    const c = el("article", "ov-stat");
+    c.append(el("p", "ov-stat-label", label), el("p", `ov-stat-value ${tone || ""}`, value), el("p", "ov-stat-sub", sub));
+    if (visual) c.appendChild(visual);
+    return c;
   }
 
-  function kpis(project) {
-    const wrap = el("div", "ov-kpis");
+  function stats(project) {
+    const sec = el("section", "ov-stats-sec");
+    const head = el("div", "ov-stats-head");
+    head.append(el("p", "ov-eyebrow", "Memory"), el("h2", "ov-stats-title", "What Guard knows about your project"));
+    const wrap = el("div", "ov-stats");
     const per = data?.commitsPerDay ?? [];
     const total30 = per.reduce((s, d) => s + d.n, 0);
-    wrap.appendChild(kpi({ tone: "blue", ic: IC.commit, label: "Commits, last 30 days", value: data ? total30.toLocaleString("en") : "-", sub: project?.index ? `${project.index.commits.toLocaleString("en")} indexed in total` : "Index not built yet", visual: spark(per.map((d) => d.n), "blue") }));
-
     const v = project?.vault;
-    const bar = el("div", "ov-seg");
-    bar.setAttribute("role", "img");
-    if (v && v.notes) {
-      const parts = [["active", v.active], ["proposed", v.proposed], ["stale", v.stale]];
-      bar.setAttribute("aria-label", parts.map(([k, n]) => `${n} ${k}`).join(", "));
-      for (const [k, n] of parts) {
-        if (!n) continue;
-        const s = el("span", `ov-seg-part ${k}`);
-        s.style.flexGrow = String(n);
-        bar.appendChild(s);
-      }
-    }
-    wrap.appendChild(kpi({ tone: "violet", ic: IC.note, label: "Knowledge notes", value: v ? v.notes.toLocaleString("en") : "-", sub: v ? `${v.active} active, ${v.proposed} proposed, ${v.stale} stale` : "Vault not read yet", visual: v && v.notes ? bar : null }));
-
-    const total = data?.inbox?.total ?? project?.inbox?.pending ?? 0;
-    const groups = el("div", "ov-chips");
-    for (const g of data?.inbox?.groups ?? []) groups.appendChild(el("span", "ov-chip", `${g.count} ${g.type}`));
-    wrap.appendChild(kpi({ tone: total ? "amber" : "green", ic: IC.inbox, label: "Awaiting review", value: String(total), sub: total ? "Proposed notes need an owner decision" : "The inbox is empty", visual: total ? groups : null }));
-
     const qa = data?.qa;
-    wrap.appendChild(kpi({ tone: passTone(qa?.passRate), ic: IC.qa, label: "QA pass rate", value: qa && qa.passRate !== null ? `${qa.passRate}%` : "-", sub: qa ? (qa.totalRuns ? `${qa.totalRuns} runs, ${qa.totalDefects} defects found` : "No QA runs yet") : "", visual: spark(qa?.passSeries ?? [], passTone(qa?.passRate)) }));
-    return wrap;
+    wrap.append(
+      stat({ label: "Knowledge notes", value: v ? v.notes.toLocaleString("en") : "-", sub: v ? `${v.active} active, ${v.proposed} proposed, ${v.stale} stale` : "The vault has not been read yet" }),
+      stat({ label: "Commits, last 30 days", value: data ? total30.toLocaleString("en") : "-", sub: project?.index ? `${project.index.commits.toLocaleString("en")} commits indexed in total` : "The index has not been built yet", visual: spark(per.map((d) => d.n), "blue") }),
+      stat({ label: "QA pass rate", value: qa && qa.passRate !== null ? `${qa.passRate}%` : "-", tone: passTone(qa?.passRate), sub: qa ? (qa.totalRuns ? `${qa.totalRuns} runs, ${qa.totalDefects} defects found` : "No QA runs yet") : "", visual: spark(qa?.passSeries ?? [], passTone(qa?.passRate)) }),
+    );
+    sec.append(head, wrap);
+    return sec;
+  }
+
+  function process(project) {
+    const sec = el("section", "ov-stats-sec ov-process");
+    const head = el("div", "ov-stats-head");
+    head.append(el("p", "ov-eyebrow", "Process"), el("h2", "ov-stats-title", "How Guard works, and where it stands"));
+    sec.append(head, buildProcess(guardProcessSteps(project, data)));
+    return sec;
   }
 
   function pipeline(project) {
@@ -328,9 +309,9 @@ export function mountOverview({ root, api, getProject, actions }) {
     const project = getProject();
     root.replaceChildren();
     const body = el("div", "ov-wrap");
-    body.appendChild(hero(project));
     if (failed) body.appendChild(el("p", "ov-note warn", "The overview could not be loaded. The numbers below come from the project summary only."));
-    body.appendChild(kpis(project));
+    body.appendChild(stats(project));
+    body.appendChild(process(project));
     body.appendChild(pipeline(project));
     const cols = el("div", "ov-cols");
     const main = el("div", "ov-col");

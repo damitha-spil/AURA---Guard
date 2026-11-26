@@ -103,22 +103,22 @@ button { transition: background-color var(--t-fast) var(--ease), border-color va
 .app { display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); height: 100vh; transition: grid-template-columns .24s var(--ease); }
 .app.has-panel { grid-template-columns: var(--side-w) minmax(0, 1fr) minmax(320px, 400px); }
 .app.side-collapsed { --side-w: 72px; }
-.sidebar { background: var(--side); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; padding: 16px 14px 14px; min-height: 0; min-width: 0; overflow: hidden; }
-.side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; margin-bottom: 6px; }
-.brand { display: flex; align-items: center; gap: 11px; min-width: 0; padding-left: 4px; }
-.brand-mark { --ms: 26px; }
-.brand-name { font-weight: 650; font-size: 16.5px; letter-spacing: -.015em; white-space: nowrap; }
-.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 0; border-radius: var(--r-md); background: none; color: var(--muted); flex: none; }
+.sidebar { background: var(--side); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; padding: 14px 12px 12px; min-height: 0; min-width: 0; overflow: hidden; }
+.side-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; margin-bottom: 4px; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; padding-left: 4px; }
+.brand-mark { --ms: 24px; }
+.brand-name { font-weight: 650; font-size: 15px; letter-spacing: -.015em; white-space: nowrap; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: var(--r-md); background: none; color: var(--muted); flex: none; }
 .icon-btn:hover { background: var(--card-2); color: var(--text); }
 .icon-btn:active { transform: scale(.94); }
 
-.new-chat { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; padding: 0 12px 0 14px; border: 0; border-radius: var(--r-md); background: linear-gradient(180deg, color-mix(in srgb, var(--btn-bg) 86%, var(--on-media)), var(--btn-bg)); color: var(--btn-ink); font-size: 15px; font-weight: 600; letter-spacing: -.005em; text-align: left; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--on-media) 22%, transparent), 0 1px 2px color-mix(in srgb, var(--shadow-ink) 18%, transparent), 0 8px 18px -10px color-mix(in srgb, var(--btn-bg) 85%, transparent); margin: 2px 0 8px; }
+.new-chat { position: relative; display: flex; align-items: center; gap: 9px; width: 100%; height: 38px; padding: 0 12px 0 14px; border: 0; border-radius: 9999px; background: var(--btn-bg); color: var(--btn-ink); font-size: 13.5px; font-weight: 600; letter-spacing: -.005em; text-align: left; box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-ink) 14%, transparent); margin: 2px 0 6px; }
 .new-chat:hover { transform: translateY(-1px); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--on-media) 26%, transparent), 0 2px 4px color-mix(in srgb, var(--shadow-ink) 16%, transparent), 0 12px 22px -10px color-mix(in srgb, var(--btn-bg) 90%, transparent); }
 .new-chat:active { transform: translateY(0) scale(.985); }
 .new-chat span { flex: 1; }
 .new-chat kbd { flex: none; font: 500 11.5px var(--mono); padding: 3px 6px; border-radius: 6px; background: color-mix(in srgb, var(--btn-ink) 16%, transparent); color: inherit; border: 0; opacity: .85; }
 .switcher { display: flex; flex-direction: column; gap: 2px; }
-.switch { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; height: 40px; padding: 0 12px; border: 0; border-radius: var(--r-md); background: none; text-align: left; font-size: 15px; font-weight: 520; color: var(--muted); }
+.switch { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border: 0; border-radius: var(--r-md); background: none; text-align: left; font-size: 13.5px; font-weight: 520; color: var(--muted); }
 .switch svg { transition: color var(--t-fast); }
 .switch:hover { background: var(--card-2); color: var(--text); }
 .switch.active { background: var(--acc-soft); color: var(--text); font-weight: 600; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 14%, var(--border)); }
@@ -340,25 +340,26 @@ button { transition: background-color var(--t-fast) var(--ease), border-color va
 .tool-foot { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
 
 /* ---------- empty state ---------- */
-.empty { margin: auto; width: 100%; max-width: 760px; padding: 24px 0 40px; text-align: center; }
+.empty { margin: auto; width: 100%; max-width: 740px; padding: 20px 0 32px; text-align: center; }
 .hero-mark { display: flex; justify-content: center; }
-.empty h2 { margin: 22px 0 8px; font-size: 32px; line-height: 1.15; letter-spacing: -.028em; font-weight: 650; text-wrap: balance; }
-.empty p { color: var(--muted); margin: 0 auto 28px; font-size: 16px; line-height: 1.55; max-width: 52ch; text-wrap: balance; }
-.examples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; text-align: left; }
-.suggest { display: flex; align-items: flex-start; gap: 14px; text-align: left; padding: 16px 18px; background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-card); min-width: 0; }
-.suggest:hover { transform: translateY(-3px); border-color: var(--acc-line); box-shadow: var(--shadow-hover), 0 0 0 4px var(--acc-ring); }
-.suggest:active { transform: translateY(-1px) scale(.99); }
-.suggest-ic { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: calc(var(--r-md) + 1px); background: var(--acc-soft); color: var(--acc-ink); box-shadow: inset 0 0 0 1px var(--acc-ring); }
-.suggest-ic svg { width: 20px; height: 20px; }
-.suggest-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.suggest-title { font-size: 15px; font-weight: 600; line-height: 1.35; letter-spacing: -.005em; overflow-wrap: anywhere; }
-.suggest-hint { font-size: 13px; color: var(--muted); line-height: 1.4; }
+.empty h2 { margin: 18px 0 6px; font-size: 28px; line-height: 1.15; letter-spacing: -.03em; font-weight: 700; text-wrap: balance; }
+.empty p { color: var(--muted); margin: 0 auto 22px; font-size: 14.5px; line-height: 1.55; max-width: 52ch; text-wrap: balance; }
+.examples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; text-align: left; }
+.suggest { display: flex; align-items: flex-start; gap: 12px; text-align: left; padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-card); min-width: 0; }
+.suggest:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.suggest:hover { transform: translateY(-2px); border-color: var(--acc-line); box-shadow: var(--shadow-hover), 0 0 0 3px var(--acc-ring); }
+.suggest:active { transform: translateY(0) scale(.99); }
+.suggest-ic { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: var(--r-md); background: var(--acc-soft); color: var(--acc-ink); box-shadow: inset 0 0 0 1px var(--acc-ring); }
+.suggest-ic svg { width: 18px; height: 18px; }
+.suggest-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.suggest-title { font-size: 14px; font-weight: 600; line-height: 1.35; letter-spacing: -.005em; overflow-wrap: anywhere; }
+.suggest-hint { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
 
 /* ---------- composer ---------- */
-.composer-wrap { padding: 4px 28px 18px; }
-.composer { position: relative; max-width: var(--col); margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--r-composer); box-shadow: var(--shadow-card), 0 18px 40px -22px color-mix(in srgb, var(--shadow-ink) 22%, transparent); padding: 16px 14px 12px 20px; transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease); }
-.composer:focus-within { border-color: var(--acc-line); box-shadow: var(--shadow-card), 0 18px 40px -22px color-mix(in srgb, var(--shadow-ink) 22%, transparent), 0 0 0 4px var(--acc-ring); }
-#input { display: block; width: 100%; resize: none; border: 0; outline: none; background: none; padding: 2px 6px 2px 0; field-sizing: content; min-height: 28px; max-height: 220px; font: 400 16px/1.55 var(--font); letter-spacing: -.003em; }
+.composer-wrap { padding: 4px 28px 16px; }
+.composer { position: relative; max-width: var(--col); margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-card), 0 14px 32px -20px color-mix(in srgb, var(--shadow-ink) 20%, transparent); padding: 12px 14px 10px 16px; transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease); }
+.composer:focus-within { border-color: var(--acc-line); box-shadow: var(--shadow-card), 0 14px 32px -20px color-mix(in srgb, var(--shadow-ink) 20%, transparent), 0 0 0 3px var(--acc-ring); }
+#input { display: block; width: 100%; resize: none; border: 0; outline: none; background: none; padding: 2px 6px 2px 0; field-sizing: content; min-height: 26px; max-height: 220px; font: 400 15px/1.5 var(--font); letter-spacing: -.003em; }
 #input::placeholder { color: var(--muted); opacity: 1; }
 .composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; min-width: 0; }
 .pills { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
@@ -373,8 +374,8 @@ button { transition: background-color var(--t-fast) var(--ease), border-color va
 .backend-chip { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px 0 10px; font-size: 13px; color: var(--muted); border-radius: 99px; background: var(--card-2); white-space: nowrap; }
 .backend-chip .i { width: 16px; height: 16px; }
 .send-btn, .stop-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex: none; border: 0; }
-.send-btn { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(145deg, color-mix(in srgb, var(--btn-bg) 78%, var(--on-media)), var(--btn-bg)); color: var(--btn-ink); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--on-media) 30%, transparent), 0 1px 2px color-mix(in srgb, var(--shadow-ink) 20%, transparent), 0 8px 18px -8px color-mix(in srgb, var(--btn-bg) 85%, transparent); }
-.send-btn svg { width: 21px; height: 21px; }
+.send-btn { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(145deg, color-mix(in srgb, var(--btn-bg) 78%, var(--on-media)), var(--btn-bg)); color: var(--btn-ink); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--on-media) 30%, transparent), 0 1px 2px color-mix(in srgb, var(--shadow-ink) 20%, transparent), 0 6px 14px -6px color-mix(in srgb, var(--btn-bg) 85%, transparent); }
+.send-btn svg { width: 18px; height: 18px; }
 .send-btn:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.1); }
 .send-btn:not(:disabled):active { transform: scale(.92); }
 .send-btn:disabled { background: var(--card-2); color: var(--muted); box-shadow: inset 0 0 0 1px var(--border); cursor: not-allowed; opacity: .8; }
@@ -759,4 +760,78 @@ pre, code, .qh-bottom-body, .qh-json, .qh-kbd { font-family: var(--mono); }
   .examples { grid-template-columns: minmax(0, 1fr); }
   .gbar-conn span:last-child { display: none; }
   .gbar-conn { padding: 0 10px; }
+}
+
+/* ======================================================================
+   plico-ui component language (MIT, (c) 2026 Plico UI contributors, github.com/DevAnuhas/plico-ui).
+   Ported by hand to vanilla CSS and this app's tokens: hairline strokes drawn as shadows, a solid /
+   secondary / ghost button family at 24, 28 and 32 px, press-scale, one easing curve, the composer
+   shape and the round send button. Loaded last so it wins over the older rules above.
+   ====================================================================== */
+button { transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease, border-color 140ms ease, transform 160ms var(--ease-plico), opacity 140ms ease; }
+button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-radius: 6px; }
+
+/* Buttons: secondary is the default; primary is a solid chip (inverts in dark); ghost shows a wash on hover */
+.btn, .topbar-btn { font: 500 13px/20px var(--font); height: 28px; min-height: 28px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--card); color: var(--text); box-shadow: var(--ring); gap: 6px; letter-spacing: 0; }
+.btn:hover, .topbar-btn:hover { background: var(--card); border-color: transparent; box-shadow: var(--ring-hover); }
+.btn:active:not(:disabled), .icon-btn:active, .ov-btn:active, .ov-quick-btn:active, .new-chat:active { transform: scale(.97); }
+.btn-primary, .btn.btn-primary { background: var(--solid); color: var(--on-solid); box-shadow: none; }
+.btn-primary:hover { background: var(--solid-hover); box-shadow: none; }
+.btn-quiet { font-family: var(--font); font-size: 13px; background: transparent; color: var(--muted); box-shadow: none; }
+.btn-quiet:hover { background: var(--wash); color: var(--text); box-shadow: none; }
+.btn-icon, .icon-btn { border-radius: 6px; }
+.icon-btn:hover { background: var(--wash); color: var(--text); }
+.ov-btn { height: 28px; padding: 0 12px; border-radius: 6px; font: 500 13px/20px var(--font); }
+.ov-btn-solid { background: var(--on-media); color: var(--hero-a); box-shadow: none; }
+.ov-btn-solid:hover { transform: none; background: color-mix(in srgb, var(--on-media) 90%, transparent); }
+.new-chat { border: 0; border-radius: 6px; height: 32px; background: var(--card); box-shadow: var(--ring); font: 500 13px var(--font); }
+.new-chat:hover { box-shadow: var(--ring-hover); border-color: transparent; }
+
+/* Cards: hairline stroke as shadow, 10px radius, nothing heavy */
+.ov-kpi, .ov-panel, .st-card, .reader, .suggest, .fact.kpi, .status-pill, .qh-kpi, .qh-panel, .gbar-conn, .bell, .project-chip { border: 0; box-shadow: var(--ring); border-radius: 10px; }
+.status-pill, .gbar-conn, .project-chip { border-radius: 99px; }
+.status-pill { border-radius: 10px; }
+.suggest:hover, .ov-quick-btn:hover { box-shadow: var(--ring-hover); border-color: transparent; transform: none; }
+.suggest:active { transform: scale(.99); }
+.ov-quick-btn { border: 0; box-shadow: var(--ring); background: var(--card); border-radius: 8px; font-weight: 500; transition: box-shadow 140ms ease, transform 160ms var(--ease-plico); }
+.ov-node-card { border: 0; box-shadow: var(--ring); background: var(--card); border-radius: 8px; }
+.ov-node.active .ov-node-card { box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent), var(--glow); background: var(--accent-soft); }
+.ov-table td, .ov-table th, .ov-repo { border-color: var(--border); }
+.gsearch input { border: 0; box-shadow: var(--ring); border-radius: 8px; background: var(--card); font-size: 13px; }
+.gsearch input:focus { box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+.gsearch-results { border: 0; box-shadow: var(--ring-pop); border-radius: 10px; }
+.chat-search input { border: 0; box-shadow: var(--ring); background: var(--card); border-radius: 8px; font-size: 13px; }
+
+/* Badges and chips are pills with a soft fill */
+.badge, .ov-pill, .ov-chip, .gs-kind, .ov-node-badge, .backend-chip, .fact.kpi .kpi-sub { letter-spacing: 0; }
+.backend-chip { background: var(--wash); border-radius: 99px; height: 28px; font-size: 12.5px; }
+.pill { height: 28px; font: 500 12.5px var(--font); border: 0; background: transparent; box-shadow: none; border-radius: 99px; color: var(--muted); }
+.pill:hover { background: var(--wash); color: var(--text); border-color: transparent; }
+.pill[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-ink); border: 0; }
+
+/* Composer: plico's single-surface card with a hairline, a calm textarea, and a round solid send button */
+.composer { border: 0; border-radius: 10px; background: var(--card); box-shadow: var(--ring); padding: 12px 12px 10px; transition: box-shadow 200ms var(--ease-plico); }
+.composer:focus-within { box-shadow: var(--ring-pop); border: 0; }
+.composer textarea { font-size: 14px; line-height: 20px; caret-color: var(--accent); }
+.composer textarea::placeholder { color: var(--muted); opacity: .8; }
+.send-btn { width: 32px; height: 32px; background: var(--solid); color: var(--on-solid); box-shadow: none; transition: transform 160ms var(--ease-plico), background-color 140ms ease, opacity 140ms ease; }
+.send-btn svg { width: 16px; height: 16px; }
+.send-btn:not(:disabled):hover { transform: none; filter: none; background: var(--solid-hover); }
+.send-btn:not(:disabled):active { transform: scale(.92); }
+.send-btn:not(:disabled) { animation: plico-pop 260ms var(--ease-pop); }
+.send-btn:disabled { background: var(--wash); color: var(--muted); box-shadow: none; opacity: 1; }
+.stop-btn { height: 32px; background: var(--card); box-shadow: var(--ring); }
+@keyframes plico-pop { from { transform: scale(.8); } to { transform: scale(1); } }
+
+/* Segmented control and switches */
+.seg { border: 0; box-shadow: var(--ring); border-radius: 8px; background: var(--wash); padding: 2px; gap: 2px; }
+.seg button { border-radius: 6px; font: 500 13px var(--font); min-height: 28px; }
+.seg button + button { border-left: 0; }
+.seg button[aria-checked="true"] { background: var(--card); color: var(--text); box-shadow: var(--ring); }
+.st-theme .seg button[aria-checked="true"] { background: var(--card); color: var(--text); }
+.qh-ws-btn[aria-selected="true"] { background: var(--card); color: var(--text); box-shadow: var(--ring); }
+
+@media (prefers-reduced-motion: reduce) {
+  button, .composer, .ov-quick-btn { transition-duration: 1ms; }
+  .send-btn:not(:disabled) { animation: none; }
 }

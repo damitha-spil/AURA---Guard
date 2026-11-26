@@ -204,26 +204,65 @@ const needBrowser = (t: TestContext): boolean => {
   return false;
 };
 
-async function open(opts: StubOpts = {}, size = { width: 1440, height: 1000 }): Promise<{ page: Page; stub: StubHandle; close: () => Promise<void> }> {
+async function open(opts: StubOpts = {}, size = { width: 1440, height: 1000 }, stayOnOverview = false): Promise<{ page: Page; stub: StubHandle; close: () => Promise<void> }> {
   const stub = await startStub(opts);
   const ctx = await browser!.newContext({ viewport: size });
   const page = await ctx.newPage();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(stub.url);
-  await page.waitForSelector(".suggest");
+  await page.waitForSelector("#view-overview:not([hidden]) .land-title");
+  if (!stayOnOverview) {
+    await page.click('[data-nav="chat"]'); // the chat history column belongs to the Chat page
+    await page.waitForSelector(".suggest");
+  }
   return { page, stub, close: async () => { await ctx.close(); await stub.close(); assert.deepEqual(errors, [], "no script errors on the page"); } };
 }
+
+test("the app opens on the Overview with real KPI cards, a pipeline and honest panels; search finds notes", async (t) => {
+  if (!needBrowser(t)) return;
+  const { page, close } = await open({}, undefined, true);
+  try {
+    assert.equal(await page.locator("#view-overview").isVisible(), true, "the app opens on the Overview");
+    assert.equal(await page.locator("#view-chat").isVisible(), false);
+    assert.equal(await page.locator("#tab-overview.active").count(), 1);
+    assert.equal(await page.locator(".ov-stat").count(), 3, "three big stat blocks");
+    assert.match((await page.locator(".ov-stat").nth(1).textContent()) ?? "", /Commits, last 30 days/);
+    assert.equal(await page.locator(".ov-stat .spark").count(), 2, "sparklines for commits and QA pass rate");
+    assert.equal(await page.locator("#view-overview #composer").count(), 1, "the real composer sits in the hero");
+    assert.equal(await page.locator("#sidebar").isVisible(), false, "no sidebar on the home page");
+    assert.equal(await page.locator("#drawer-btn").isVisible(), false, "no sidebar toggle on the home page");
+    assert.equal(await page.locator("#hero-composer-slot .composer-wrap.is-hero").count(), 1);
+    assert.match((await page.locator(".land-title").textContent()) ?? "", /Ask anything about/);
+    assert.equal(await page.locator(".ov-node").count(), 5);
+    assert.match((await page.locator(".ov-run").first().textContent()) ?? "", /QA the latest change/);
+    assert.equal(await page.locator("#bell-n").textContent(), "5");
+    await page.fill("#global-search", "order");
+    await page.waitForSelector("#gsearch-results .gs-row");
+    assert.match((await page.locator("#gsearch-results").textContent()) ?? "", /Order flow overview/);
+    await page.keyboard.press("Escape");
+    assert.equal(await page.locator("#gsearch-results").isVisible(), false);
+    await page.click("#theme-toggle");
+    assert.equal(await page.locator("html").getAttribute("data-mode"), "dark");
+    await page.click("#theme-toggle");
+    assert.equal(await page.locator("html").getAttribute("data-mode"), "light");
+    await page.click('[data-nav="chat"]');
+    assert.equal(await page.locator("#view-chat").isVisible(), true);
+    assert.equal(await page.locator("#view-chat #composer").count(), 1, "the composer moves to the chat page");
+  } finally {
+    await close();
+  }
+});
 
 test("first screen: a new empty chat for SPIL AURA with four question cards and the QA card", async (t) => {
   if (!needBrowser(t)) return;
   const { page, stub, close } = await open();
   try {
     assert.equal(await page.title(), "AURA Sentinel");
-    assert.equal(await page.locator("#view-chat").isVisible(), true, "the app opens in Chat");
-    assert.equal((await page.locator(".empty h2").textContent()), "Ask anything about SPIL AURA");
+    assert.equal(await page.locator("#view-chat").isVisible(), true, "the Chat page shows after choosing Chat");
+    assert.equal((await page.locator(".empty h2").textContent()), "Ask your codebase, get sources");
     assert.match((await page.locator(".empty .empty-sub").textContent()) ?? "", /Answers come only from the vault notes and the indexed code, with sources\. Type \/ for commands\./);
-    assert.equal(await page.locator(".hero-tile").textContent(), "AS");
+    assert.equal(await page.locator("#mascot").count(), 1, "the mascot sits above the composer");
     assert.equal(await page.locator("#chat-title").textContent(), "New chat");
     assert.equal(await page.locator(".chat-item.active").count(), 0, "no old chat is opened");
     assert.ok((await page.locator(".chat-item").count()) >= 5, "the latest chats are listed in the sidebar");
@@ -231,7 +270,7 @@ test("first screen: a new empty chat for SPIL AURA with four question cards and 
     assert.equal(cards.length, 5);
     assert.equal(cards[0], "How is SPIL AURA put together?");
     assert.equal(cards[4], "QA this change");
-    assert.equal(await page.locator("#tab-inbox .badge").textContent(), "5", "the inbox badge comes from the project facts");
+    assert.equal(await page.locator("#inbox-count").textContent(), "5", "the inbox badge comes from the project facts");
     assert.match((await page.locator("#status-line").textContent()) ?? "", /^Claude plan · indexed \d+ min ago$/);
     assert.equal(await page.locator("#tab-dept, [data-view=dept], #dept-bar").count(), 0, "no department item anywhere");
     // Every request the screen made: none carries a department, and the new endpoints were used.
@@ -293,7 +332,7 @@ test("first screen: an older server without project facts still opens, with the 
   if (!needBrowser(t)) return;
   const { page, close } = await open({ failProject: true });
   try {
-    assert.equal(await page.locator(".empty h2").textContent(), "Ask anything about SPIL AURA");
+    assert.equal(await page.locator(".empty h2").textContent(), "Ask your codebase, get sources");
     assert.match((await page.locator("#status-line").textContent()) ?? "", /^Claude plan · 64 notes$/);
     await page.click("#status-toggle");
     assert.match((await page.locator("#status-detail").textContent()) ?? "", /No repository has been read yet\./);
@@ -319,7 +358,8 @@ test("status popover: repos, counts, inbox and a model line, in plain words", as
     await page.click('#status-detail [data-k="inbox"]');
     assert.equal(await page.locator("#view-inbox").isVisible(), true, "Open inbox goes to the inbox");
     assert.equal(await box.isVisible(), false);
-    await page.click("#status-toggle");
+    await page.click("#menu-btn"); // outside Chat the status card is reached from the top-right menu
+    await page.click('[data-menu="status-toggle"]');
     await page.click('#status-detail [data-k="keys"]');
     assert.equal(await page.locator("#view-settings").isVisible(), true, "Model & keys opens the settings");
   } finally {
@@ -377,7 +417,7 @@ test("shortcuts still work with no department: Ctrl+K, Ctrl+/, Ctrl+B, Ctrl+,", 
     await page.keyboard.press("Control+k");
     await page.waitForSelector(".empty");
     assert.equal(await page.locator("#chat-title").textContent(), "New chat");
-    await page.click("#tab-reports");
+    await page.click('[data-nav="reports"]');
     await page.keyboard.press("Control+/");
     assert.equal(await page.locator("#view-chat").isVisible(), true);
     assert.equal(await page.evaluate(() => document.activeElement?.id), "input");

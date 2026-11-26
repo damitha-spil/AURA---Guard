@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AURA Sentinel — Autonomous QA, QE &amp; DevSecOps</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-height: 100%; font-family: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif; background: #ffffff; color: #0f172a; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  a { color: inherit; text-decoration: none; }
+  button, input { font: inherit; color: inherit; }
+
+  .hero-sky {
+    position: relative;
+    padding-bottom: 72px;
+    color: #ffffff;
+    background:
+      radial-gradient(65% 55% at 50% 18%, rgba(37, 99, 235, 0.55), transparent 70%),
+      radial-gradient(85% 45% at 50% 78%, rgba(147, 197, 253, 0.9), transparent 75%),
+      linear-gradient(180deg, #020617 0%, #061a44 34%, #1d5fd6 66%, #bfdbfe 88%, #ffffff 100%);
+  }
+
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 20px 28px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 650; letter-spacing: -0.02em; }
+  .brand-dot { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.28); font-size: 11px; font-weight: 700; }
+  .nav-links { display: flex; align-items: center; gap: 24px; font-size: 13.5px; font-weight: 500; color: rgba(255,255,255,0.85); }
+  .nav-links a:hover { color: #ffffff; }
+  .nav-cta { display: inline-flex; align-items: center; height: 34px; padding: 0 16px; border-radius: 9999px; background: #ffffff; color: #09090b; font-size: 13px; font-weight: 600; }
+  .nav-cta:hover { background: #f1f5f9; }
+
+  .hero-center {
+    max-width: 760px;
+    margin: 44px auto 0;
+    padding: 0 24px;
+    text-align: center;
+  }
+  .pill-new {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 30px;
+    padding: 0 12px 0 6px;
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.22);
+    font-size: 12.5px;
+    color: rgba(255,255,255,0.92);
+    margin-bottom: 22px;
+    backdrop-filter: blur(8px);
+  }
+  .pill-tag {
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: #ffffff;
+    color: #0f172a;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .hero-center h1 {
+    font-size: clamp(36px, 5.5vw, 58px);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.035em;
+    margin-bottom: 14px;
+  }
+  .hero-center h1 em { font-style: italic; font-weight: 600; }
+  .hero-sub {
+    font-size: 15.5px;
+    line-height: 1.55;
+    color: rgba(255,255,255,0.85);
+    max-width: 50ch;
+    margin: 0 auto 28px;
+  }
+
+  /* Floating hero chat box */
+  .hero-chat {
+    max-width: 620px;
+    margin: 0 auto;
+    background: rgba(255, 255, 255, 0.96);
+    color: #0f172a;
+    border-radius: 18px;
+    padding: 14px 14px 12px 18px;
+    box-shadow: 0 24px 60px -15px rgba(2, 6, 23, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.6);
+    text-align: left;
+  }
+  .hero-input {
+    width: 100%;
+    border: 0;
+    outline: none;
+    background: transparent;
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: #0f172a;
+    padding: 2px 4px 12px;
+  }
+  .hero-input::placeholder { color: #94a3b8; }
+  .hero-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .hero-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 9999px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 550;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+  }
+  .chip:hover { background: #e2e8f0; color: #0f172a; }
+  .send-circle {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 0;
+    background: #2563eb;
+    color: #ffffff;
+    cursor: pointer;
+    flex: none;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+  }
+  .send-circle:hover { background: #1d4ed8; }
+
+  /* Lower white section */
+  .lower {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 32px 28px 56px;
+  }
+  .lower-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+  .lower-title {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    color: #0f172a;
+  }
+  .lower-title em { font-style: italic; color: #2563eb; font-weight: 650; }
+  .stat-card {
+    padding-left: 20px;
+    border-left: 1px solid #e2e8f0;
+  }
+  .stat-num { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; color: #0f172a; margin-bottom: 4px; }
+  .stat-label { font-size: 13px; color: #64748b; }
+
+  @media (max-width: 760px) {
+    .lower-grid { grid-template-columns: 1fr; }
+    .nav-links { display: none; }
+  }
+</style>
+</head>
+<body>
+  <section class="hero-sky">
+    <header class="nav">
+      <a class="brand" href="/">
+        <span class="brand-dot">AS</span>
+        <span>AURA Sentinel</span>
+      </a>
+      <nav class="nav-links">
+        <a href="/#overview">Overview</a>
+        <a href="/#qa">QA Harness</a>
+        <a href="/#inbox">Knowledge</a>
+        <a href="/#reports">Reports</a>
+      </nav>
+      <a class="nav-cta" href="/">Open Workspace</a>
+    </header>
+
+    <div class="hero-center">
+      <a class="pill-new" href="/#qa">
+        <span class="pill-tag">NEW</span>
+        <span>Windows UIA Crawler &amp; DevSecOps Probes &rarr;</span>
+      </a>
+      <h1>Autonomous QA,<br><em>powered by AI</em></h1>
+      <p class="hero-sub">One studio for vault memory, live desktop &amp; web crawling, commit trajectory QE, and safe security probes.</p>
+
+      <form class="hero-chat" id="hero-form" action="/">
+        <input class="hero-input" id="hero-input" type="text" placeholder="Ask anything about SPIL AURA, or type / for commands..." autocomplete="off">
+        <div class="hero-bar">
+          <div class="hero-chips">
+            <a class="chip" href="/">+ New chat</a>
+            <a class="chip" href="/#qa">QA Harness</a>
+            <a class="chip" href="/#overview">Overview</a>
+            <a class="chip" href="/#inbox">Vault</a>
+          </div>
+          <button class="send-circle" type="submit" aria-label="Launch">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="lower">
+    <div class="lower-grid">
+      <h2 class="lower-title">The AI quality<br><em>operations platform</em><br>for SPIL engineering</h2>
+      <div class="stat-card">
+        <div class="stat-num">10x</div>
+        <div class="stat-label">Faster PR &amp; UI verification</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">100%</div>
+        <div class="stat-label">Secret masking &amp; local-only probes</div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    if (location.search) {
+      document.querySelectorAll('a[href^="/"]').forEach(function (a) {
+        var href = a.getAttribute('href');
+        var hashIdx = href.indexOf('#');
+        var path = hashIdx >= 0 ? href.slice(0, hashIdx) : href;
+        var hash = hashIdx >= 0 ? href.slice(hashIdx) : '';
+        a.setAttribute('href', path + location.search + hash);
+      });
+    }
+    document.getElementById('hero-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var q = document.getElementById('hero-input').value.trim();
+      var target = '/' + (location.search || '');
+      if (q) sessionStorage.setItem('aura_initial_prompt', q);
+      location.href = target;
+    });
+  </script>
+</body>
+</html>

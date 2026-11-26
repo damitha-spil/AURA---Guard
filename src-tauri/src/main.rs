@@ -66,7 +66,8 @@ fn main() {
         .manage(EngineChild(Mutex::new(Some(child))))
         .setup(move |app| {
             if let (Some(win), Some(url)) = (app.get_webview_window("main"), launch_url.clone()) {
-                let parsed: tauri::Url = url.parse()?;
+                let landing = url.replacen("/?t=", "/landing.html?t=", 1);
+                let parsed: tauri::Url = landing.parse()?;
                 win.navigate(parsed)?;
             }
             Ok(())

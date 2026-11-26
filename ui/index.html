@@ -6,6 +6,10 @@
   <meta name="color-scheme" content="light dark">
   <title>AURA Sentinel</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="shortcut icon" href="/favicon.ico">
   <script src="/theme.js"></script>
   <link rel="stylesheet" href="/themes.css">
   <link rel="stylesheet" href="/styles.css">
@@ -15,6 +19,75 @@
   <link rel="stylesheet" href="/overview.css">
 </head>
 <body>
+  <svg class="svg-defs" width="0" height="0" aria-hidden="true" focusable="false" id="robot-defs">
+  <defs>
+    <linearGradient id="rb-pearl" x1="30" y1="0" x2="170" y2="240" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset=".55" stop-color="#e8edf7"/>
+      <stop offset="1" stop-color="#c3cde3"/>
+    </linearGradient>
+    <linearGradient id="rb-grey" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dfe5f2"/>
+      <stop offset="1" stop-color="#aeb9d3"/>
+    </linearGradient>
+    <radialGradient id="rb-visor" cx="100" cy="60" r="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17697f"/>
+      <stop offset=".55" stop-color="#0c2f4f"/>
+      <stop offset="1" stop-color="#08162f"/>
+    </radialGradient>
+    <linearGradient id="rb-glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".5"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="rb-accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5fe9ff"/>
+      <stop offset="1" stop-color="#8b6dff"/>
+    </linearGradient>
+    <filter id="rb-glow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="rb-soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="4"/></filter>
+    <clipPath id="rb-visor-clip"><rect x="56" y="38" width="88" height="54" rx="27"/></clipPath>
+    <symbol id="robot-sym" viewBox="-30 -12 260 286">
+      <ellipse class="r-shadow" cx="100" cy="250" rx="48" ry="7"/>
+      <g class="r-float">
+        <!-- arms: floating capsules with small hands -->
+        <g class="r-arm r-arm-l"><rect x="14" y="140" width="24" height="54" rx="12" fill="url(#rb-grey)"/><rect x="17" y="144" width="7" height="30" rx="3.5" fill="url(#rb-glass)"/><circle cx="26" cy="198" r="9" fill="url(#rb-pearl)"/></g>
+        <g class="r-arm r-arm-r"><rect x="162" y="140" width="24" height="54" rx="12" fill="url(#rb-grey)"/><rect x="165" y="144" width="7" height="30" rx="3.5" fill="url(#rb-glass)"/><circle cx="174" cy="198" r="9" fill="url(#rb-pearl)"/></g>
+        <!-- torso: a glossy egg with a panel line and a chest light -->
+        <path d="M100 114C140 114 158 150 156 186 154 216 130 234 100 234 70 234 46 216 44 186 42 150 60 114 100 114Z" fill="url(#rb-pearl)"/>
+        <path d="M62 150C70 130 84 120 100 120" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".7"/>
+        <path d="M70 168Q100 184 130 168" fill="none" stroke="#9fabc8" stroke-width="2" stroke-linecap="round"/>
+        <circle class="r-chest" cx="100" cy="196" r="6" fill="url(#rb-accent)" filter="url(#rb-glow)"/>
+        <!-- neck -->
+        <rect x="88" y="104" width="24" height="14" rx="6" fill="url(#rb-grey)"/>
+        <!-- head -->
+        <rect x="44" y="20" width="112" height="88" rx="42" fill="url(#rb-pearl)"/>
+        <path d="M60 40C68 28 84 24 100 24" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".75"/>
+        <rect x="90" y="9" width="20" height="14" rx="7" fill="url(#rb-grey)"/>
+        <circle class="r-bulb" cx="100" cy="14" r="2.6" fill="#5fe9ff" filter="url(#rb-glow)"/>
+        <!-- ear pods -->
+        <ellipse cx="40" cy="66" rx="9" ry="17" fill="url(#rb-grey)"/><ellipse cx="40" cy="66" rx="4" ry="9" fill="none" stroke="#5fe9ff" stroke-width="2" opacity=".85"/>
+        <ellipse cx="160" cy="66" rx="9" ry="17" fill="url(#rb-grey)"/><ellipse cx="160" cy="66" rx="4" ry="9" fill="none" stroke="#8b6dff" stroke-width="2" opacity=".85"/>
+        <!-- visor -->
+        <rect x="56" y="38" width="88" height="54" rx="27" fill="url(#rb-visor)"/>
+        <g clip-path="url(#rb-visor-clip)">
+          <ellipse cx="100" cy="64" rx="40" ry="20" fill="#2fd4ff" opacity=".12" filter="url(#rb-soft)"/>
+          <rect class="r-scan" x="40" y="36" width="10" height="60" fill="#5fe9ff" opacity="0" filter="url(#rb-soft)"/>
+          <path d="M66 46C80 40 120 40 134 46" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".28"/>
+        </g>
+        <g class="r-eyes">
+          <g class="r-open">
+            <ellipse class="r-eye" cx="82" cy="62" rx="6.5" ry="8.5" fill="#6fefff" filter="url(#rb-glow)"/>
+            <ellipse class="r-eye" cx="118" cy="62" rx="6.5" ry="8.5" fill="#6fefff" filter="url(#rb-glow)"/>
+          </g>
+          <g class="r-happy" fill="none" stroke="#6fefff" stroke-width="3.4" stroke-linecap="round" filter="url(#rb-glow)">
+            <path d="M75 66Q82 56 89 66"/><path d="M111 66Q118 56 125 66"/>
+          </g>
+          <path class="r-smile" d="M91 77Q100 85 109 77" fill="none" stroke="#6fefff" stroke-width="3" stroke-linecap="round" filter="url(#rb-glow)"/>
+        </g>
+      </g>
+    </symbol>
+  </defs>
+</svg>
   <div class="app" id="app">
     <aside class="sidebar" id="sidebar" aria-label="Chats and status">
       <div class="side-top">
@@ -53,12 +126,6 @@
           <span class="status-dot" id="status-dot" aria-hidden="true"></span>
           <span class="status-text side-text"><span class="status-kicker">Project status</span><span class="status-line" id="status-line">Checking...</span></span>
         </button>
-        <button type="button" class="foot-btn theme-toggle" id="theme-toggle" aria-pressed="false" title="Switch to dark theme">
-          <svg class="i i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          <svg class="i i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
-          <span class="status-line side-text">Theme: <span class="theme-label">Light</span></span>
-          <span class="theme-track side-text" aria-hidden="true"><span class="theme-knob"></span></span>
-        </button>
         <button type="button" class="foot-btn" id="appearance-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="appearance" title="Appearance">
           <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 1.9-.8 1.9-1.7 0-1-.8-1.4-.8-2.3 0-1 .8-1.7 1.8-1.7H17a3.5 3.5 0 0 0 3.5-3.5c0-4-3.8-7.8-8.5-7.8Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="8" cy="11" r="1" fill="currentColor"/><circle cx="12" cy="7.5" r="1" fill="currentColor"/><circle cx="16" cy="10" r="1" fill="currentColor"/></svg>
           <span class="status-line side-text">Appearance</span>
@@ -75,34 +142,65 @@
     </aside>
 
     <div class="stage" id="stage">
-    <header class="gbar">
-      <div class="gsearch" role="search">
-        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m20 20-4.2-4.2M10.5 17a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        <input type="search" id="global-search" placeholder="Search chats, notes, commits and files" aria-label="Search chats, notes, commits and files" autocomplete="off" aria-controls="gsearch-results" aria-expanded="false">
-        <kbd>Ctrl Shift F</kbd>
-        <div class="gsearch-results" id="gsearch-results" role="listbox" aria-label="Search results" hidden></div>
+    <header class="topnav" id="topnav">
+      <button type="button" class="icon-btn" id="drawer-btn" aria-label="Chats and menu (Ctrl+B)" title="Chats and menu (Ctrl+B)" aria-expanded="false">
+        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+      <a class="tn-brand" href="/" aria-label="AURA Sentinel home" data-nav="overview"><span class="tile tn-tile" aria-hidden="true">AS</span><span class="tn-name">AURA Sentinel</span></a>
+      <nav class="tn-links" aria-label="Main">
+        <button type="button" class="tn-link" data-nav="overview">Overview</button>
+        <button type="button" class="tn-link" data-nav="chat">Chat</button>
+        <button type="button" class="tn-link" data-nav="inbox">Inbox</button>
+        <button type="button" class="tn-link" data-nav="reports">Reports</button>
+        <button type="button" class="tn-link" data-nav="qa">QA Harness</button>
+      </nav>
+      <div class="tn-tools">
+        <div class="gsearch" role="search">
+          <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="m20 20-4.2-4.2M10.5 17a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <input type="search" id="global-search" placeholder="Search" aria-label="Search chats, notes, commits and files" autocomplete="off" aria-controls="gsearch-results" aria-expanded="false" title="Search chats, notes, commits and files (Ctrl+Shift+F)">
+          <div class="gsearch-results" id="gsearch-results" role="listbox" aria-label="Search results" hidden></div>
+        </div>
+        <span class="gbar-conn" id="gbar-conn" title="Connection to the Guard engine"><span class="status-dot" id="gbar-dot" aria-hidden="true"></span><span id="gbar-conn-text">Checking...</span></span>
+        <button type="button" class="icon-btn bell" id="gbar-bell" aria-label="Review inbox" title="Review inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5V11a6 6 0 1 1 12 0v5.5l1.5 2h-15l1.5-2ZM10 20.5a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="bell-n" id="bell-n" hidden></span></button>
+        <div class="menu-wrap">
+          <button type="button" class="icon-btn" id="menu-btn" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-pop" aria-label="Menu: new chat, status, appearance, model and keys" title="Menu"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm7.4-2.7 1.6 1.2-1.6 2.8-1.9-.6a7.5 7.5 0 0 1-1.7 1l-.4 2h-3.2l-.4-2a7.5 7.5 0 0 1-1.7-1l-1.9.6-1.6-2.8 1.6-1.2a7.7 7.7 0 0 1 0-2l-1.6-1.2 1.6-2.8 1.9.6a7.5 7.5 0 0 1 1.7-1l.4-2h3.2l.4 2a7.5 7.5 0 0 1 1.7 1l1.9-.6 1.6 2.8-1.6 1.2a7.7 7.7 0 0 1 0 2Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
+          <div class="menu-pop" id="menu-pop" role="menu" aria-label="Menu" hidden>
+            <button type="button" role="menuitem" data-menu="new-chat">New chat</button>
+            <button type="button" role="menuitem" data-menu="status-toggle">Project status</button>
+            <button type="button" role="menuitem" data-menu="appearance-btn">Appearance</button>
+            <button type="button" role="menuitem" data-menu="settings-btn">Model &amp; keys</button>
+          </div>
+        </div>
+        <button type="button" class="theme-pill" id="theme-toggle" role="switch" aria-pressed="false" aria-checked="false" aria-label="Dark theme" title="Switch to dark theme"><svg class="i i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><svg class="i i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg><span class="theme-label sr-only">Light</span></button>
       </div>
-      <span class="gbar-conn" id="gbar-conn" title="Connection to the Guard engine"><span class="status-dot" id="gbar-dot" aria-hidden="true"></span><span id="gbar-conn-text">Checking...</span></span>
-      <button type="button" class="icon-btn bell" id="gbar-bell" aria-label="Review inbox" title="Review inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16.5V11a6 6 0 1 1 12 0v5.5l1.5 2h-15l1.5-2ZM10 20.5a2 2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="bell-n" id="bell-n" hidden></span></button>
     </header>
     <main class="main" id="view-overview" hidden aria-label="Overview">
-      <header class="topbar">
-        <span class="project-chip" title="SPIL AURA"><span class="project-dot" aria-hidden="true"></span><span class="project-chip-name" data-project-name>SPIL AURA</span></span>
-        <h1 class="chat-title">Overview</h1>
-        <button type="button" class="btn btn-quiet topbar-btn" id="overview-refresh">Refresh</button>
-      </header>
-      <div class="scroll ov-scroll" id="overview-body" tabindex="-1"></div>
+      <div class="scroll ov-scroll" id="overview-scroll" tabindex="-1">
+        <section class="landing" id="landing" aria-label="Ask Guard">
+          <canvas class="land-particles" id="hero-particles" aria-hidden="true"></canvas>
+          <div class="land-glow" aria-hidden="true"></div>
+          <div class="land-inner">
+            <span class="land-badge" id="land-badge"><span class="land-badge-dot" aria-hidden="true"></span><span id="land-badge-text">Read-only engineering assistant</span></span>
+            <h1 class="land-title" id="land-title">Ask anything about your codebase, <em>answered from memory</em></h1>
+            <p class="land-sub" id="land-sub">Answers come only from the vault notes and the indexed code, with sources. Guard reads and suggests; it never writes to your ERP.</p>
+            <div class="land-slot" id="hero-composer-slot"></div>
+            <ul class="land-sources" id="land-sources" aria-label="What Guard reads"></ul>
+          </div>
+        </section>
+        <div class="ov-below" id="overview-body"></div>
+      </div>
     </main>
 
     <main class="main" id="view-chat" hidden>
       <header class="topbar">
         <span class="project-chip" title="SPIL AURA"><span class="project-dot" aria-hidden="true"></span><span class="project-chip-name" data-project-name>SPIL AURA</span></span>
         <h1 class="chat-title" id="chat-title">New chat</h1>
+        <svg class="robot robot-xs is-thinking" id="robot-busy" viewBox="-30 -12 260 286" role="img" aria-label="Working" hidden><use href="#robot-sym"/></svg>
         <span class="busy" id="busy" hidden>Running a command...</span>
         <button type="button" class="top-work" id="top-work" role="switch" aria-checked="false" title="Show the steps AURA QA takes while it works"><span class="sw-label">Show work</span><span class="sw-track" aria-hidden="true"><span class="sw-knob"></span></span></button>
       </header>
       <div class="messages" id="messages" role="log" aria-label="Conversation" aria-live="polite" tabindex="-1"></div>
-      <div class="composer-wrap">
+      <div class="composer-wrap" id="composer-wrap">
         <form class="composer" id="composer" autocomplete="off">
           <div class="slash-menu" id="slash-menu" role="listbox" aria-label="Commands" hidden></div>
           <label class="sr-only" for="input">Message</label>
@@ -111,6 +209,7 @@
             <div class="pills">
               <button type="button" class="pill" id="pill-work" aria-pressed="false" title="Show the steps AURA QA takes while it works"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h2M5 12h2M5 18h2M10 6h9M10 12h9M10 18h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Show work</span><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="m5.5 12.5 4 4 9-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
               <button type="button" class="pill" id="pill-notes" aria-pressed="false" title="Only use vault notes as sources"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h7.5L19 8v12.5H7v-17Zm7 0V8.5h5M10 13h6M10 16.5h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Notes only</span><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="m5.5 12.5 4 4 9-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <span class="work-note" id="work-note" role="status" hidden><span class="work-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Sentinel is working</span></span>
               <span class="backend-chip" id="backend-chip" title="The model that answers"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8L12 3.5ZM18.5 16l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span id="backend-name">No model</span></span>
             </div>
             <button type="button" class="stop-btn" id="stop" hidden aria-label="Stop waiting" title="Stop waiting">
@@ -133,7 +232,14 @@
         <span class="topbar-note" id="inbox-total"></span>
         <button type="button" class="btn btn-quiet topbar-btn" id="inbox-refresh">Refresh</button>
       </header>
-      <div class="scroll" id="inbox-body" tabindex="-1"></div>
+      <div class="tri" id="inbox-tri" data-pane="list">
+        <nav class="tri-folders" id="inbox-folders" aria-label="Review folders"></nav>
+        <section class="tri-list" aria-label="Proposed notes">
+          <div class="tri-list-head"><label class="sr-only" for="inbox-filter">Filter notes</label><input type="search" id="inbox-filter" class="tri-filter" placeholder="Filter notes" autocomplete="off"></div>
+          <div class="scroll" id="inbox-body" tabindex="-1"></div>
+        </section>
+        <article class="tri-detail" id="inbox-detail" aria-label="Selected note"></article>
+      </div>
       <p class="hint inbox-keys">Keys: J and K move, A approves, D dismisses (press twice), Enter opens. AURA&nbsp;QA only changes the status line of a note; you can undo for 8 seconds.</p>
     </main>
 
@@ -144,10 +250,12 @@
         <span class="topbar-note" id="reports-total"></span>
         <button type="button" class="btn btn-quiet topbar-btn" id="reports-refresh">Refresh</button>
       </header>
-      <div class="reports">
-        <nav class="report-list" id="report-list" aria-label="Report files"></nav>
-        <article class="reader" aria-label="Report">
+      <div class="reports tri" id="reports-tri" data-pane="list">
+        <nav class="tri-folders" id="report-folders" aria-label="Report folders"></nav>
+        <nav class="report-list tri-list" id="report-list" aria-label="Report files"></nav>
+        <article class="reader tri-detail" aria-label="Report">
           <header class="reader-head">
+            <button type="button" class="btn btn-quiet tri-back" id="reader-back">Back</button>
             <div class="reader-titles">
               <h2 class="reader-title" id="reader-title">Pick a report</h2>
               <code class="panel-ref" id="reader-path"></code>
