@@ -855,3 +855,5 @@
 - Found changed outside this task: `ui/themes.css` light and dark palettes were rewritten to emerald / zinc (not by me). My new
   tokens are kept; hero sky colours are still blue. Decide whether to align them.
 - Checks and screenshots: see the final report; screenshots are in `.artifacts/redesign-v3/`.
+
+**2026-11-27:** Added docs/qa-tool-summary.md (docs only). Private notes are local in ignored data/. Full engine test run still not completed.
