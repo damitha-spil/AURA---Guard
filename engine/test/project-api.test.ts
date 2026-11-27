@@ -69,8 +69,8 @@ test("config: one project from the local file; a leftover departments registry i
 });
 
 test("brand: the product names", () => {
-  assert.equal(PRODUCT_NAME, "AURA Sentinel");
-  assert.equal(PRODUCT_SHORT, "Sentinel");
+  assert.equal(PRODUCT_NAME, "SPIL REO");
+  assert.equal(PRODUCT_SHORT, "REO");
 });
 
 // ---------- /api/project ----------

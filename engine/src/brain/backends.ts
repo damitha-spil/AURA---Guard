@@ -5,6 +5,7 @@ import { basename, delimiter, join } from "node:path";
 import { envValue } from "../config.ts";
 import { buildPayload, DEFAULT_MODEL, postMessages } from "./client.ts";
 import type { CompleteResult, Usage } from "./client.ts";
+import { MODEL_ID_RE } from "./models.ts";
 
 /**
  * A model backend. It only ever receives text that has ALREADY been masked and
@@ -48,12 +49,16 @@ export const CLI_TIMEOUT_MS = 180_000;
 export const CLI_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 /** Default Claude model for the CLI: an alias the CLI resolves itself (Aura's DEFAULT_CLAUDE_MODEL). */
 export const DEFAULT_CLAUDE_CLI_MODEL = "sonnet";
+/** Default model for Antigravity CLI subscription. */
+export const DEFAULT_ANTIGRAVITY_CLI_MODEL = "gemini-4-neon-medium";
 /** Longest model name accepted, so a pasted paragraph cannot become an argument. */
 const MODEL_MAX_CHARS = 100;
 
 /** Shown when Claude Code cannot be found. Same advice as Aura. */
 export const CLAUDE_INSTALL_HELP =
   "Install Claude Code (https://claude.ai/install), then run `claude` once in a terminal to sign in.";
+export const AGY_INSTALL_HELP =
+  "Install Antigravity CLI (`agy`), then sign in to use your Antigravity subscription.";
 const CLAUDE_SIGN_IN_HELP =
   "Claude Code is not signed in. Run `claude` once in a terminal to log in, then try again. Guard stores no key for it.";
 
@@ -123,6 +128,22 @@ export function findClaude(o: DiscoveryOptions = {}): Launcher | null {
   const dirs = pathVar.split(delimiter).filter((d) => d.length > 0);
   // Usual folder of the native installer (~/.local/bin). Aura also checks %APPDATA%\npm\claude.cmd; skipped (see above).
   dirs.push(join(o.home ?? env.USERPROFILE ?? env.HOME ?? homedir(), ".local", "bin"));
+  for (const d of dirs) for (const n of names) {
+    const p = join(d, n);
+    if (existsSync(p)) return { command: p, prefixArgs: [] };
+  }
+  return null;
+}
+
+export function findAgy(o: DiscoveryOptions = {}): Launcher | null {
+  if (o.override) return existsSync(o.override) ? { command: o.override, prefixArgs: [] } : null;
+  const env = o.env ?? process.env;
+  const win = process.platform === "win32";
+  const names = win ? ["agy.exe"] : ["agy"];
+  const pathVar = env.PATH ?? env.Path ?? "";
+  const dirs = pathVar.split(delimiter).filter((d) => d.length > 0);
+  const localApp = env.LOCALAPPDATA ?? join(o.home ?? env.USERPROFILE ?? env.HOME ?? homedir(), "AppData", "Local");
+  dirs.push(join(localApp, "agy", "bin"));
   for (const d of dirs) for (const n of names) {
     const p = join(d, n);
     if (existsSync(p)) return { command: p, prefixArgs: [] };
@@ -353,4 +374,95 @@ export function claudeCliBackend(o: BackendOptions = {}): Backend {
  * route is Antigravity (`agy -p --mode plan --sandbox`), also not a no-tools mode, and Aura has no
  * Gemini CLI at all. Guard refuses a CLI it cannot lock down to plain text.
  */
-export const UNSUPPORTED_CLIS = ["codex", "gemini", "antigravity", "cursor"] as const;
+export function agyArgs(model: string, prompt: string): string[] {
+  return [
+    "--output-format", "text",
+    "--disable-slash-commands",
+    "--model", model,
+    "-p", prompt.slice(0, 24_000),
+  ];
+}
+
+const AGY_MODELS_CACHE_MS = 60_000;
+let agyModelsCache: { cmd: string; at: number; models: { id: string; label: string }[] } | null = null;
+
+/** Parses `agy models` tab-separated output (`id\tLabel`), dropping banners and invalid IDs. */
+export function parseAgyModelsOutput(stdout: string): { id: string; label: string }[] {
+  const out: { id: string; label: string }[] = [];
+  const seen = new Set<string>();
+  for (const raw of stdout.split(/\r?\n/)) {
+    const tab = raw.indexOf("\t");
+    if (tab <= 0) continue;
+    const id = raw.slice(0, tab).trim();
+    const label = raw.slice(tab + 1).trim().slice(0, 80);
+    if (!id || !label || !MODEL_ID_RE.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, label });
+  }
+  return out;
+}
+
+/** Queries `agy models` once per minute when Antigravity CLI is installed. Never throws. */
+export async function discoverAgyModels(
+  o: { env?: Record<string, string | undefined>; home?: string; launcher?: Launcher | null } = {},
+): Promise<{ id: string; label: string }[]> {
+  if (o.launcher !== undefined) return [];
+  const env = o.env ?? process.env;
+  const l = findAgy({ env, ...(o.home ? { home: o.home } : {}) });
+  if (!l) return [];
+  if (agyModelsCache && agyModelsCache.cmd === l.command && Date.now() - agyModelsCache.at < AGY_MODELS_CACHE_MS) {
+    return agyModelsCache.models;
+  }
+  try {
+    const r = await runProgram({ launcher: l, args: ["models"], stdin: "", timeoutMs: VERSION_TIMEOUT_MS, env });
+    if (r.code !== 0) return [];
+    const models = parseAgyModelsOutput(r.stdout);
+    agyModelsCache = { cmd: l.command, at: Date.now(), models };
+    return models;
+  } catch {
+    return [];
+  }
+}
+
+export function antigravityCliBackend(o: BackendOptions = {}): Backend {
+  const env = o.env ?? process.env;
+  const model = (o.model ?? "").trim() || DEFAULT_ANTIGRAVITY_CLI_MODEL;
+  const find = (): Launcher | null =>
+    o.launcher !== undefined ? o.launcher : findAgy({ env, ...(o.home ? { home: o.home } : {}) });
+  return {
+    id: "antigravity-cli",
+    kind: "cli",
+    async available() {
+      const l = find();
+      if (!l) return { ok: false, detail: `Antigravity CLI not found. ${AGY_INSTALL_HELP}` };
+      try {
+        const r = await runProgram({ launcher: l, args: ["--version"], stdin: "", timeoutMs: VERSION_TIMEOUT_MS, env });
+        const v = r.stdout.trim().split("\n")[0] ?? "";
+        if (r.code !== 0) return { ok: false, detail: `found at ${basename(l.command)} but --version failed` };
+        return { ok: true, detail: `${v || "Antigravity CLI"} (model ${model}; login not checked, run brain test)` };
+      } catch (e) {
+        return { ok: false, detail: (e as Error).message };
+      }
+    },
+    async complete(req) {
+      const l = find();
+      if (!l) throw new CliError(`Antigravity CLI was not found. ${AGY_INSTALL_HELP}`);
+      const prompt = `=== INSTRUCTIONS ===\n${req.system.join("\n\n")}\n\n=== INPUT ===\n${req.user}\n`;
+      const args = agyArgs(model, prompt);
+      req.audit(args.join(" "), `antigravity-cli/${model}`);
+      const r = await runProgram({
+        launcher: l, args, stdin: "",
+        timeoutMs: o.cliTimeoutMs ?? CLI_TIMEOUT_MS, env,
+        ...(o.onCwd ? { onCwd: o.onCwd } : {}),
+      });
+      if (r.code !== 0) {
+        throw new CliError(`Antigravity CLI failed: ${(r.stderr || r.stdout || `exit status ${r.code}`).trim().slice(0, 300)}`);
+      }
+      const reply = r.stdout.trim();
+      if (!reply) throw new CliError("Antigravity CLI returned an empty response.");
+      return { text: reply, usage: { input_tokens: 0, output_tokens: 0 } };
+    },
+  };
+}
+
+export const UNSUPPORTED_CLIS = ["codex", "gemini", "cursor"] as const;

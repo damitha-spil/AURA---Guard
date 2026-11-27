@@ -1,16 +1,16 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "AURA Sentinel",
+  "productName": "SPIL REO",
   "version": "0.1.0",
-  "identifier": "com.spil.aura.sentinel",
+  "identifier": "com.spil.reo",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "../web/dist"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "AURA Sentinel",
+        "title": "SPIL REO",
         "width": 1240,
         "height": 820,
         "minWidth": 800,

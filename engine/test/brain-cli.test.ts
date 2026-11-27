@@ -4,8 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { claudeArgs, cleanClaudeModel, CliError, findClaude, parseClaudeStream } from "../src/brain/backends.ts";
+import { agyArgs, claudeArgs, cleanClaudeModel, CliError, findClaude, parseAgyModelsOutput, parseClaudeStream } from "../src/brain/backends.ts";
 import { createBrain, describeBackends, NoBackendError } from "../src/brain/select.ts";
+import { updateSettings } from "../src/brain/settings.ts";
 import { BlockedError } from "../src/brain/client.ts";
 import type { GuardConfig } from "../src/types.ts";
 
@@ -172,4 +173,67 @@ test("stream parsing: refuses tools, reports sign-in and failures plainly", () =
   assert.throws(() => parseClaudeStream(line({ type: "result", is_error: true, result: "Not logged in - please run /login" })), /not signed in/);
   assert.throws(() => parseClaudeStream(line({ type: "result", is_error: true, result: "boom" })), /Claude Code failed: boom/);
   assert.equal(parseClaudeStream(line({ type: "result", subtype: "success", result: " hi " })).text, "hi");
+});
+
+test("agyArgs puts -p <prompt> after --output-format text and --model", () => {
+  const args = agyArgs("gemini-4-neon-medium", "Reply OK");
+  assert.deepEqual(args, [
+    "--output-format", "text",
+    "--disable-slash-commands",
+    "--model", "gemini-4-neon-medium",
+    "-p", "Reply OK",
+  ]);
+  const fmtIdx = args.indexOf("--output-format");
+  const pIdx = args.indexOf("-p");
+  assert.ok(fmtIdx >= 0 && pIdx > fmtIdx + 1);
+  assert.equal(args[pIdx + 1], "Reply OK");
+});
+
+test("parseAgyModelsOutput parses valid tab-separated models and ignores banners", () => {
+  const raw = [
+    "Fetching available models...",
+    "gemini-4-hydrogen-medium\tGemini 4 Hydrogen (Medium)",
+    "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)",
+    "--bad-id\tShould be skipped",
+    "gemini-4-hydrogen-medium\tDuplicate skipped",
+  ].join("\n");
+  assert.deepEqual(parseAgyModelsOutput(raw), [
+    { id: "gemini-4-hydrogen-medium", label: "Gemini 4 Hydrogen (Medium)" },
+    { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+  ]);
+});
+
+test("antigravity-cli switches --model dynamically via updateSettings on same brain", async () => {
+  const root = mkdtempSync(join(tmpdir(), "guard-agy-switch-"));
+  const script = join(root, "fake-agy.cjs");
+  const record = join(root, "argv.json");
+  writeFileSync(
+    script,
+    `const fs = require("fs");
+if (process.argv.includes("--version")) { console.log("1.5.18"); process.exit(0); }
+fs.writeFileSync(process.env.RECORD, JSON.stringify(process.argv.slice(2)));
+console.log("OK");
+`,
+  );
+  const cfg = { dataDir: root, vaultDir: root, repos: [], busyProcesses: [], root } as GuardConfig;
+  const env = { ...process.env, RECORD: record };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.AURA_GUARD_BRAIN;
+  delete env.AURA_GUARD_AGY_MODEL;
+  delete env.QSB_BRAIN;
+  delete env.QSB_AGY_MODEL;
+  const launcher = { command: process.execPath, prefixArgs: [script] };
+  const brain = createBrain(cfg, { env, launcher });
+
+  assert.equal(updateSettings(root, { backend: "antigravity-cli", models: { "antigravity-cli": "gemini-4-hydrogen-medium" } }).ok, true);
+  await brain.complete(req);
+  let argv = JSON.parse(readFileSync(record, "utf8")) as string[];
+  assert.equal(argv[argv.indexOf("--model") + 1], "gemini-4-hydrogen-medium");
+
+  assert.equal(updateSettings(root, { models: { "antigravity-cli": "gemini-3.8-flash-medium" } }).ok, true);
+  await brain.complete(req);
+  argv = JSON.parse(readFileSync(record, "utf8")) as string[];
+  assert.equal(argv[argv.indexOf("--model") + 1], "gemini-3.8-flash-medium");
+
+  rmSync(root, { recursive: true, force: true });
 });

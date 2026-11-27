@@ -42,3 +42,8 @@ extension/dist/
 
 # Rust / Tauri build artifacts
 src-tauri/target/
+
+# React + Vite + shadcn frontend build & deps
+web/node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo

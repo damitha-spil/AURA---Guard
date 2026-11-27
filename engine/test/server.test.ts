@@ -65,7 +65,7 @@ test("token: requests without the cookie get 401; the token link sets an HttpOnl
     assert.match(cookie, /SameSite=Strict/);
     const page = await http(s.port, { path: "/", headers: s.auth });
     assert.equal(page.status, 200);
-    assert.match(page.body, /<title>AURA Sentinel<\/title>/);
+    assert.match(page.body, /<title>SPIL REO<\/title>/);
     assert.equal(page.headers["x-content-type-options"], "nosniff");
     assert.equal(page.headers["content-security-policy"], "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'");
     assert.equal(page.headers["access-control-allow-origin"], undefined);
@@ -99,7 +99,7 @@ test("static files: only the allowlist is served and traversal is blocked", asyn
       assert.ok(r.status === 404 || r.status === 400, `${path} -> ${r.status}`);
       assert.ok(!r.body.includes('"aura-guard"'), path);
     }
-    for (const p of ["/", "/app.js", "/render.js", "/styles.css"]) assert.equal((await http(s.port, { path: p, headers: s.auth })).status, 200, p);
+    for (const p of ["/", "/theme-init.js", "/themes.css", "/favicon.svg"]) assert.equal((await http(s.port, { path: p, headers: s.auth })).status, 200, p);
   } finally {
     await s.stop();
   }

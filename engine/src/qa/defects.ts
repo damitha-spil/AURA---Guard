@@ -143,9 +143,9 @@ export function buildBugSheet(cfg: GuardConfig, runId: string): BugSheetReport |
   const csv = [csvHeader, ...csvRows].join("\n") + "\n";
 
   const prWarningMarkdown = bugs.length > 0
-    ? `> **AURA Sentinel PR Warning (${bugs.length} unique bug${bugs.length === 1 ? "" : "s"}):**\n` +
+    ? `> **SPIL REO PR Warning (${bugs.length} unique bug${bugs.length === 1 ? "" : "s"}):**\n` +
       bugs.slice(0, 5).map((b) => `> - \`${b.fingerprint}\` **${b.title}** — ${b.actual}`).join("\n")
-    : `> **AURA Sentinel:** 0 defects recorded in run \`${runId}\`.`;
+    : `> **SPIL REO:** 0 defects recorded in run \`${runId}\`.`;
 
   const qaRoot = resolve(join(cfg.root, ".artifacts", "qa"));
   const runDir = resolve(join(qaRoot, detail.result.id));

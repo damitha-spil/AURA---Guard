@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en" data-style="noir" data-mode="light" data-motion="auto">
+<html lang="en" data-style="noir" data-mode="dark" data-motion="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>AURA Sentinel</title>
+  <title>SPIL REO</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="/qa.css">
   <link rel="stylesheet" href="/qa-harness.css">
   <link rel="stylesheet" href="/overview.css">
+  <link rel="stylesheet" href="/reo-pages.css">
 </head>
 <body>
   <svg class="svg-defs" width="0" height="0" aria-hidden="true" focusable="false" id="robot-defs">
@@ -92,8 +93,8 @@
     <aside class="sidebar" id="sidebar" aria-label="Chats and status">
       <div class="side-top">
         <div class="brand">
-          <span class="tile brand-tile" id="brand-tile" aria-hidden="true">AS</span>
-          <span class="brand-text side-text"><span class="brand-name" id="brand-name" title="AURA Sentinel">AURA Sentinel</span><span class="brand-tag" id="brand-tag">Autonomous QA</span></span>
+          <span class="tile brand-tile" id="brand-tile" aria-hidden="true">SR</span>
+          <span class="brand-text side-text"><span class="brand-name" id="brand-name" title="SPIL REO — Review · Evaluate · Optimize">SPIL REO</span><span class="brand-tag" id="brand-tag">REVIEW · EVALUATE · OPTIMIZE</span></span>
         </div>
         <button type="button" class="icon-btn" id="sidebar-toggle" aria-label="Collapse sidebar (Ctrl+B)" aria-expanded="true" title="Collapse sidebar (Ctrl+B)">
           <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v13H4v-13Zm5 0v13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
@@ -105,14 +106,16 @@
         <kbd class="side-text">Ctrl K</kbd>
       </button>
       <div class="switcher" role="tablist" aria-label="Views">
-        <p class="nav-group side-text" role="presentation">Workspace</p>
-        <button type="button" role="tab" class="switch" id="tab-overview" data-view="overview" aria-selected="false" title="Overview"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4V4Zm9 0h7v4h-7V4ZM4 13h7v7H4v-7Zm9-3h7v10h-7V10Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="side-text">Overview</span></button>
-        <button type="button" role="tab" class="switch active" id="tab-chat" data-view="chat" aria-selected="true" title="Chat"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v10.5H9.5L4 20V5.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Chat</span></button>
-        <p class="nav-group side-text" role="presentation">Knowledge</p>
-        <button type="button" role="tab" class="switch" id="tab-inbox" data-view="inbox" aria-selected="false" title="Inbox"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13l2.5-7.5h11L20 13v5.5H4V13Zm0 0h5l1 2h4l1-2h5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Inbox</span><span class="badge" id="inbox-count" hidden></span></button>
-        <button type="button" role="tab" class="switch" id="tab-reports" data-view="reports" aria-selected="false" title="Reports"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.5h8.5L19 8v12.5H6v-17Zm8 0V8.5h5M9 13h7M9 16.5h7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Reports</span></button>
-        <p class="nav-group side-text" role="presentation">Quality</p>
-        <button type="button" role="tab" class="switch" id="tab-qa" data-view="qa" aria-selected="false" title="QA Harness"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 5 6v5.5c0 4.2 2.8 7.4 7 9 4.2-1.6 7-4.8 7-9V6l-7-2.5ZM9 12l2.2 2.2L15.5 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">QA Harness</span></button>
+        <p class="nav-group side-text" role="presentation">Core</p>
+        <button type="button" role="tab" class="switch" id="tab-overview" data-view="overview" aria-selected="false" title="Home"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4V4Zm9 0h7v4h-7V4ZM4 13h7v7H4v-7Zm9-3h7v10h-7V10Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="side-text">Home</span></button>
+        <button type="button" role="tab" class="switch active" id="tab-chat" data-view="chat" aria-selected="true" title="Workspace"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16v10.5H9.5L4 20V5.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Workspace</span></button>
+        <p class="nav-group side-text" role="presentation">Assurance</p>
+        <button type="button" role="tab" class="switch" id="tab-qa" data-view="qa" aria-selected="false" title="QA &amp; Security Lab"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 5 6v5.5c0 4.2 2.8 7.4 7 9 4.2-1.6 7-4.8 7-9V6l-7-2.5ZM9 12l2.2 2.2L15.5 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">QA Lab</span></button>
+        <button type="button" role="tab" class="switch" id="tab-defects" data-view="defects" aria-selected="false" title="Defects &amp; PDF Reports"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Defects</span></button>
+        <p class="nav-group side-text" role="presentation">Intelligence</p>
+        <button type="button" role="tab" class="switch" id="tab-agents" data-view="agents" aria-selected="false" title="Sub-Agents, Tools &amp; Skills"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v4m0 12v4M4.9 4.9l2.8 2.8m8.6 8.6 2.8 2.8M2 12h4m12 0h4M4.9 19.1l2.8-2.8m8.6-8.6 2.8-2.8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="side-text">Agents</span></button>
+        <button type="button" role="tab" class="switch" id="tab-plugins" data-view="plugins" aria-selected="false" title="Plugins &amp; Team Directory"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5m-3-9V2m6 6V2M6 8h12v4a6 6 0 0 1-12 0V8Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="side-text">Plugins</span></button>
+        <button type="button" role="tab" class="switch" id="tab-knowledge" data-view="knowledge" aria-selected="false" title="Knowledge, Inbox, Reports &amp; Guide"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5a2 2 0 0 1 2-2h5.5v13H14a2 2 0 0 0-2 2m0-13a2 2 0 0 0-2-2H4.5v13H10a2 2 0 0 1 2 2m0-13v13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span class="side-text">Knowledge</span><span class="badge" id="inbox-count" hidden></span></button>
       </div>
       <div class="chat-pane chat-only side-text">
         <div class="chat-search" id="chat-search-wrap" hidden>
@@ -130,13 +133,13 @@
           <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 1.9-.8 1.9-1.7 0-1-.8-1.4-.8-2.3 0-1 .8-1.7 1.8-1.7H17a3.5 3.5 0 0 0 3.5-3.5c0-4-3.8-7.8-8.5-7.8Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><circle cx="8" cy="11" r="1" fill="currentColor"/><circle cx="12" cy="7.5" r="1" fill="currentColor"/><circle cx="16" cy="10" r="1" fill="currentColor"/></svg>
           <span class="status-line side-text">Appearance</span>
         </button>
-        <button type="button" class="foot-btn" id="settings-btn" aria-controls="view-settings" title="Model &amp; keys (Ctrl+,)">
+        <button type="button" class="foot-btn" id="settings-btn" aria-controls="view-settings" title="Settings (Ctrl+,)">
           <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM10.5 13 19 4.5M16 7.5l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span class="status-line side-text">Model &amp; keys</span>
+          <span class="status-line side-text">Settings</span>
         </button>
         <div class="side-user" id="side-user">
-          <span class="user-av" aria-hidden="true">AS</span>
-          <span class="user-text side-text"><span class="user-name">Local session</span><span class="user-ver" id="app-version">Read-only assistant</span></span>
+          <span class="user-av" aria-hidden="true">SR</span>
+          <span class="user-text side-text"><span class="user-name">SPIL Labs</span><span class="user-ver" id="app-version">Read-only assistant</span></span>
         </div>
       </div>
     </aside>
@@ -146,13 +149,15 @@
       <button type="button" class="icon-btn" id="drawer-btn" aria-label="Chats and menu (Ctrl+B)" title="Chats and menu (Ctrl+B)" aria-expanded="false">
         <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
-      <a class="tn-brand" href="/" aria-label="AURA Sentinel home" data-nav="overview"><span class="tile tn-tile" aria-hidden="true">AS</span><span class="tn-name">AURA Sentinel</span></a>
+      <a class="tn-brand" href="/" aria-label="SPIL REO home" data-nav="overview"><span class="tile tn-tile" aria-hidden="true">SR</span><span class="tn-name">SPIL REO</span></a>
       <nav class="tn-links" aria-label="Main">
-        <button type="button" class="tn-link" data-nav="overview">Overview</button>
-        <button type="button" class="tn-link" data-nav="chat">Chat</button>
-        <button type="button" class="tn-link" data-nav="inbox">Inbox</button>
-        <button type="button" class="tn-link" data-nav="reports">Reports</button>
-        <button type="button" class="tn-link" data-nav="qa">QA Harness</button>
+        <button type="button" class="tn-link" data-nav="overview">Home</button>
+        <button type="button" class="tn-link" data-nav="chat">Workspace</button>
+        <button type="button" class="tn-link" data-nav="qa">QA Lab</button>
+        <button type="button" class="tn-link" data-nav="defects">Defects</button>
+        <button type="button" class="tn-link" data-nav="agents">Agents</button>
+        <button type="button" class="tn-link" data-nav="plugins">Plugins</button>
+        <button type="button" class="tn-link" data-nav="knowledge">Knowledge</button>
       </nav>
       <div class="tn-tools">
         <div class="gsearch" role="search">
@@ -180,13 +185,19 @@
           <canvas class="land-particles" id="hero-particles" aria-hidden="true"></canvas>
           <div class="land-glow" aria-hidden="true"></div>
           <div class="land-inner">
-            <span class="land-badge" id="land-badge"><span class="land-badge-dot" aria-hidden="true"></span><span id="land-badge-text">Read-only engineering assistant</span></span>
+            <span class="land-badge" id="land-badge"><span class="land-badge-dot" aria-hidden="true"></span><span id="land-badge-text">SPIL REO · REVIEW · EVALUATE · OPTIMIZE</span></span>
             <h1 class="land-title" id="land-title">Ask anything about your codebase, <em>answered from memory</em></h1>
-            <p class="land-sub" id="land-sub">Answers come only from the vault notes and the indexed code, with sources. Guard reads and suggests; it never writes to your ERP.</p>
+            <p class="land-sub" id="land-sub">Autonomous Engineering Intelligence. Powered by SPIL Labs — reads and suggests; never writes to your ERP.</p>
             <div class="land-slot" id="hero-composer-slot"></div>
-            <ul class="land-sources" id="land-sources" aria-label="What Guard reads"></ul>
+            <ul class="land-sources" id="land-sources" aria-label="What REO reads"></ul>
+            <div class="land-actions"><button type="button" class="btn btn-quiet" data-nav="how">How REO Works &rarr;</button></div>
           </div>
         </section>
+      </div>
+    </main>
+
+    <main class="main" id="view-how" hidden aria-label="How REO Works">
+      <div class="scroll ov-scroll" id="how-scroll" tabindex="-1">
         <div class="ov-below" id="overview-body"></div>
       </div>
     </main>
@@ -195,21 +206,22 @@
       <header class="topbar">
         <span class="project-chip" title="SPIL AURA"><span class="project-dot" aria-hidden="true"></span><span class="project-chip-name" data-project-name>SPIL AURA</span></span>
         <h1 class="chat-title" id="chat-title">New chat</h1>
-        <svg class="robot robot-xs is-thinking" id="robot-busy" viewBox="-30 -12 260 286" role="img" aria-label="Working" hidden><use href="#robot-sym"/></svg>
         <span class="busy" id="busy" hidden>Running a command...</span>
         <button type="button" class="top-work" id="top-work" role="switch" aria-checked="false" title="Show the steps AURA QA takes while it works"><span class="sw-label">Show work</span><span class="sw-track" aria-hidden="true"><span class="sw-knob"></span></span></button>
       </header>
-      <div class="messages" id="messages" role="log" aria-label="Conversation" aria-live="polite" tabindex="-1"></div>
-      <div class="composer-wrap" id="composer-wrap">
+      <div class="workspace-split" id="workspace-split">
+        <div class="chat-col" id="chat-col">
+          <div class="messages" id="messages" role="log" aria-label="Conversation" aria-live="polite" tabindex="-1"></div>
+          <div class="composer-wrap" id="composer-wrap">
         <form class="composer" id="composer" autocomplete="off">
           <div class="slash-menu" id="slash-menu" role="listbox" aria-label="Commands" hidden></div>
           <label class="sr-only" for="input">Message</label>
-          <textarea id="input" rows="1" maxlength="4000" placeholder="Ask a question, or type / for commands"></textarea>
+          <textarea id="input" rows="1" maxlength="4000" placeholder="Ask a question, use @qa / @security / @review / @qe, or type / for commands"></textarea>
           <div class="composer-bar">
             <div class="pills">
               <button type="button" class="pill" id="pill-work" aria-pressed="false" title="Show the steps AURA QA takes while it works"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h2M5 12h2M5 18h2M10 6h9M10 12h9M10 18h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>Show work</span><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="m5.5 12.5 4 4 9-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
               <button type="button" class="pill" id="pill-notes" aria-pressed="false" title="Only use vault notes as sources"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h7.5L19 8v12.5H7v-17Zm7 0V8.5h5M10 13h6M10 16.5h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Notes only</span><svg class="tick" viewBox="0 0 24 24" aria-hidden="true"><path d="m5.5 12.5 4 4 9-9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-              <span class="work-note" id="work-note" role="status" hidden><span class="work-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Sentinel is working</span></span>
+              <span class="work-note" id="work-note" role="status" hidden><span class="work-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>REO is executing</span></span>
               <span class="backend-chip" id="backend-chip" title="The model that answers"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8L12 3.5ZM18.5 16l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><span id="backend-name">No model</span></span>
             </div>
             <button type="button" class="stop-btn" id="stop" hidden aria-label="Stop waiting" title="Stop waiting">
@@ -221,7 +233,19 @@
             </button>
           </div>
         </form>
-        <p class="hint">Enter sends, Shift+Enter adds a line, Esc clears. AURA&nbsp;QA reads and suggests; it never writes to the ERP.</p>
+        <p class="hint">Enter sends, Shift+Enter adds a line, Esc clears. SPIL REO reads and suggests; it never writes to the ERP.</p>
+          </div>
+        </div>
+        <aside class="harness-pane" id="harness-pane" hidden aria-label="Live Agent Execution">
+          <div class="harness-head">
+            <div>
+              <strong id="harness-title">Live Agent Execution</strong>
+              <span class="reo-note" id="harness-sub">Waiting for mission...</span>
+            </div>
+            <button type="button" class="btn btn-quiet" id="harness-close">Close</button>
+          </div>
+          <div class="harness-stream" id="harness-stream"></div>
+        </aside>
       </div>
     </main>
 
@@ -277,7 +301,11 @@
       <div class="scroll qa-harness-body" id="qa-harness-body" tabindex="-1"></div>
     </main>
 
-    <main class="main" id="view-settings" hidden aria-label="Model and API key"></main>
+    <main class="main" id="view-defects" hidden aria-label="Defects and Reports"></main>
+    <main class="main" id="view-plugins" hidden aria-label="Plugins Hub"></main>
+    <main class="main" id="view-agents" hidden aria-label="Agents, Tools and Skills"></main>
+    <main class="main" id="view-knowledge" hidden aria-label="Knowledge Hub"></main>
+    <main class="main" id="view-settings" hidden aria-label="Settings"></main>
     </div>
 
     <div class="toasts" id="toasts" role="status" aria-live="polite"></div>

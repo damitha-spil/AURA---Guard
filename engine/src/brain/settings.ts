@@ -4,7 +4,7 @@ import { z } from "zod";
 import { envValue } from "../config.ts";
 import type { GuardConfig } from "../types.ts";
 import { DEFAULT_MODEL } from "./client.ts";
-import { DEFAULT_CLAUDE_CLI_MODEL } from "./backends.ts";
+import { DEFAULT_ANTIGRAVITY_CLI_MODEL, DEFAULT_CLAUDE_CLI_MODEL } from "./backends.ts";
 import { MODEL_BACKENDS, MODEL_ID_HELP, MODEL_ID_RE } from "./models.ts";
 import type { ModelBackend } from "./models.ts";
 
@@ -17,7 +17,7 @@ export const settingsSchema = z.object({
   version: z.literal(1),
   brain: z.object({
     backend: z.enum(BACKEND_CHOICES).optional(),
-    models: z.object({ "anthropic-api": modelId.optional(), "claude-cli": modelId.optional() }).default({}),
+    models: z.object({ "anthropic-api": modelId.optional(), "claude-cli": modelId.optional(), "antigravity-cli": modelId.optional() }).default({}),
   }).default({ models: {} }),
 });
 export type GuardSettings = z.infer<typeof settingsSchema>;
@@ -124,6 +124,7 @@ export function effectiveBrain(cfg: GuardConfig, env: Record<string, string | un
     models: {
       "anthropic-api": pick(envValue("MODEL", env), s.models["anthropic-api"], cfg.brain?.models?.["anthropic-api"], DEFAULT_MODEL),
       "claude-cli": pick(envValue("CLI_MODEL", env), s.models["claude-cli"], cfg.brain?.models?.["claude-cli"], DEFAULT_CLAUDE_CLI_MODEL),
+      "antigravity-cli": pick(envValue("AGY_MODEL", env), s.models["antigravity-cli"], cfg.brain?.models?.["antigravity-cli"], DEFAULT_ANTIGRAVITY_CLI_MODEL),
     },
     ...(loaded.problem ? { problem: loaded.problem } : {}),
   };

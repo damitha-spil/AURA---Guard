@@ -157,14 +157,14 @@ test("no department wording or plumbing is left in the web UI", () => {
   for (const gone of ["depts.js", "depts.css", "departments.js", "wizard.js", "deptapi.js"]) assert.ok(!files.includes(gone), `${gone} is deleted`);
   const html = readFileSync(join(uiDir, "index.html"), "utf8");
   assert.ok(!/depts\.css|view-landing|view-dept|tab-dept|id="wizard"/.test(html));
-  assert.match(html, /<title>AURA Sentinel<\/title>/);
+  assert.match(html, /<title>SPIL REO<\/title>/);
 });
 
-test("brand: the product is AURA Sentinel with a fixed accent per style and mode", async () => {
+test("brand: the product is SPIL REO with a fixed accent per style and mode", async () => {
   const b = (await import(pathToFileURL(join(uiDir, "brand.js")).href)) as Record<string, string>;
-  assert.equal(b["PRODUCT_NAME"], "AURA Sentinel");
-  assert.equal(b["PRODUCT_SHORT"], "Sentinel");
-  assert.equal(b["MONOGRAM"], "AS");
+  assert.equal(b["PRODUCT_NAME"], "SPIL REO");
+  assert.equal(b["PRODUCT_SHORT"], "REO");
+  assert.equal(b["MONOGRAM"], "SR");
   const themes = readFileSync(join(uiDir, "themes.css"), "utf8");
   const lum = (hex: string): number => {
     const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
@@ -258,11 +258,11 @@ test("first screen: a new empty chat for SPIL AURA with four question cards and 
   if (!needBrowser(t)) return;
   const { page, stub, close } = await open();
   try {
-    assert.equal(await page.title(), "AURA Sentinel");
+    assert.equal(await page.title(), "SPIL REO");
     assert.equal(await page.locator("#view-chat").isVisible(), true, "the Chat page shows after choosing Chat");
     assert.equal((await page.locator(".empty h2").textContent()), "Ask your codebase, get sources");
     assert.match((await page.locator(".empty .empty-sub").textContent()) ?? "", /Answers come only from the vault notes and the indexed code, with sources\. Type \/ for commands\./);
-    assert.equal(await page.locator("#mascot").count(), 1, "the mascot sits above the composer");
+    assert.equal(await page.locator("#mascot").count(), 0, "no robot mascot in clean chat");
     assert.equal(await page.locator("#chat-title").textContent(), "New chat");
     assert.equal(await page.locator(".chat-item.active").count(), 0, "no old chat is opened");
     assert.ok((await page.locator(".chat-item").count()) >= 5, "the latest chats are listed in the sidebar");

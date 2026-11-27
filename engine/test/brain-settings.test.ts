@@ -116,7 +116,7 @@ test("model ids: plain ids pass, anything else is refused", () => {
 test("catalogue: roles/models.json has the expected models; a broken file falls back", () => {
   const real = loadCatalogue(join(import.meta.dirname, "..", ".."));
   assert.deepEqual(real.map((m) => m.id), BUILTIN_MODELS.map((m) => m.id));
-  assert.deepEqual(real.filter((m) => m.default).map((m) => m.id).sort(), ["claude-sonnet-5-5", "sonnet"]);
+  assert.deepEqual(real.filter((m) => m.default).map((m) => m.id).sort(), ["claude-sonnet-5-5", "gemini-4-neon-medium", "sonnet"]);
   for (const m of real) assert.ok(m.note.length > 0 && m.label.length > 0);
   const t = tmp();
   mkdirSync(join(t.root, "roles"));

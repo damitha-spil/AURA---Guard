@@ -50,7 +50,7 @@ fn main() {
     #[cfg(target_os = "windows")]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    let mut child = cmd.spawn().expect("Failed to start AURA Sentinel Node engine");
+    let mut child = cmd.spawn().expect("Failed to start SPIL REO Node engine");
     let stdout = child.stdout.take().expect("Missing engine stdout");
 
     let mut launch_url: Option<String> = None;
@@ -66,14 +66,13 @@ fn main() {
         .manage(EngineChild(Mutex::new(Some(child))))
         .setup(move |app| {
             if let (Some(win), Some(url)) = (app.get_webview_window("main"), launch_url.clone()) {
-                let landing = url.replacen("/?t=", "/landing.html?t=", 1);
-                let parsed: tauri::Url = landing.parse()?;
+                let parsed: tauri::Url = url.parse()?;
                 win.navigate(parsed)?;
             }
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("Failed to build AURA Sentinel desktop app");
+        .expect("Failed to build SPIL REO desktop app");
 
     app.run(|app_handle, event| {
         if matches!(event, RunEvent::Exit | RunEvent::ExitRequested { .. }) {

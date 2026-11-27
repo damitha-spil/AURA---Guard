@@ -1,0 +1,11 @@
+/* The plain page shown to a browser that is not paired with Guard yet. Tokens only (themes.css). */
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--text); font-family: var(--font); }
+.pair { max-width: 440px; margin: 24px; padding: 36px 32px; text-align: center; background: var(--card); border-radius: 16px; box-shadow: var(--ring-pop); }
+.pair h1 { margin: 14px 0 8px; font-size: 24px; letter-spacing: -.02em; }
+.pair p { margin: 0 0 18px; color: var(--muted); line-height: 1.55; font-size: 15px; }
+.pair-logo { border-radius: 16px; }
+.pair-btn { display: inline-block; padding: 10px 22px; border-radius: 99px; background: var(--solid); color: var(--on-solid); font-weight: 600; text-decoration: none; }
+.pair-btn:hover { background: var(--solid-hover); }
+.pair-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.pair-small { margin-top: 22px; font-size: 13px; }
+code { font-family: var(--mono); background: var(--card-2); padding: 1px 6px; border-radius: 6px; }

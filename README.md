@@ -38,7 +38,7 @@ npm run guard -- help           # every command
 
 ### Run as Native Desktop App (Tauri 2)
 
-AURA Sentinel ships with a lightweight **Tauri 2** (`src-tauri/`) native desktop shell:
+SPIL REO ships with a lightweight **Tauri 2** (`src-tauri/`) native desktop shell:
 
 ```
 npm run desktop                 # dev mode: spawns the Node engine + opens native WebView2 window
@@ -65,7 +65,7 @@ entries. See [docs/vscode-extension.md](docs/vscode-extension.md) and
 
 ## Names
 
-The platform name is **AURA Sentinel**. The CLI command is still `aura-guard`, and the
+The platform name is **SPIL REO** (*Review · Evaluate · Optimize — Autonomous Engineering Intelligence, Powered by SPIL Labs*). The CLI command is still `aura-guard`, and the
 plugin and extension ids still start with `aura-guard`, so existing setups keep working.
 
 ## Use it from Claude Code (plugin)

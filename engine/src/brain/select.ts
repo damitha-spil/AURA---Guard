@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { GuardConfig } from "../types.ts";
 import { auditOutgoing } from "../mask/audit.ts";
 import { unmask } from "../mask/mask.ts";
-import { anthropicApiBackend, claudeCliBackend } from "./backends.ts";
+import { anthropicApiBackend, antigravityCliBackend, claudeCliBackend } from "./backends.ts";
 import type { Backend, BackendOptions, BackendStatus } from "./backends.ts";
 import { createKeyStore } from "./keystore.ts";
 import type { SecretBackend } from "./keystore.ts";
@@ -12,7 +12,7 @@ import { maskAll } from "./client.ts";
 import type { CompleteFn, CompleteRequest, CompleteResult } from "./client.ts";
 
 /** Backends in the order `auto` tries them. */
-export const BACKEND_IDS = ["anthropic-api", "claude-cli"] as const;
+export const BACKEND_IDS = ["anthropic-api", "claude-cli", "antigravity-cli"] as const;
 export type BackendId = (typeof BACKEND_IDS)[number];
 
 export class NoBackendError extends Error {
@@ -41,6 +41,7 @@ export function buildBackends(cfg: GuardConfig, opts: SelectOptions = {}): Backe
   return [
     anthropicApiBackend({ ...rest, model: eff.models["anthropic-api"].id, storedKey }),
     claudeCliBackend({ ...rest, model: eff.models["claude-cli"].id }),
+    antigravityCliBackend({ ...rest, model: eff.models["antigravity-cli"].id }),
   ];
 }
 

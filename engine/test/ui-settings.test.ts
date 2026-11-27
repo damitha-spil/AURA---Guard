@@ -63,7 +63,7 @@ test("source labels and lock rules", () => {
   assert.equal(sourceLabel("config"), "from the config file");
   assert.equal(sourceLabel("default"), "default");
   assert.equal(sourceLabel("nonsense"), "default");
-  assert.deepEqual(locks(null), { backend: false, models: { "anthropic-api": false, "claude-cli": false } });
+  assert.deepEqual(locks(null), { backend: false, models: { "anthropic-api": false, "claude-cli": false, "antigravity-cli": false } });
   const l = locks(view({ wantedSource: "env", models: { ...view().models, sources: { "anthropic-api": "env", "claude-cli": "settings" } } }));
   assert.equal(l.backend, true);
   assert.equal(l.models["anthropic-api"], true);

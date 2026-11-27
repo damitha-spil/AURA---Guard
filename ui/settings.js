@@ -8,7 +8,7 @@
 export const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
 export const KEY_MIN = 20;
 export const KEY_MAX = 300;
-export const BACKEND_IDS = ["anthropic-api", "claude-cli"];
+export const BACKEND_IDS = ["anthropic-api", "claude-cli", "antigravity-cli"];
 
 /** A model name typed by hand. The server checks it again. */
 export function validateModelId(raw) {
@@ -37,7 +37,7 @@ export function sourceLabel(src) {
 
 /** Which controls cannot be changed on screen, and why. */
 export function locks(view) {
-  const out = { backend: false, models: { "anthropic-api": false, "claude-cli": false } };
+  const out = { backend: false, models: { "anthropic-api": false, "claude-cli": false, "antigravity-cli": false } };
   if (!view) return out;
   out.backend = view.wantedSource === "env";
   for (const b of BACKEND_IDS) out.models[b] = view.models?.sources?.[b] === "env";
@@ -262,8 +262,8 @@ export function mountSettings({ root, onBack, fetchImpl }) {
   let armed = false;
   let armTimer = 0;
   let armedBackend = "";
-  const customDraft = { "anthropic-api": "", "claude-cli": "" };
-  const customError = { "anthropic-api": "", "claude-cli": "" };
+  const customDraft = { "anthropic-api": "", "claude-cli": "", "antigravity-cli": "" };
+  const customError = { "anthropic-api": "", "claude-cli": "", "antigravity-cli": "" };
   let keyError = "";
 
   const ctl = createController({ fetchImpl, onChange: (s) => paint(s) });
@@ -359,7 +359,11 @@ export function mountSettings({ root, onBack, fetchImpl }) {
     customInputs[b].removeAttribute("aria-invalid");
     customInputs[b].value = "";
     customDraft[b] = "";
-    ctl.save({ models: { [b]: v.value } });
+    const view = ctl.state.view;
+    const target = view?.backends?.find((x) => x.id === b);
+    const patch = { models: { [b]: v.value } };
+    if (target?.available && !locks(view).backend && view.picked !== b) patch.backend = b;
+    ctl.save(patch);
   }
 
   async function submitKey() {
@@ -499,7 +503,11 @@ export function mountSettings({ root, onBack, fetchImpl }) {
     blk.appendChild(head);
     const items = cat.map((m) => ({ id: m.id, label: m.label, note: m.note, badges: m.default ? [chip("Default", "plain")] : [] }));
     if (!inCat && cur) items.push({ id: cur, label: cur, note: "A model name you chose yourself.", badges: [chip("Custom", "plain")] });
-    blk.appendChild(radioGroup(`Model for ${b.label}`, items, cur, lk || s.saving, (id) => ctl.save({ models: { [b.id]: id } }), true));
+    blk.appendChild(radioGroup(`Model for ${b.label}`, items, cur, lk || s.saving, (id) => {
+      const patch = { models: { [b.id]: id } };
+      if (b.available && !locks(v).backend && v.picked !== b.id) patch.backend = b.id;
+      ctl.save(patch);
+    }, true));
     if (lk) {
       blk.appendChild(lockNote("Set by an environment variable on this computer."));
       return blk;

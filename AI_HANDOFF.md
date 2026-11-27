@@ -6,6 +6,70 @@
 
 ---
 
+**web/ CSP note (2026-11-27):** `style-src 'self'` blocks runtime `<style>` tags. Do not rely on shadcn `--color-*` chart vars; pass `var(--chart-N)` directly. Black bars fixed this way; ScrollArea scrollbar hiding and Sonner CSS moved into index.css. Build passes; not verified in the app. Other injected styles (e.g. dialog scroll lock) are unchecked.
+
+---
+
+## shadcn/ui redesign of web/ (2026-11-27)
+
+- **What changed (web/ only):** Rebuilt the whole frontend on the official shadcn/ui CLI components (new-york style, neutral base, own indigo accent in oklch, light + dark via `.dark`). `components.json` added. CLI components in `web/src/components/ui/` (sidebar, button, card, badge, input, textarea, select, switch, tabs, table, sheet, dialog, dropdown-menu, separator, scroll-area, tooltip, skeleton, sonner, command, label, alert, avatar, breadcrumb, collapsible, checkbox, alert-dialog, chart, progress, popover). Old hand-made ui files and `message.tsx` removed. Added deps: radix-ui, cmdk, sonner, next-themes (only used by the CLI sonner file), recharts (via chart), class-variance-authority, tw-animate-css, motion.
+- **Shell (`src/App.tsx`):** sidebar-07 style collapsible icon sidebar (8 nav items, engine status from `/api/project`, System/Light/Dark dropdown that keeps the `color-scheme` localStorage key), header with trigger, breadcrumb, search, New Chat, inbox badge. Ctrl+K command palette: go-to, actions (new chat, QA/security presets, theme, shortcuts) and `/api/search` hits (open in a Sheet via `/api/doc`). `?` opens a shortcuts dialog. Page fade via `motion` with `MotionConfig reducedMotion="user"`. Workspace stays mounted once opened, so chat state survives view switches.
+- **Views (`src/views/*`):** Home dashboard (stat cards from `/api/reo/system`, ask box, quick actions, guardrails; fake bar chart and "100% masking gate" removed), Workspace (chat list, ScrollArea chat, Execution Canvas as side panel at 1280px+ and Sheet below; "Show work" now hides plan/tool steps), QA Lab (results rendered as tables/cards with a Raw toggle, not raw JSON), Defects (stat cards, severity chart, table + kanban board tabs, Dialogs, detail Sheet), Agents, Plugins (Save keeps current enabled value), Knowledge, Settings. Shared helpers in `src/components/app/page.tsx`. `src/lib/api.ts` unchanged; same endpoints and payloads.
+- **Engine:** no engine, ui/ or src-tauri changes. No new routes.
+- **Checks:** `npm run build` in `web/` (tsc -b + vite build): 0 errors; dist/index.html has no inline script/style. `git diff --check`: no whitespace errors (only CRLF warnings).
+- **Not verified:** nothing was viewed in a running app or browser. No visual check at 800/1100/1440 px, no dark-mode check, no live endpoint calls, no CSP check in the Tauri window (Radix/sonner/sidebar style use should be CSSOM-only). Chart rendering and the motion page transition are untested at runtime. The bundle is about 1.1 MB (no code splitting yet).
+- **Next action:** run `npm run web:build` / the desktop app, click through all 8 views at the three widths in both themes, then decide on code splitting. Owner: next assistant or Damitha.
+- **Round 2 (2026-11-27, same section):**
+  - New pages: Activity (merged timeline of defects, QA runs, chats and inbox with filters; `src/views/ActivityView.tsx`) and QA Runs (`RunsView.tsx`: sortable table from `/api/qa/runs`, run detail in a resizable right panel or Sheet from `/api/qa/run?id=`, step timeline with counting durations). Agent detail page with tools, skills and a run flow (`AgentsView.tsx`).
+  - Home: four charts (defects over time by severity, defects by status, QA runs over time, vault notes by status) in `components/app/charts.tsx`, count-up stat cards and staggered cards (`components/app/motion.tsx`).
+  - Defects: TanStack Table v8 (sort, pagination) and a kanban board where dragging a card PATCHes its status. Knowledge: sortable notes table and an inbox board (drag Proposed to Approved or Dismissed, posts to `/api/notes/:id/status`). Notifications popover in the header from `/api/inbox` with Approve and Dismiss.
+  - Shell: sidebar `variant="inset"` at 17rem, Workspace Execution Canvas uses shadcn resizable, Settings uses a vertical settings nav with label/value rows and a Danger zone (AlertDialog). Skeleton sheen is CSS in `index.css`, off for reduced motion. Empty states use an icon tile.
+  - Code splitting: every view is `React.lazy`, plus `manualChunks` in `vite.config.ts`. The chunk-size warning is gone (largest chunk about 404 kB).
+  - Notes: `resizable.tsx` from the CLI imported `cn` from a package named "cn"; I changed that one import to `@/lib/utils`. Pinned `@tanstack/react-table@8.21.3` (the unpinned install pulled an alpha v9). No engine changes, no new routes.
+  - Checks: `npm run build` in `web/` passes with no warnings. Still not viewed in a running app; drag and drop, the resizable panels, run detail data shapes (case and defect fields are rendered defensively) and all responsive widths are unverified.
+- **Round 3 (2026-11-27, same section): Maia preset.**
+  - Ran `npx shadcn@latest init --preset b2op2b03k --base radix --force --reinstall --yes` in `web/`. The CLI accepted the preset: `components.json` now has style `radix-maia`, neutral base, lucide icons; `src/index.css` got the green theme (primary about oklch(0.527 0.154 150), green chart-1..5), `--radius-2xl/3xl/4xl`, and Inter via `@import "@fontsource-variable/inter"` (bundled locally, no Google Fonts). All installed `ui/*` components were reinstalled in the Maia style (pill buttons and badges, rounded cards). The old indigo accent and the skeleton sheen CSS were overwritten and are gone.
+  - CLI side effects fixed by hand: the CLI re-added a bogus `cn` npm package, rewrote `src/lib/utils.ts` as a re-export from it, and made ui files import `cn` from it. I restored `utils.ts` (clsx + tailwind-merge), changed every ui file import back to `@/lib/utils`, and uninstalled `cn`. Re-running the CLI will redo this; fix again after any `shadcn add` or `init`.
+  - Restyled: stat tiles (`StatCard`) are rounded-2xl muted blocks with small uppercase labels and large bold numbers; Home is a masonry (CSS columns) card grid with icon-square list rows and one full-width primary CTA per card; chart bars have rounded tops; page background behind the inset panel is `bg-muted`; table wrappers use rounded-2xl.
+  - Not verified: no visual comparison against the ui.shadcn.com/create screenshot, no run in the app, no dark-mode or width checks. Other views (Defects, Runs, Settings) inherit the Maia components and tiles but were not individually re-laid-out as masonry grids.
+  - Checks: `npm run build` in `web/` passes with no warnings.
+- **Round 4 (2026-11-27, same section): Maia card style on every page.** Added `IconRow` and `Tile` to `web/src/components/app/page.tsx`. Activity is now a card of icon-square rows with a right-aligned tag; QA Lab, Agents, Plugins use stacked full-width pill buttons; Agent detail lists tools as icon rows; Runs detail uses stat tiles and thicker green progress bars, and the runs table sits in a card; Defects, Knowledge notes and the team table sit in cards; Knowledge reports are icon rows; Settings repo and stat blocks are muted rounded-2xl tiles; Workspace bubbles and composer use large rounded corners. No shadcn init/add was run, so no `cn` package came back. `npm run build` passes with no warnings. Not viewed in a running app; Workspace, Defects and Settings were adjusted lightly rather than rebuilt as masonry grids.
+- **Round 5 (2026-11-27, same section): colour themes, model picker, fixes.**
+  - Themes: `[data-theme]` blocks appended to `web/src/index.css` for neutral, blue, violet, orange, rose, red, yellow and amber (green is the default, no attribute), each with light and `.dark` variants of primary, ring, chart-1..5 and sidebar-primary, plus `[data-radius]` none/small/default/large. Colours are my approximations of shadcn's theme colours (same hue family, generated ramp for charts), not copied values. `web/public/theme-init.js` now also sets `data-theme` and `data-radius` from localStorage keys `color-theme` and `radius` before paint. `web/src/lib/themes.ts` holds the lists and try/catch storage helpers.
+  - UI: Settings > General has swatch cards with a check and a corner-radius choice; the sidebar Theme menu has a Colour submenu; Ctrl+K has "Change theme: <colour>" items. Swatches preview a colour by setting `data-theme` on a small element.
+  - Settings > AI backend: model picker is now a searchable Command in a Popover, grouped by family (Gemini versions grouped by first three words, others by first word), with label, note and a check on the selected model; in-use backend first; trigger is `w-full min-w-0` with truncate so it no longer overflows. Still `PUT /api/brain {models:{id:model}}`; a custom model id not in the catalogue shows as "(custom)".
+  - Workspace chat list: titles truncate with ellipsis and show relative time; CSS in `index.css` stops Radix ScrollArea's display:table wrapper from breaking truncation; the main content area now uses ScrollArea.
+  - Checks: `npm run build` passes with no warnings. Not viewed in a running app: theme colours in both modes, family grouping with the real 21-model catalogue, and the ScrollArea change are unchecked.
+- **Round 6 (2026-11-27, same section): Workspace rebuilt chat-app style.** `web/src/views/WorkspaceView.tsx` rewritten; the separate 240px chat column is gone. Chat history and a New chat button now render into the main app sidebar through React portals (`headSlot` and `listSlot` divs added in `App.tsx`, shown only while Workspace is active and hidden in icon mode). History is grouped Today / Yesterday / Previous 7 days / Older, single-line truncated titles ("New chat" when the title is 3 characters or fewer), relative time swapped for a delete button on hover, delete asks for confirmation (AlertDialog). Empty state: greeting "What should we check today?", centred composer, four suggestion cards with icons; after the first message the composer docks at the bottom. The header bar is removed; the Execution Canvas toggle is an icon button (route notice shows as a small badge). Composer: auto-growing textarea, searchable model list (kept the existing cross-backend `switchModel`, saves via `PUT /api/brain`), Show work and Notes only as toggle chips, `@` agent menu from `/api/reo/agents`, round send/stop button, hint line. Messages: user bubble right, assistant full width with avatar, Copy on hover, source chips, collapsible "Worked for Ns · N steps" (steps captured from the mission tool events; hidden when Show work is off). `index.css` now sets `scrollbar-width: thin` globally to remove native scrollbar arrows. `model-picker.tsx` is shared with Settings; `familyOf` is exported. No shadcn init/add (the Toggle component was not installed, so chips are Buttons with `aria-pressed`). `npm run build` passes. Not viewed in a running app: portal placement inside the sidebar, scrollbar styling in WebView2, the @ menu, and the worked-for collapsible are unverified.
+
+---
+
+
+## 100% React + Vite + Tailwind CSS v4 + shadcn/ui Frontend Replacement & Antigravity CLI Subscription (2026-11-27)
+
+- **Brand-New `web/` Frontend (`web/src/`, `web/dist/`):**
+  - Replaced the old `ui/` frontend with a complete React + Vite + Tailwind CSS v4 + shadcn/ui component system (`Button`, `Card`, `Badge`, `Input`, `Textarea`, `Select`, `Switch`, `Tabs`, `ResponsiveTable`, `Sheet`, `Message`, `Bubble`).
+  - Built all 8 views (`HomeView`, `WorkspaceView`, `QaLabView`, `DefectsView`, `AgentsView`, `PluginsView`, `KnowledgeView`, `SettingsView`) with Light/Dark/System theme switching (`public/theme-init.js` + `<meta name="color-scheme">` + zero inline scripts/styles for strict CSP).
+  - Updated `DEFAULT_UI_DIR` in `engine/src/server/server.ts` to serve `web/dist` (plus `/theme-init.js` and `/assets/*`), `src-tauri/tauri.conf.json` (`frontendDist: "../web/dist"`), and `package.json` (`web:build`, `ui`, `desktop`, `desktop:build`).
+- **Antigravity CLI Subscription Backend (`engine/src/brain/`):**
+  - Added `"antigravity-cli"` (`agy -p --output-format text --disable-slash-commands --mode plan`) to `backends.ts`, `models.ts`, `settings.ts`, `select.ts`, `roles/models.json`, `server/brain.ts`, and `SettingsView`.
+
+---
+
+## SPIL REO Platform Buildout: Multi-Agent Orchestrator, Defects/PDF, Plugins & Clean UI (2026-11-27)
+
+- **Rebrand & Landing/Workspace/How-It-Works Split:**
+  - Rebranded across `engine/src/brand.ts`, `ui/brand.js`, `ui/index.html`, `src-tauri/` (`spil-reo-desktop`, `com.spil.reo`), `defects.ts`, `server.ts`, `README.md`, and tests to **SPIL REO** (*Review · Evaluate · Optimize — Autonomous Engineering Intelligence, Powered by SPIL Labs*).
+  - `src-tauri/src/main.rs` boots directly to the Chat workspace (`/?t=<token>`); `#view-overview` shows the clean cosmic Landing page, and `#view-how` is a dedicated **How REO Works** page; removed `#mascot` robot and clutter cards from the empty chat view.
+- **Core Platform Modules (`engine/src/agents/registry.ts`, `tools/registry.ts`, `defects/store.ts`, `plugins/store.ts`):**
+  - Prebuilt 7-agent roster (`qa`, `qe`, `review`, `security`, `api`, `knowledge`, `report`) + `routeIntentToAgents` (Landing knowledge vs. Workspace automation handoff).
+  - Permission-tiered Tool Library (`BUILTIN_TOOLS`, 17 tools) + persistent Defect Store with SHA-256 deduplication, HTML/PDF report export (`.artifacts/reports/`), Plugins Hub (`composio`, `ms-teams`, `azure-devops`, `github`, `mcp-hub`), and MS Teams Team Directory + MessageCard payload builder.
+- **UI Pages & Server API (`ui/reo-pages.js`, `ui/reo-pages.css`, `ui/index.html`, `ui/app.js`, `engine/src/server/server.ts`):**
+  - Added **Defects**, **Agents & Skills**, and **Plugins** views with CSP-strict DOM rendering and wired REST routes (`/api/reo/agents`, `/api/reo/route`, `/api/defects*`, `/api/plugins*`, `/api/team*`).
+- **Verification:** `npx.cmd tsc -p engine --noEmit` (0 errors), `node --experimental-strip-types --test engine/test/reo-platform.test.ts` (**3/3 passed**), `git diff --check` clean.
+
+---
+
 ## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
 
 - **Tauri 2 Desktop Shell (`src-tauri/`):**
@@ -33,6 +97,31 @@
 
 ---
 
+## 100% React + Vite + Tailwind CSS v4 + shadcn/ui Frontend Replacement & Antigravity CLI Subscription (2026-11-27)
+
+- **Brand-New `web/` Frontend (`web/src/`, `web/dist/`):**
+  - Replaced the old `ui/` frontend with a complete React + Vite + Tailwind CSS v4 + shadcn/ui component system (`Button`, `Card`, `Badge`, `Input`, `Textarea`, `Select`, `Switch`, `Tabs`, `ResponsiveTable`, `Sheet`, `Message`, `Bubble`).
+  - Built all 8 views (`HomeView`, `WorkspaceView`, `QaLabView`, `DefectsView`, `AgentsView`, `PluginsView`, `KnowledgeView`, `SettingsView`) with Light/Dark/System theme switching (`public/theme-init.js` + `<meta name="color-scheme">` + zero inline scripts/styles for strict CSP).
+  - Updated `DEFAULT_UI_DIR` in `engine/src/server/server.ts` to serve `web/dist` (plus `/theme-init.js` and `/assets/*`), `src-tauri/tauri.conf.json` (`frontendDist: "../web/dist"`), and `package.json` (`web:build`, `ui`, `desktop`, `desktop:build`).
+- **Antigravity CLI Subscription Backend (`engine/src/brain/`):**
+  - Added `"antigravity-cli"` (`agy -p --output-format text --disable-slash-commands --mode plan`) to `backends.ts`, `models.ts`, `settings.ts`, `select.ts`, `roles/models.json`, `server/brain.ts`, and `SettingsView`.
+
+---
+
+## SPIL REO Platform Buildout: Multi-Agent Orchestrator, Defects/PDF, Plugins & Clean UI (2026-11-27)
+
+- **Rebrand & Landing/Workspace/How-It-Works Split:**
+  - Rebranded across `engine/src/brand.ts`, `ui/brand.js`, `ui/index.html`, `src-tauri/` (`spil-reo-desktop`, `com.spil.reo`), `defects.ts`, `server.ts`, `README.md`, and tests to **SPIL REO** (*Review · Evaluate · Optimize — Autonomous Engineering Intelligence, Powered by SPIL Labs*).
+  - `src-tauri/src/main.rs` boots directly to the Chat workspace (`/?t=<token>`); `#view-overview` shows the clean cosmic Landing page, and `#view-how` is a dedicated **How REO Works** page; removed `#mascot` robot and clutter cards from the empty chat view.
+- **Core Platform Modules (`engine/src/agents/registry.ts`, `tools/registry.ts`, `defects/store.ts`, `plugins/store.ts`):**
+  - Prebuilt 7-agent roster (`qa`, `qe`, `review`, `security`, `api`, `knowledge`, `report`) + `routeIntentToAgents` (Landing knowledge vs. Workspace automation handoff).
+  - Permission-tiered Tool Library (`BUILTIN_TOOLS`, 17 tools) + persistent Defect Store with SHA-256 deduplication, HTML/PDF report export (`.artifacts/reports/`), Plugins Hub (`composio`, `ms-teams`, `azure-devops`, `github`, `mcp-hub`), and MS Teams Team Directory + MessageCard payload builder.
+- **UI Pages & Server API (`ui/reo-pages.js`, `ui/reo-pages.css`, `ui/index.html`, `ui/app.js`, `engine/src/server/server.ts`):**
+  - Added **Defects**, **Agents & Skills**, and **Plugins** views with CSP-strict DOM rendering and wired REST routes (`/api/reo/agents`, `/api/reo/route`, `/api/defects*`, `/api/plugins*`, `/api/team*`).
+- **Verification:** `npx.cmd tsc -p engine --noEmit` (0 errors), `node --experimental-strip-types --test engine/test/reo-platform.test.ts` (**3/3 passed**), `git diff --check` clean.
+
+---
+
 ## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
 
 - **Tauri 2 Desktop Shell (`src-tauri/`):**
@@ -55,6 +144,31 @@
 - **Pillar 5 — Structural Code Refinement & KB Drift (`engine/src/qe/refine.ts`):** Added `analyzeRefinementAndKbDrift` detecting large changes, deep nesting, duplicate logic, magic numbers, stale Vault anchors, and undocumented added modules.
 - **Wiring & Tests:** Added HTTP routes (`/api/qe/trajectory`, `/api/qe/refine`, `/api/qa/bug-sheet`, `/api/qa/openapi`, `/api/qa/security-probes`), 4 MCP tools (`qe_commit_trajectory`, `qe_code_refine_drift`, `qa_bug_sheet`, `qa_security_probes` — 18 tools total on `dev`/`qa`, `support` strictly 2 tools), CLI subcommands (`qa bugs|openapi|security`, `qe trajectory|refine`), and Control Room UI panels.
 - **Verification:** `npx.cmd tsc -p engine --noEmit` (0 errors), `npm.cmd run typecheck` (0 errors), `npm.cmd test` (**362 / 362 passed across 45 test files**, including `qe-devsecops-pillars.test.ts`), `git diff --check` clean.
+
+---
+
+## 100% React + Vite + Tailwind CSS v4 + shadcn/ui Frontend Replacement & Antigravity CLI Subscription (2026-11-27)
+
+- **Brand-New `web/` Frontend (`web/src/`, `web/dist/`):**
+  - Replaced the old `ui/` frontend with a complete React + Vite + Tailwind CSS v4 + shadcn/ui component system (`Button`, `Card`, `Badge`, `Input`, `Textarea`, `Select`, `Switch`, `Tabs`, `ResponsiveTable`, `Sheet`, `Message`, `Bubble`).
+  - Built all 8 views (`HomeView`, `WorkspaceView`, `QaLabView`, `DefectsView`, `AgentsView`, `PluginsView`, `KnowledgeView`, `SettingsView`) with Light/Dark/System theme switching (`public/theme-init.js` + `<meta name="color-scheme">` + zero inline scripts/styles for strict CSP).
+  - Updated `DEFAULT_UI_DIR` in `engine/src/server/server.ts` to serve `web/dist` (plus `/theme-init.js` and `/assets/*`), `src-tauri/tauri.conf.json` (`frontendDist: "../web/dist"`), and `package.json` (`web:build`, `ui`, `desktop`, `desktop:build`).
+- **Antigravity CLI Subscription Backend (`engine/src/brain/`):**
+  - Added `"antigravity-cli"` (`agy -p --output-format text --disable-slash-commands --mode plan`) to `backends.ts`, `models.ts`, `settings.ts`, `select.ts`, `roles/models.json`, `server/brain.ts`, and `SettingsView`.
+
+---
+
+## SPIL REO Platform Buildout: Multi-Agent Orchestrator, Defects/PDF, Plugins & Clean UI (2026-11-27)
+
+- **Rebrand & Landing/Workspace/How-It-Works Split:**
+  - Rebranded across `engine/src/brand.ts`, `ui/brand.js`, `ui/index.html`, `src-tauri/` (`spil-reo-desktop`, `com.spil.reo`), `defects.ts`, `server.ts`, `README.md`, and tests to **SPIL REO** (*Review · Evaluate · Optimize — Autonomous Engineering Intelligence, Powered by SPIL Labs*).
+  - `src-tauri/src/main.rs` boots directly to the Chat workspace (`/?t=<token>`); `#view-overview` shows the clean cosmic Landing page, and `#view-how` is a dedicated **How REO Works** page; removed `#mascot` robot and clutter cards from the empty chat view.
+- **Core Platform Modules (`engine/src/agents/registry.ts`, `tools/registry.ts`, `defects/store.ts`, `plugins/store.ts`):**
+  - Prebuilt 7-agent roster (`qa`, `qe`, `review`, `security`, `api`, `knowledge`, `report`) + `routeIntentToAgents` (Landing knowledge vs. Workspace automation handoff).
+  - Permission-tiered Tool Library (`BUILTIN_TOOLS`, 17 tools) + persistent Defect Store with SHA-256 deduplication, HTML/PDF report export (`.artifacts/reports/`), Plugins Hub (`composio`, `ms-teams`, `azure-devops`, `github`, `mcp-hub`), and MS Teams Team Directory + MessageCard payload builder.
+- **UI Pages & Server API (`ui/reo-pages.js`, `ui/reo-pages.css`, `ui/index.html`, `ui/app.js`, `engine/src/server/server.ts`):**
+  - Added **Defects**, **Agents & Skills**, and **Plugins** views with CSP-strict DOM rendering and wired REST routes (`/api/reo/agents`, `/api/reo/route`, `/api/defects*`, `/api/plugins*`, `/api/team*`).
+- **Verification:** `npx.cmd tsc -p engine --noEmit` (0 errors), `node --experimental-strip-types --test engine/test/reo-platform.test.ts` (**3/3 passed**), `git diff --check` clean.
 
 ---
 
@@ -105,6 +219,31 @@
   - Live visual rendering of the updated QA Harness Control Room inside `npm run ui` across all 4 themes and widths.
   - End-to-end live execution of `createHybridDriver` / `executeJourneyDsl` / `exploreScreen` against a running `d:\SPIL AURA` window with `cua-driver` or WebView2 CDP.
 - **Next Action:** Start `npm run ui` in `D:\AURA - Guard`, verify the QA Harness Control Room visually, and run one live background check (`qa backend` and `qa explore home`) against a running Aura test instance on the Cobalt database.
+
+---
+
+## 100% React + Vite + Tailwind CSS v4 + shadcn/ui Frontend Replacement & Antigravity CLI Subscription (2026-11-27)
+
+- **Brand-New `web/` Frontend (`web/src/`, `web/dist/`):**
+  - Replaced the old `ui/` frontend with a complete React + Vite + Tailwind CSS v4 + shadcn/ui component system (`Button`, `Card`, `Badge`, `Input`, `Textarea`, `Select`, `Switch`, `Tabs`, `ResponsiveTable`, `Sheet`, `Message`, `Bubble`).
+  - Built all 8 views (`HomeView`, `WorkspaceView`, `QaLabView`, `DefectsView`, `AgentsView`, `PluginsView`, `KnowledgeView`, `SettingsView`) with Light/Dark/System theme switching (`public/theme-init.js` + `<meta name="color-scheme">` + zero inline scripts/styles for strict CSP).
+  - Updated `DEFAULT_UI_DIR` in `engine/src/server/server.ts` to serve `web/dist` (plus `/theme-init.js` and `/assets/*`), `src-tauri/tauri.conf.json` (`frontendDist: "../web/dist"`), and `package.json` (`web:build`, `ui`, `desktop`, `desktop:build`).
+- **Antigravity CLI Subscription Backend (`engine/src/brain/`):**
+  - Added `"antigravity-cli"` (`agy -p --output-format text --disable-slash-commands --mode plan`) to `backends.ts`, `models.ts`, `settings.ts`, `select.ts`, `roles/models.json`, `server/brain.ts`, and `SettingsView`.
+
+---
+
+## SPIL REO Platform Buildout: Multi-Agent Orchestrator, Defects/PDF, Plugins & Clean UI (2026-11-27)
+
+- **Rebrand & Landing/Workspace/How-It-Works Split:**
+  - Rebranded across `engine/src/brand.ts`, `ui/brand.js`, `ui/index.html`, `src-tauri/` (`spil-reo-desktop`, `com.spil.reo`), `defects.ts`, `server.ts`, `README.md`, and tests to **SPIL REO** (*Review · Evaluate · Optimize — Autonomous Engineering Intelligence, Powered by SPIL Labs*).
+  - `src-tauri/src/main.rs` boots directly to the Chat workspace (`/?t=<token>`); `#view-overview` shows the clean cosmic Landing page, and `#view-how` is a dedicated **How REO Works** page; removed `#mascot` robot and clutter cards from the empty chat view.
+- **Core Platform Modules (`engine/src/agents/registry.ts`, `tools/registry.ts`, `defects/store.ts`, `plugins/store.ts`):**
+  - Prebuilt 7-agent roster (`qa`, `qe`, `review`, `security`, `api`, `knowledge`, `report`) + `routeIntentToAgents` (Landing knowledge vs. Workspace automation handoff).
+  - Permission-tiered Tool Library (`BUILTIN_TOOLS`, 17 tools) + persistent Defect Store with SHA-256 deduplication, HTML/PDF report export (`.artifacts/reports/`), Plugins Hub (`composio`, `ms-teams`, `azure-devops`, `github`, `mcp-hub`), and MS Teams Team Directory + MessageCard payload builder.
+- **UI Pages & Server API (`ui/reo-pages.js`, `ui/reo-pages.css`, `ui/index.html`, `ui/app.js`, `engine/src/server/server.ts`):**
+  - Added **Defects**, **Agents & Skills**, and **Plugins** views with CSP-strict DOM rendering and wired REST routes (`/api/reo/agents`, `/api/reo/route`, `/api/defects*`, `/api/plugins*`, `/api/team*`).
+- **Verification:** `npx.cmd tsc -p engine --noEmit` (0 errors), `node --experimental-strip-types --test engine/test/reo-platform.test.ts` (**3/3 passed**), `git diff --check` clean.
 
 ---
 
@@ -170,6 +309,31 @@
 
 ---
 
+## 100% React + Vite + Tailwind CSS v4 + shadcn/ui Frontend Replacement & Antigravity CLI Subscription (2026-11-27)
+
+- **Brand-New `web/` Frontend (`web/src/`, `web/dist/`):**
+  - Replaced the old `ui/` frontend with a complete React + Vite + Tailwind CSS v4 + shadcn/ui component system (`Button`, `Card`, `Badge`, `Input`, `Textarea`, `Select`, `Switch`, `Tabs`, `ResponsiveTable`, `Sheet`, `Message`, `Bubble`).
+  - Built all 8 views (`HomeView`, `WorkspaceView`, `QaLabView`, `DefectsView`, `AgentsView`, `PluginsView`, `KnowledgeView`, `SettingsView`) with Light/Dark/System theme switching (`public/theme-init.js` + `<meta name="color-scheme">` + zero inline scripts/styles for strict CSP).
+  - Updated `DEFAULT_UI_DIR` in `engine/src/server/server.ts` to serve `web/dist` (plus `/theme-init.js` and `/assets/*`), `src-tauri/tauri.conf.json` (`frontendDist: "../web/dist"`), and `package.json` (`web:build`, `ui`, `desktop`, `desktop:build`).
+- **Antigravity CLI Subscription Backend (`engine/src/brain/`):**
+  - Added `"antigravity-cli"` (`agy -p --output-format text --disable-slash-commands --mode plan`) to `backends.ts`, `models.ts`, `settings.ts`, `select.ts`, `roles/models.json`, `server/brain.ts`, and `SettingsView`.
+
+---
+
+## SPIL REO Platform Buildout: Multi-Agent Orchestrator, Defects/PDF, Plugins & Clean UI (2026-11-27)
+
+- **Rebrand & Landing/Workspace/How-It-Works Split:**
+  - Rebranded across `engine/src/brand.ts`, `ui/brand.js`, `ui/index.html`, `src-tauri/` (`spil-reo-desktop`, `com.spil.reo`), `defects.ts`, `server.ts`, `README.md`, and tests to **SPIL REO** (*Review · Evaluate · Optimize — Autonomous Engineering Intelligence, Powered by SPIL Labs*).
+  - `src-tauri/src/main.rs` boots directly to the Chat workspace (`/?t=<token>`); `#view-overview` shows the clean cosmic Landing page, and `#view-how` is a dedicated **How REO Works** page; removed `#mascot` robot and clutter cards from the empty chat view.
+- **Core Platform Modules (`engine/src/agents/registry.ts`, `tools/registry.ts`, `defects/store.ts`, `plugins/store.ts`):**
+  - Prebuilt 7-agent roster (`qa`, `qe`, `review`, `security`, `api`, `knowledge`, `report`) + `routeIntentToAgents` (Landing knowledge vs. Workspace automation handoff).
+  - Permission-tiered Tool Library (`BUILTIN_TOOLS`, 17 tools) + persistent Defect Store with SHA-256 deduplication, HTML/PDF report export (`.artifacts/reports/`), Plugins Hub (`composio`, `ms-teams`, `azure-devops`, `github`, `mcp-hub`), and MS Teams Team Directory + MessageCard payload builder.
+- **UI Pages & Server API (`ui/reo-pages.js`, `ui/reo-pages.css`, `ui/index.html`, `ui/app.js`, `engine/src/server/server.ts`):**
+  - Added **Defects**, **Agents & Skills**, and **Plugins** views with CSP-strict DOM rendering and wired REST routes (`/api/reo/agents`, `/api/reo/route`, `/api/defects*`, `/api/plugins*`, `/api/team*`).
+- **Verification:** `npx.cmd tsc -p engine --noEmit` (0 errors), `node --experimental-strip-types --test engine/test/reo-platform.test.ts` (**3/3 passed**), `git diff --check` clean.
+
+---
+
 ## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
 
 - **Tauri 2 Desktop Shell (`src-tauri/`):**
@@ -200,6 +364,31 @@
 | Part | Files | State |
 |---
 
+## 100% React + Vite + Tailwind CSS v4 + shadcn/ui Frontend Replacement & Antigravity CLI Subscription (2026-11-27)
+
+- **Brand-New `web/` Frontend (`web/src/`, `web/dist/`):**
+  - Replaced the old `ui/` frontend with a complete React + Vite + Tailwind CSS v4 + shadcn/ui component system (`Button`, `Card`, `Badge`, `Input`, `Textarea`, `Select`, `Switch`, `Tabs`, `ResponsiveTable`, `Sheet`, `Message`, `Bubble`).
+  - Built all 8 views (`HomeView`, `WorkspaceView`, `QaLabView`, `DefectsView`, `AgentsView`, `PluginsView`, `KnowledgeView`, `SettingsView`) with Light/Dark/System theme switching (`public/theme-init.js` + `<meta name="color-scheme">` + zero inline scripts/styles for strict CSP).
+  - Updated `DEFAULT_UI_DIR` in `engine/src/server/server.ts` to serve `web/dist` (plus `/theme-init.js` and `/assets/*`), `src-tauri/tauri.conf.json` (`frontendDist: "../web/dist"`), and `package.json` (`web:build`, `ui`, `desktop`, `desktop:build`).
+- **Antigravity CLI Subscription Backend (`engine/src/brain/`):**
+  - Added `"antigravity-cli"` (`agy -p --output-format text --disable-slash-commands --mode plan`) to `backends.ts`, `models.ts`, `settings.ts`, `select.ts`, `roles/models.json`, `server/brain.ts`, and `SettingsView`.
+
+---
+
+## SPIL REO Platform Buildout: Multi-Agent Orchestrator, Defects/PDF, Plugins & Clean UI (2026-11-27)
+
+- **Rebrand & Landing/Workspace/How-It-Works Split:**
+  - Rebranded across `engine/src/brand.ts`, `ui/brand.js`, `ui/index.html`, `src-tauri/` (`spil-reo-desktop`, `com.spil.reo`), `defects.ts`, `server.ts`, `README.md`, and tests to **SPIL REO** (*Review · Evaluate · Optimize — Autonomous Engineering Intelligence, Powered by SPIL Labs*).
+  - `src-tauri/src/main.rs` boots directly to the Chat workspace (`/?t=<token>`); `#view-overview` shows the clean cosmic Landing page, and `#view-how` is a dedicated **How REO Works** page; removed `#mascot` robot and clutter cards from the empty chat view.
+- **Core Platform Modules (`engine/src/agents/registry.ts`, `tools/registry.ts`, `defects/store.ts`, `plugins/store.ts`):**
+  - Prebuilt 7-agent roster (`qa`, `qe`, `review`, `security`, `api`, `knowledge`, `report`) + `routeIntentToAgents` (Landing knowledge vs. Workspace automation handoff).
+  - Permission-tiered Tool Library (`BUILTIN_TOOLS`, 17 tools) + persistent Defect Store with SHA-256 deduplication, HTML/PDF report export (`.artifacts/reports/`), Plugins Hub (`composio`, `ms-teams`, `azure-devops`, `github`, `mcp-hub`), and MS Teams Team Directory + MessageCard payload builder.
+- **UI Pages & Server API (`ui/reo-pages.js`, `ui/reo-pages.css`, `ui/index.html`, `ui/app.js`, `engine/src/server/server.ts`):**
+  - Added **Defects**, **Agents & Skills**, and **Plugins** views with CSP-strict DOM rendering and wired REST routes (`/api/reo/agents`, `/api/reo/route`, `/api/defects*`, `/api/plugins*`, `/api/team*`).
+- **Verification:** `npx.cmd tsc -p engine --noEmit` (0 errors), `node --experimental-strip-types --test engine/test/reo-platform.test.ts` (**3/3 passed**), `git diff --check` clean.
+
+---
+
 ## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
 
 - **Tauri 2 Desktop Shell (`src-tauri/`):**
@@ -212,6 +401,31 @@
 
 ---|---
 
+## 100% React + Vite + Tailwind CSS v4 + shadcn/ui Frontend Replacement & Antigravity CLI Subscription (2026-11-27)
+
+- **Brand-New `web/` Frontend (`web/src/`, `web/dist/`):**
+  - Replaced the old `ui/` frontend with a complete React + Vite + Tailwind CSS v4 + shadcn/ui component system (`Button`, `Card`, `Badge`, `Input`, `Textarea`, `Select`, `Switch`, `Tabs`, `ResponsiveTable`, `Sheet`, `Message`, `Bubble`).
+  - Built all 8 views (`HomeView`, `WorkspaceView`, `QaLabView`, `DefectsView`, `AgentsView`, `PluginsView`, `KnowledgeView`, `SettingsView`) with Light/Dark/System theme switching (`public/theme-init.js` + `<meta name="color-scheme">` + zero inline scripts/styles for strict CSP).
+  - Updated `DEFAULT_UI_DIR` in `engine/src/server/server.ts` to serve `web/dist` (plus `/theme-init.js` and `/assets/*`), `src-tauri/tauri.conf.json` (`frontendDist: "../web/dist"`), and `package.json` (`web:build`, `ui`, `desktop`, `desktop:build`).
+- **Antigravity CLI Subscription Backend (`engine/src/brain/`):**
+  - Added `"antigravity-cli"` (`agy -p --output-format text --disable-slash-commands --mode plan`) to `backends.ts`, `models.ts`, `settings.ts`, `select.ts`, `roles/models.json`, `server/brain.ts`, and `SettingsView`.
+
+---
+
+## SPIL REO Platform Buildout: Multi-Agent Orchestrator, Defects/PDF, Plugins & Clean UI (2026-11-27)
+
+- **Rebrand & Landing/Workspace/How-It-Works Split:**
+  - Rebranded across `engine/src/brand.ts`, `ui/brand.js`, `ui/index.html`, `src-tauri/` (`spil-reo-desktop`, `com.spil.reo`), `defects.ts`, `server.ts`, `README.md`, and tests to **SPIL REO** (*Review · Evaluate · Optimize — Autonomous Engineering Intelligence, Powered by SPIL Labs*).
+  - `src-tauri/src/main.rs` boots directly to the Chat workspace (`/?t=<token>`); `#view-overview` shows the clean cosmic Landing page, and `#view-how` is a dedicated **How REO Works** page; removed `#mascot` robot and clutter cards from the empty chat view.
+- **Core Platform Modules (`engine/src/agents/registry.ts`, `tools/registry.ts`, `defects/store.ts`, `plugins/store.ts`):**
+  - Prebuilt 7-agent roster (`qa`, `qe`, `review`, `security`, `api`, `knowledge`, `report`) + `routeIntentToAgents` (Landing knowledge vs. Workspace automation handoff).
+  - Permission-tiered Tool Library (`BUILTIN_TOOLS`, 17 tools) + persistent Defect Store with SHA-256 deduplication, HTML/PDF report export (`.artifacts/reports/`), Plugins Hub (`composio`, `ms-teams`, `azure-devops`, `github`, `mcp-hub`), and MS Teams Team Directory + MessageCard payload builder.
+- **UI Pages & Server API (`ui/reo-pages.js`, `ui/reo-pages.css`, `ui/index.html`, `ui/app.js`, `engine/src/server/server.ts`):**
+  - Added **Defects**, **Agents & Skills**, and **Plugins** views with CSP-strict DOM rendering and wired REST routes (`/api/reo/agents`, `/api/reo/route`, `/api/defects*`, `/api/plugins*`, `/api/team*`).
+- **Verification:** `npx.cmd tsc -p engine --noEmit` (0 errors), `node --experimental-strip-types --test engine/test/reo-platform.test.ts` (**3/3 passed**), `git diff --check` clean.
+
+---
+
 ## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
 
 - **Tauri 2 Desktop Shell (`src-tauri/`):**
@@ -223,6 +437,31 @@
   - Updated product name to **AURA Sentinel**, documented Tauri 2 run/build commands, and added the Tech Stack & Architecture summary.
 
 ---|---
+
+## 100% React + Vite + Tailwind CSS v4 + shadcn/ui Frontend Replacement & Antigravity CLI Subscription (2026-11-27)
+
+- **Brand-New `web/` Frontend (`web/src/`, `web/dist/`):**
+  - Replaced the old `ui/` frontend with a complete React + Vite + Tailwind CSS v4 + shadcn/ui component system (`Button`, `Card`, `Badge`, `Input`, `Textarea`, `Select`, `Switch`, `Tabs`, `ResponsiveTable`, `Sheet`, `Message`, `Bubble`).
+  - Built all 8 views (`HomeView`, `WorkspaceView`, `QaLabView`, `DefectsView`, `AgentsView`, `PluginsView`, `KnowledgeView`, `SettingsView`) with Light/Dark/System theme switching (`public/theme-init.js` + `<meta name="color-scheme">` + zero inline scripts/styles for strict CSP).
+  - Updated `DEFAULT_UI_DIR` in `engine/src/server/server.ts` to serve `web/dist` (plus `/theme-init.js` and `/assets/*`), `src-tauri/tauri.conf.json` (`frontendDist: "../web/dist"`), and `package.json` (`web:build`, `ui`, `desktop`, `desktop:build`).
+- **Antigravity CLI Subscription Backend (`engine/src/brain/`):**
+  - Added `"antigravity-cli"` (`agy -p --output-format text --disable-slash-commands --mode plan`) to `backends.ts`, `models.ts`, `settings.ts`, `select.ts`, `roles/models.json`, `server/brain.ts`, and `SettingsView`.
+
+---
+
+## SPIL REO Platform Buildout: Multi-Agent Orchestrator, Defects/PDF, Plugins & Clean UI (2026-11-27)
+
+- **Rebrand & Landing/Workspace/How-It-Works Split:**
+  - Rebranded across `engine/src/brand.ts`, `ui/brand.js`, `ui/index.html`, `src-tauri/` (`spil-reo-desktop`, `com.spil.reo`), `defects.ts`, `server.ts`, `README.md`, and tests to **SPIL REO** (*Review · Evaluate · Optimize — Autonomous Engineering Intelligence, Powered by SPIL Labs*).
+  - `src-tauri/src/main.rs` boots directly to the Chat workspace (`/?t=<token>`); `#view-overview` shows the clean cosmic Landing page, and `#view-how` is a dedicated **How REO Works** page; removed `#mascot` robot and clutter cards from the empty chat view.
+- **Core Platform Modules (`engine/src/agents/registry.ts`, `tools/registry.ts`, `defects/store.ts`, `plugins/store.ts`):**
+  - Prebuilt 7-agent roster (`qa`, `qe`, `review`, `security`, `api`, `knowledge`, `report`) + `routeIntentToAgents` (Landing knowledge vs. Workspace automation handoff).
+  - Permission-tiered Tool Library (`BUILTIN_TOOLS`, 17 tools) + persistent Defect Store with SHA-256 deduplication, HTML/PDF report export (`.artifacts/reports/`), Plugins Hub (`composio`, `ms-teams`, `azure-devops`, `github`, `mcp-hub`), and MS Teams Team Directory + MessageCard payload builder.
+- **UI Pages & Server API (`ui/reo-pages.js`, `ui/reo-pages.css`, `ui/index.html`, `ui/app.js`, `engine/src/server/server.ts`):**
+  - Added **Defects**, **Agents & Skills**, and **Plugins** views with CSP-strict DOM rendering and wired REST routes (`/api/reo/agents`, `/api/reo/route`, `/api/defects*`, `/api/plugins*`, `/api/team*`).
+- **Verification:** `npx.cmd tsc -p engine --noEmit` (0 errors), `node --experimental-strip-types --test engine/test/reo-platform.test.ts` (**3/3 passed**), `git diff --check` clean.
+
+---
 
 ## Tauri 2 Native Desktop App & Documentation Restructure (2026-11-26)
 

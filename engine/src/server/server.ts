@@ -43,7 +43,14 @@ import { analyzeRefinementAndKbDrift } from "../qe/refine.ts";
 import { analyzeCommitTrajectory } from "../qe/trajectory.ts";
 import { getSkill, listSkills } from "../roles/skills.ts";
 import type { SkillCategory } from "../roles/skills.ts";
+import { PREBUILT_AGENTS, routeIntentToAgents } from "../agents/registry.ts";
+import { runAgenticMission } from "../agents/runner.ts";
+import { BUILTIN_TOOLS } from "../tools/registry.ts";
+import { generateDefectReportHtml, listDefects, saveDefectReportHtml, updateDefectStatus, upsertDefect } from "../defects/store.ts";
+import { buildTeamsDefectPayload, listPlugins, listTeamMembers, removeTeamMember, updatePlugin, upsertTeamMember } from "../plugins/store.ts";
+import type { PluginId } from "../plugins/store.ts";
 import { describeBackends } from "../brain/select.ts";
+import { effectiveBrain } from "../brain/settings.ts";
 import type { CompleteFn } from "../brain/client.ts";
 import type { GuardConfig } from "../types.ts";
 import { answer, MAX_QUESTION_CHARS } from "../chat/answer.ts";
@@ -63,7 +70,9 @@ export const COOKIE_NAME = "guard_token";
 /** The slash-menu data and the backend probe are cached this long (probing runs `claude`). */
 const BACKEND_CACHE_MS = 30_000;
 
-export const DEFAULT_UI_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "ui");
+const ROOT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const WEB_DIST_DIR = join(ROOT_DIR, "web", "dist");
+export const DEFAULT_UI_DIR = existsSync(join(WEB_DIST_DIR, "index.html")) ? WEB_DIST_DIR : join(ROOT_DIR, "ui");
 
 /** The only files that are served, by URL. Nothing else under ui/ is reachable. */
 export const STATIC_FILES: Record<string, { file: string; type: string }> = {
@@ -82,6 +91,7 @@ export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/favicon.ico": { file: "favicon.ico", type: "image/x-icon" },
   "/themes.css": { file: "themes.css", type: "text/css; charset=utf-8" },
   "/theme.js": { file: "theme.js", type: "text/javascript; charset=utf-8" },
+  "/theme-init.js": { file: "theme-init.js", type: "text/javascript; charset=utf-8" },
   "/pair.css": { file: "pair.css", type: "text/css; charset=utf-8" },
   "/process.js": { file: "process.js", type: "text/javascript; charset=utf-8" },
   "/hero.js": { file: "hero.js", type: "text/javascript; charset=utf-8" },
@@ -100,6 +110,8 @@ export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/qa-harness.css": { file: "qa-harness.css", type: "text/css; charset=utf-8" },
   "/settings.js": { file: "settings.js", type: "text/javascript; charset=utf-8" },
   "/settings.css": { file: "settings.css", type: "text/css; charset=utf-8" },
+  "/reo-pages.js": { file: "reo-pages.js", type: "text/javascript; charset=utf-8" },
+  "/reo-pages.css": { file: "reo-pages.css", type: "text/css; charset=utf-8" },
 };
 
 export const CSP = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'";
@@ -107,9 +119,9 @@ export const CSP = "default-src 'self'; style-src 'self'; script-src 'self'; img
 /** Files the "Open Guard" page may load before a browser is paired: colours and the icon only. */
 const PUBLIC_FILES = new Set(["/themes.css", "/pair.css", "/favicon.svg", "/favicon-32.png"]);
 
-const PAIR_PAGE = `<!doctype html><html lang="en" data-style="noir" data-mode="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AURA Sentinel</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/themes.css"><link rel="stylesheet" href="/pair.css"></head><body><main class="pair"><img class="pair-logo" src="/favicon.svg" alt="" width="64" height="64"><h1>AURA Sentinel</h1><p>This browser tab is not paired with the running Guard yet. Press the button to open Guard here. Nothing is saved to your company systems; Guard only reads and suggests.</p><a class="pair-btn" href="/pair">Open Guard</a><p class="pair-small">If the button does not work, start Guard again with <code>npm run ui</code> and use the window that opens.</p></main></body></html>`;
+const PAIR_PAGE = `<!doctype html><html lang="en" data-style="noir" data-mode="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SPIL REO</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/themes.css"><link rel="stylesheet" href="/pair.css"></head><body><main class="pair"><img class="pair-logo" src="/favicon.svg" alt="" width="64" height="64"><h1>SPIL REO</h1><p>REVIEW · EVALUATE · OPTIMIZE — Autonomous Engineering Intelligence, Powered by SPIL Labs. Press the button to open SPIL REO here.</p><a class="pair-btn" href="/pair">Open SPIL REO</a><p class="pair-small">If the button does not work, start SPIL REO again with <code>npm run desktop</code> or <code>npm run ui</code>.</p></main></body></html>`;
 
-export interface BackendInfo { wanted: string; picked: string | null; label: string }
+export interface BackendInfo { wanted: string; picked: string | null; label: string; model?: string }
 
 export interface ServerDeps {
   token: string;
@@ -125,14 +137,21 @@ export interface ServerDeps {
 }
 
 export function backendLabel(id: string | null): string {
+  if (id === "antigravity-cli") return "Antigravity plan";
   if (id === "claude-cli") return "Claude plan";
   if (id === "anthropic-api") return "API key";
   return "No model";
 }
 
 async function defaultBackendInfo(cfg: GuardConfig): Promise<BackendInfo> {
+  const eff = effectiveBrain(cfg);
   const d = await describeBackends(cfg);
-  return { wanted: d.wanted, picked: d.picked, label: backendLabel(d.picked) };
+  const model =
+    d.picked === "anthropic-api" || d.picked === "claude-cli" || d.picked === "antigravity-cli"
+      ? eff.models[d.picked].id
+      : undefined;
+  const base = backendLabel(d.picked);
+  return { wanted: d.wanted, picked: d.picked, label: model ? `${base} (${model})` : base, ...(model ? { model } : {}) };
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -212,7 +231,10 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
 
   async function api(req: IncomingMessage, res: ServerResponse, path: string, method: string): Promise<void> {
     // Model and key settings are machine-wide. A stray `dept` parameter from an older page is ignored.
-    if (await handleBrainRoute({ req, res, path, method, cfg, ...(deps.brain ? { options: deps.brain } : {}) })) return;
+    if (await handleBrainRoute({ req, res, path, method, cfg, ...(deps.brain ? { options: deps.brain } : {}) })) {
+      if (method !== "GET") backendCache = null;
+      return;
+    }
     const dcfg = cfg;
     if (path === "/api/status" && method === "GET") {
       const index = await withIndex((db) => {
@@ -664,6 +686,172 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       }));
     }
 
+    if (path === "/api/reo/agents" && method === "GET") {
+      return json(res, 200, { agents: PREBUILT_AGENTS, tools: BUILTIN_TOOLS });
+    }
+
+    if (path === "/api/reo/system" && method === "GET") {
+      const { notes, problems } = loadVault(dcfg.vaultDir);
+      return json(res, 200, {
+        repos: dcfg.repos.map((r) => ({ id: r.id, label: r.module || r.id, path: r.path })),
+        vaultNotes: notes.length,
+        vaultProblems: problems.length,
+        skillsCount: listSkills(dcfg.root).length,
+        defectsCount: listDefects(dcfg.dataDir).length,
+        guardrails: {
+          readOnlyRepos: true,
+          maskingGate: "100% synthetic block",
+          localOnlyProbes: true,
+          erpWritesBlocked: true,
+        },
+      });
+    }
+
+    if (path === "/api/reo/notes" && method === "GET") {
+      const { notes } = loadVault(dcfg.vaultDir);
+      return json(res, 200, {
+        notes: notes.map((n) => ({
+          id: n.meta.id,
+          title: n.meta.title || n.meta.id,
+          type: n.meta.type,
+          status: n.meta.status,
+          audience: n.meta.audience,
+          ref: n.meta.id,
+          anchors: n.meta.code_anchors?.length ?? 0,
+        })),
+      });
+    }
+
+    if (path === "/api/reo/route" && method === "POST") {
+      const body = await readJson(req);
+      const prompt = typeof body["prompt"] === "string" ? body["prompt"] : "";
+      return json(res, 200, routeIntentToAgents(prompt));
+    }
+
+    if (path === "/api/reo/mission" && method === "POST") {
+      const body = await readJson(req);
+      const prompt = typeof body["prompt"] === "string" ? body["prompt"].trim() : "";
+      if (!prompt) throw new HttpError(400, "prompt is required.");
+      res.writeHead(200, { "Content-Type": NDJSON, "Cache-Control": "no-store" });
+      await runAgenticMission(dcfg, prompt, (ev) => {
+        if (!res.writableEnded) res.write(JSON.stringify(ev) + "\n");
+      });
+      return void res.end();
+    }
+
+    if (path === "/api/defects" && method === "GET") {
+      return json(res, 200, { defects: listDefects(dcfg.dataDir) });
+    }
+
+    if (path === "/api/defects" && method === "POST") {
+      const body = await readJson(req);
+      const title = typeof body["title"] === "string" ? body["title"].trim() : "";
+      if (!title) throw new HttpError(400, "Defect title is required.");
+      const rec = upsertDefect(dcfg.dataDir, {
+        appName: typeof body["appName"] === "string" ? body["appName"] : "SPIL AURA",
+        branch: typeof body["branch"] === "string" ? body["branch"] : "development",
+        commitSha: typeof body["commitSha"] === "string" ? body["commitSha"] : "",
+        testedDate: typeof body["testedDate"] === "string" ? body["testedDate"] : undefined,
+        testedBy: typeof body["testedBy"] === "string" ? body["testedBy"] : "QA Engineer",
+        assignedTo: typeof body["assignedTo"] === "string" ? body["assignedTo"] : "",
+        agentSource: (["qa", "review", "security", "api", "qe"].includes(String(body["agentSource"])) ? body["agentSource"] : "qa") as "qa" | "review" | "security" | "api" | "qe",
+        severity: (["critical", "high", "medium", "low"].includes(String(body["severity"])) ? body["severity"] : "medium") as "critical" | "high" | "medium" | "low",
+        title,
+        expected: typeof body["expected"] === "string" ? body["expected"] : "",
+        actual: typeof body["actual"] === "string" ? body["actual"] : "",
+        reproSteps: Array.isArray(body["reproSteps"]) ? body["reproSteps"].map(String) : [],
+        codeSuggestion: typeof body["codeSuggestion"] === "string" ? body["codeSuggestion"] : "",
+        fileRef: typeof body["fileRef"] === "string" ? body["fileRef"] : "",
+        evidencePaths: Array.isArray(body["evidencePaths"]) ? body["evidencePaths"].map(String) : [],
+      });
+      return json(res, 200, { defect: rec });
+    }
+
+    if (path === "/api/defects/report" && method === "POST") {
+      const body = await readJson(req);
+      const ids = Array.isArray(body["ids"]) ? body["ids"].map(String) : null;
+      const all = listDefects(dcfg.dataDir);
+      const filtered = ids && ids.length ? all.filter((d) => ids.includes(d.id)) : all;
+      const html = generateDefectReportHtml(filtered, {
+        appName: typeof body["appName"] === "string" ? body["appName"] : undefined,
+        branch: typeof body["branch"] === "string" ? body["branch"] : undefined,
+        generatedBy: typeof body["generatedBy"] === "string" ? body["generatedBy"] : undefined,
+      });
+      const outPath = saveDefectReportHtml(dcfg.root, html, typeof body["branch"] === "string" ? body["branch"] : "defects");
+      return json(res, 200, { ok: true, path: outPath, html });
+    }
+
+    if (path === "/api/defects/notify-teams" && method === "POST") {
+      const body = await readJson(req);
+      const recipientName = typeof body["recipientName"] === "string" && body["recipientName"].trim() ? body["recipientName"].trim() : "Engineering Team";
+      const note = typeof body["note"] === "string" ? body["note"] : "";
+      const ids = Array.isArray(body["ids"]) ? body["ids"].map(String) : [];
+      const all = listDefects(dcfg.dataDir);
+      const picked = ids.length ? all.filter((d) => ids.includes(d.id)) : all.slice(0, 10);
+      const payload = buildTeamsDefectPayload({ recipientName, note, defects: picked });
+      const webhookUrl = typeof body["webhookUrl"] === "string" ? body["webhookUrl"].trim() : "";
+      const confirmed = body["confirmed"] === true;
+      if (confirmed && webhookUrl.startsWith("https://")) {
+        const resp = await fetch(webhookUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        if (!resp.ok) throw new HttpError(502, `Teams webhook returned HTTP ${resp.status}.`);
+        const now = new Date().toISOString();
+        for (const d of picked) updateDefectStatus(dcfg.dataDir, d.id, { status: "notified", sentTeamsAt: now });
+        return json(res, 200, { ok: true, sent: true, count: picked.length, payload });
+      }
+      return json(res, 200, { ok: true, sent: false, preview: payload });
+    }
+
+    const defectMatch = /^\/api\/defects\/([^/]+)$/.exec(path);
+    if (defectMatch && method === "PATCH") {
+      const body = await readJson(req);
+      const id = decodeURIComponent(defectMatch[1] || "");
+      const updated = updateDefectStatus(dcfg.dataDir, id, {
+        status: typeof body["status"] === "string" ? (body["status"] as "open" | "triaged" | "notified" | "fixed" | "false_positive") : undefined,
+        assignedTo: typeof body["assignedTo"] === "string" ? body["assignedTo"] : undefined,
+      });
+      if (!updated) throw new HttpError(404, "Defect not found.");
+      return json(res, 200, { defect: updated });
+    }
+
+    if (path === "/api/plugins" && method === "GET") {
+      return json(res, 200, { plugins: listPlugins(dcfg.dataDir), team: listTeamMembers(dcfg.dataDir) });
+    }
+
+    const pluginMatch = /^\/api\/plugins\/([^/]+)$/.exec(path);
+    if (pluginMatch && method === "PUT") {
+      const body = await readJson(req);
+      const id = decodeURIComponent(pluginMatch[1] || "") as PluginId;
+      const updated = updatePlugin(dcfg.dataDir, id, {
+        enabled: typeof body["enabled"] === "boolean" ? body["enabled"] : undefined,
+        endpoint: typeof body["endpoint"] === "string" ? body["endpoint"].trim() : undefined,
+        scope: body["scope"] === "notify" || body["scope"] === "read_only" ? body["scope"] : undefined,
+        hasCredential: typeof body["hasCredential"] === "boolean" ? body["hasCredential"] : undefined,
+      });
+      if (!updated) throw new HttpError(404, "Plugin not found.");
+      return json(res, 200, { plugin: updated });
+    }
+
+    if (path === "/api/team" && method === "POST") {
+      const body = await readJson(req);
+      const name = typeof body["name"] === "string" ? body["name"].trim() : "";
+      if (!name) throw new HttpError(400, "Engineer name is required.");
+      const member = upsertTeamMember(dcfg.dataDir, {
+        id: typeof body["id"] === "string" ? body["id"] : undefined,
+        name,
+        email: typeof body["email"] === "string" ? body["email"] : "",
+        gitAlias: typeof body["gitAlias"] === "string" ? body["gitAlias"] : "",
+        role: typeof body["role"] === "string" ? body["role"] : "Engineer",
+        teamsWebhookOrId: typeof body["teamsWebhookOrId"] === "string" ? body["teamsWebhookOrId"] : "",
+      });
+      return json(res, 200, { member });
+    }
+
+    const teamMatch = /^\/api\/team\/([^/]+)$/.exec(path);
+    if (teamMatch && method === "DELETE") {
+      const id = decodeURIComponent(teamMatch[1] || "");
+      return json(res, 200, { removed: removeTeamMember(dcfg.dataDir, id) });
+    }
+
     if (path === "/api/qa/artifact" && method === "GET") {
       const p = new URL(req.url ?? "/", "http://x").searchParams.get("path") ?? "";
       const hit = safeQaScreenshotPath(dcfg, p);
@@ -763,6 +951,26 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
           const file = join(uiDir, entry.file);
           if (!existsSync(file)) return fail(404, "Not found.");
           res.writeHead(200, { "Content-Type": entry.type });
+          return void res.end(method === "HEAD" ? undefined : readFileSync(file));
+        }
+        const assetMatch = /^\/assets\/([A-Za-z0-9._-]+)$/.exec(url.pathname);
+        if (assetMatch && (method === "GET" || method === "HEAD")) {
+          const name = assetMatch[1] ?? "";
+          const file = join(uiDir, "assets", name);
+          if (!existsSync(file)) return fail(404, "Not found.");
+          const lower = name.toLowerCase();
+          const type = lower.endsWith(".js")
+            ? "text/javascript; charset=utf-8"
+            : lower.endsWith(".css")
+              ? "text/css; charset=utf-8"
+              : lower.endsWith(".svg")
+                ? "image/svg+xml"
+                : lower.endsWith(".png")
+                  ? "image/png"
+                  : lower.endsWith(".woff2")
+                    ? "font/woff2"
+                    : "application/octet-stream";
+          res.writeHead(200, { "Content-Type": type });
           return void res.end(method === "HEAD" ? undefined : readFileSync(file));
         }
         return fail(404, "Not found.");

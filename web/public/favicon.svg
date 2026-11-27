@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="AURA Sentinel">
+  <defs>
+    <linearGradient id="tile" x1="28" y1="8" x2="232" y2="252" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8f74ff"/>
+      <stop offset=".55" stop-color="#5a46f0"/>
+      <stop offset="1" stop-color="#1f6bf2"/>
+    </linearGradient>
+    <radialGradient id="sky" cx="128" cy="-10" r="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".55"/>
+      <stop offset=".6" stop-color="#ffffff" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="aurora" x1="30" y1="0" x2="226" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7ee8ff" stop-opacity="0"/>
+      <stop offset=".35" stop-color="#8ef0ff" stop-opacity=".95"/>
+      <stop offset=".7" stop-color="#c8b6ff" stop-opacity=".95"/>
+      <stop offset="1" stop-color="#c8b6ff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="128" y1="48" x2="128" y2="212" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#d9e2ff"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="100" y1="96" x2="156" y2="176" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6a4df0"/>
+      <stop offset="1" stop-color="#2a63e8"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="128" y1="8" x2="128" y2="248" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".55"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#0a1a6a" stop-opacity=".35"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-60%" width="140%" height="220%"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <filter id="drop" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#0b1470" flood-opacity=".45"/></filter>
+    <clipPath id="clip"><rect x="8" y="8" width="240" height="240" rx="58"/></clipPath>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="58" fill="url(#tile)"/>
+  <g clip-path="url(#clip)">
+    <rect x="8" y="8" width="240" height="240" fill="url(#sky)"/>
+    <path d="M22 112 C70 24 186 24 234 112" fill="none" stroke="url(#aurora)" stroke-width="16" stroke-linecap="round" filter="url(#soft)"/>
+    <path d="M22 112 C70 24 186 24 234 112" fill="none" stroke="url(#aurora)" stroke-width="3.5" stroke-linecap="round"/>
+  </g>
+  <path d="M128 52 L188 76 V128 C188 166 163 192 128 210 C93 192 68 166 68 128 V76 Z" fill="url(#shield)" filter="url(#drop)"/>
+  <path d="M104 170 L128 100 L152 170 M113 146 H143" fill="none" stroke="url(#ink)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="9.5" y="9.5" width="237" height="237" rx="56.5" fill="none" stroke="url(#edge)" stroke-width="3"/>
+</svg>

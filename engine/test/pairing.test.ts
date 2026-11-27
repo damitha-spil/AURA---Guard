@@ -42,7 +42,7 @@ test("an unpaired page without browser headers gets a friendly HTML page, not JS
     const r = await get(s.port, "/");
     assert.equal(r.status, 401);
     assert.match(String(r.headers["content-type"]), /text\/html/);
-    assert.match(r.body, /Open Guard/);
+    assert.match(r.body, /Open SPIL REO/);
     assert.ok(!r.body.trim().startsWith("{"), "no raw JSON");
     assert.equal(r.headers["set-cookie"], undefined, "no cookie is given");
     assert.equal(r.headers["x-frame-options"], "DENY");
@@ -106,13 +106,13 @@ test("a wrong or old token, or an old cookie, never shows raw JSON to a page nav
     const wrong = await get(s.port, `/?t=${"0".repeat(48)}`, { ...NAV, "sec-fetch-site": "cross-site" });
     assert.equal(wrong.status, 401);
     assert.match(String(wrong.headers["content-type"]), /text\/html/);
-    assert.match(wrong.body, /Open Guard/);
+    assert.match(wrong.body, /Open SPIL REO/);
     assert.equal(wrong.headers["set-cookie"], undefined, "a wrong token pairs nothing");
     const typed = await get(s.port, `/?t=${"0".repeat(48)}`, { ...NAV, "sec-fetch-site": "none" });
     assert.equal(typed.status, 302, "a typed or bookmarked address with an old token still pairs (user navigation)");
     const stale = await get(s.port, "/", { ...NAV, "sec-fetch-site": "same-origin", Cookie: `${COOKIE_NAME}=${"1".repeat(48)}` });
     assert.equal(stale.status, 401);
-    assert.match(stale.body, /Open Guard/);
+    assert.match(stale.body, /Open SPIL REO/);
     const other = await get(s.port, "/anything.html", { ...NAV, "sec-fetch-site": "none" });
     assert.match(String(other.headers["content-type"]), /text\/html/, "any page navigation gets the friendly page");
     const api = await get(s.port, "/api/status", { "sec-fetch-dest": "empty", "sec-fetch-mode": "cors", "sec-fetch-site": "same-origin" });

@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 
-/** The two backends a model can be chosen for. Same ids as select.ts BACKEND_IDS. */
-export const MODEL_BACKENDS = ["anthropic-api", "claude-cli"] as const;
+/** The backends a model can be chosen for. Same ids as select.ts BACKEND_IDS. */
+export const MODEL_BACKENDS = ["anthropic-api", "claude-cli", "antigravity-cli"] as const;
 export type ModelBackend = (typeof MODEL_BACKENDS)[number];
 
 /**
@@ -43,6 +43,27 @@ export const BUILTIN_MODELS: ModelEntry[] = [
   { id: "sonnet", label: "Sonnet (plan)", note: "Balanced. The default for the Claude plan.", backends: ["claude-cli"], default: true },
   { id: "opus", label: "Opus (plan)", note: "Most capable. Slower, and uses more of your plan allowance.", backends: ["claude-cli"] },
   { id: "haiku", label: "Haiku (plan)", note: "Fastest, and uses the least of your plan allowance.", backends: ["claude-cli"] },
+  { id: "gemini-4-neon-medium", label: "Gemini 4 Neon (Medium)", note: "Balanced speed and reasoning. The default for Antigravity.", backends: ["antigravity-cli"], default: true },
+  { id: "gemini-4-neon-low", label: "Gemini 4 Neon (Low)", note: "Fastest Gemini 4 Neon effort level for quick checks.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-neon-high", label: "Gemini 4 Neon (High)", note: "Higher-effort Gemini 4 Neon reasoning.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-neon-xhigh", label: "Gemini 4 Neon (XHigh)", note: "Maximum-effort Gemini 4 Neon reasoning.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-hydrogen-medium", label: "Gemini 4 Hydrogen (Medium)", note: "Deeper multi-step reasoning on Antigravity.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-hydrogen-low", label: "Gemini 4 Hydrogen (Low)", note: "Fast Gemini 4 Hydrogen reasoning.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-hydrogen-high", label: "Gemini 4 Hydrogen (High)", note: "High-effort Gemini 4 Hydrogen reasoning.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-hydrogen-xhigh", label: "Gemini 4 Hydrogen (XHigh)", note: "Maximum-effort Gemini 4 Hydrogen reasoning.", backends: ["antigravity-cli"] },
+  { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)", note: "Ultra-fast Gemini 3.8 Flash balanced effort.", backends: ["antigravity-cli"] },
+  { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)", note: "Lowest-latency Gemini 3.8 Flash responses.", backends: ["antigravity-cli"] },
+  { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", note: "High-effort Gemini 3.8 Flash reasoning.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-carbon-medium", label: "Gemini 4 Carbon (Medium)", note: "High-capacity Gemini 4 Carbon balanced effort.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-carbon-low", label: "Gemini 4 Carbon (Low)", note: "Fast Gemini 4 Carbon effort level.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-carbon-high", label: "Gemini 4 Carbon (High)", note: "High-effort Gemini 4 Carbon reasoning.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-argon-medium", label: "Gemini 4 Argon (Medium)", note: "Gemini 4 Argon balanced effort.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-argon-low", label: "Gemini 4 Argon (Low)", note: "Fast Gemini 4 Argon effort level.", backends: ["antigravity-cli"] },
+  { id: "gemini-4-argon-high", label: "Gemini 4 Argon (High)", note: "High-effort Gemini 4 Argon reasoning.", backends: ["antigravity-cli"] },
+  { id: "claude-sonnet-5-5-medium", label: "Claude Sonnet 5.5 (Medium)", note: "Claude Sonnet 5.5 via your Antigravity subscription.", backends: ["antigravity-cli"] },
+  { id: "claude-sonnet-5-5-high", label: "Claude Sonnet 5.5 (High)", note: "High-effort Claude Sonnet 5.5 via Antigravity.", backends: ["antigravity-cli"] },
+  { id: "claude-opus-5-5-medium", label: "Claude Opus 5.5 (Medium)", note: "Claude Opus 5.5 via your Antigravity subscription.", backends: ["antigravity-cli"] },
+  { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)", note: "Open-weight 120B model via Antigravity.", backends: ["antigravity-cli"] },
 ];
 
 const entrySchema = z.object({

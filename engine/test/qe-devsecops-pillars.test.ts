@@ -181,7 +181,7 @@ test("QA Pillar 4: Defect fingerprinting deduplicates reruns and builds Bug Shee
     assert.ok(existsSync(sheet.paths.jsonPath));
     assert.ok(existsSync(sheet.paths.markdownPath));
     assert.ok(existsSync(sheet.paths.csvPath));
-    assert.match(sheet.prWarningMarkdown, /AURA Sentinel PR Warning/);
+    assert.match(sheet.prWarningMarkdown, /SPIL REO PR Warning/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -4,7 +4,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { GuardConfig } from "../types.ts";
-import { CLAUDE_INSTALL_HELP, findClaude, runProgram, VERSION_TIMEOUT_MS } from "../brain/backends.ts";
+import { CLAUDE_INSTALL_HELP, discoverAgyModels, findClaude, runProgram, VERSION_TIMEOUT_MS } from "../brain/backends.ts";
 import type { Launcher } from "../brain/backends.ts";
 import { loadCatalogue } from "../brain/models.ts";
 import { createKeyStore, KeyStoreError, scrubSecrets, validateApiKey } from "../brain/keystore.ts";
@@ -34,7 +34,11 @@ export interface BrainRouteCtx {
   options?: BrainRouteOptions;
 }
 
-const LABELS: Record<string, string> = { "anthropic-api": "Anthropic API key", "claude-cli": "Claude plan (Claude Code)" };
+const LABELS: Record<string, string> = {
+  "anthropic-api": "Anthropic API key",
+  "claude-cli": "Claude plan (Claude Code)",
+  "antigravity-cli": "Antigravity plan (Antigravity CLI)",
+};
 const TEST_TOKENS = 20;
 
 class RouteError extends Error {
@@ -92,18 +96,41 @@ export async function brainView(cfg: GuardConfig, o: BrainRouteOptions = {}) {
   const keys = keyStoreFor(cfg, o);
   const status = await keys.status();
   const storage = await keys.storage();
+  const catalogue = [...loadCatalogue(cfg.root)];
+  const liveAgy = await discoverAgyModels({
+    ...(o.env ? { env: o.env } : {}),
+    ...(o.home ? { home: o.home } : {}),
+    ...(o.launcher !== undefined ? { launcher: o.launcher } : {}),
+  });
+  for (const { id, label } of liveAgy) {
+    if (!catalogue.some((m) => m.id === id && m.backends.includes("antigravity-cli"))) {
+      catalogue.push({ id, label, note: "Available on your Antigravity CLI subscription.", backends: ["antigravity-cli"] });
+    }
+  }
+  const activeModel =
+    d.picked === "anthropic-api" || d.picked === "claude-cli" || d.picked === "antigravity-cli"
+      ? eff.models[d.picked].id
+      : "";
   return {
     wanted: d.wanted,
     wantedSource: eff.backendSource,
     picked: d.picked,
     reason: d.picked
-      ? `Guard will use ${LABELS[d.picked] ?? d.picked}.`
-      : "No model is ready. Save an API key, or sign in to Claude Code.",
+      ? `Guard will use ${LABELS[d.picked] ?? d.picked}${activeModel ? ` (${activeModel})` : ""}.`
+      : "No model is ready. Save an API key, or sign in to Claude Code or Antigravity CLI.",
     backends: d.rows.map((r) => ({ id: r.id, kind: r.kind, label: LABELS[r.id] ?? r.id, available: r.status.ok, detail: r.status.detail })),
     models: {
-      current: { "anthropic-api": eff.models["anthropic-api"].id, "claude-cli": eff.models["claude-cli"].id },
-      sources: { "anthropic-api": eff.models["anthropic-api"].source, "claude-cli": eff.models["claude-cli"].source },
-      catalogue: loadCatalogue(cfg.root),
+      current: {
+        "anthropic-api": eff.models["anthropic-api"].id,
+        "claude-cli": eff.models["claude-cli"].id,
+        "antigravity-cli": eff.models["antigravity-cli"].id,
+      },
+      sources: {
+        "anthropic-api": eff.models["anthropic-api"].source,
+        "claude-cli": eff.models["claude-cli"].source,
+        "antigravity-cli": eff.models["antigravity-cli"].source,
+      },
+      catalogue,
     },
     apiKey: { source: status.source, storage, canStore: storage !== null },
     planCli: await planCli(o),
@@ -127,12 +154,12 @@ async function runTest(cfg: GuardConfig, o: BrainRouteOptions, keys: KeyStore) {
       maxTokens: TEST_TOKENS,
     });
     backend = brain?.backendUsed() ?? backend;
-    const model = backend === "anthropic-api" || backend === "claude-cli" ? eff.models[backend].id : "";
+    const model = backend === "anthropic-api" || backend === "claude-cli" || backend === "antigravity-cli" ? eff.models[backend].id : "";
     const ok = /\bok\b/i.test(r.text);
     return { ok, backend, model, ms: Date.now() - t0, ...(ok ? {} : { error: "The model answered, but not with the expected word." }) };
   } catch (e) {
     const brain = backend;
-    const model = brain === "anthropic-api" || brain === "claude-cli" ? eff.models[brain].id : "";
+    const model = brain === "anthropic-api" || brain === "claude-cli" || brain === "antigravity-cli" ? eff.models[brain].id : "";
     const text = scrubSecrets(e instanceof Error ? e.message : "The test failed.", await keys.secretsForScrub()).slice(0, 400);
     return { ok: false, backend: brain, model, ms: Date.now() - t0, error: text };
   }

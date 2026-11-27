@@ -11,6 +11,7 @@ import { mountSettings } from "/settings.js";
 import { QA_LABEL, routeSlash, qaSlashItems, chipAction, usedChip, isQaMessage, qaInitial, reduceQaEvent, qaFromJson, qaSummary, qaTotalMs, qaErrorInfo, progressNote, announceBucket, findReportPath } from "/qa.js";
 import { renderQaCard, renderNeedsInput, markAskUsed } from "/qa-view.js";
 import { createQaHarnessController } from "/qa-harness-view.js";
+import { mountReoPages } from "/reo-pages.js";
 
 const KIND_LABEL = { note: "Note", commit: "Commit", file: "File", context: "Context" };
 const KIND_ICON = {
@@ -273,7 +274,7 @@ function paintStatus() {
   $("gbar-dot").className = "status-dot " + (state.status ? s.tone : "bad");
   $("gbar-conn-text").textContent = state.status ? "Engine connected" : "Engine not reachable";
   paintHero();
-  if (state.view === "overview") overviewView.paint();
+  if (state.view === "how") overviewView.paint();
   $("status-toggle").title = `Project status. ${s.title}`;
   for (const f of document.querySelectorAll(".empty-facts")) fillFacts(f);
   if (!$("status-detail").hidden) renderStatusPanel();
@@ -562,15 +563,6 @@ function messageShell(role, m) {
   if (role === "user") av.appendChild(el("span", "user-initial", "Y"));
   else {
     av.appendChild(mark("idle"));
-    const NSV = "http://www.w3.org/2000/svg";
-    const bot = document.createElementNS(NSV, "svg");
-    bot.setAttribute("class", "robot robot-sm");
-    bot.setAttribute("viewBox", "-30 -12 260 286");
-    bot.setAttribute("aria-hidden", "true");
-    const use = document.createElementNS(NSV, "use");
-    use.setAttribute("href", "#robot-sym");
-    bot.appendChild(use);
-    av.appendChild(bot);
   }
   const top = el("div", "msg-top");
   top.append(el("span", "msg-role", role === "user" ? "You" : PRODUCT_SHORT), el("span", "msg-meta", m ? metaText(m) : ""));
@@ -802,19 +794,11 @@ function featRow(title, meta, onClick) {
   return b;
 }
 
-/** The empty chat: a short headline, quick actions, three cards of real project facts, and the suggestion list. */
+/** The empty chat: a clean headline, quick actions, three cards of real project facts, and the suggestion list. */
 function emptyState() {
   const box = el("div", "empty");
-  const NSV = "http://www.w3.org/2000/svg";
-  const bot = document.createElementNS(NSV, "svg");
-  bot.setAttribute("class", "robot");
-  bot.setAttribute("id", "mascot");
-  bot.setAttribute("viewBox", "-30 -12 260 286");
-  bot.setAttribute("aria-hidden", "true");
-  const use = document.createElementNS(NSV, "use");
-  use.setAttribute("href", "#robot-sym");
-  bot.appendChild(use);
-  box.append(bot);
+  const badge = el("div", "reo-pill", "SPIL REO · REVIEW · EVALUATE · OPTIMIZE");
+  box.append(badge);
   const h = el("h2", "empty-title");
   h.append("Ask your ", el("strong", "", "codebase"), ", get ", el("strong", "", "sources"));
   box.append(h);
@@ -838,95 +822,6 @@ function emptyState() {
     qp("Show work", "violet", ICON.list, () => $("pill-work").click(), "work"),
   );
   box.appendChild(quick);
-
-  const ov = state.overview;
-  const feats = el("div", "feats");
-  const proj = featCard("feat-dark", "Project");
-  const s = state.summary;
-  proj.append(el("p", "feat-big", PROJECT_NAME));
-  proj.append(el("p", "feat-sub", s && s.index ? s.index.label.replace(/. It is getting old.$/, "") : "The index has not been built yet"));
-  if (s && s.counts) proj.append(el("p", "feat-sub", [["notes", s.counts.notes], ["commits", s.counts.commits], ["files", s.counts.files]].filter(([, n]) => n).map(([w, n]) => `${n.toLocaleString("en")} ${w}`).join(" · ")));
-  const ask = el("button", "feat-cta", "Ask what changed");
-  ask.type = "button";
-  ask.addEventListener("click", () => send("What changed in the last few days?"));
-  proj.append(ask);
-
-  const runs = featCard("feat-runs", "Latest QA runs", "View all", () => setView("qa"));
-  const list = ov && ov.qa ? ov.qa.recent.slice(0, 3) : [];
-  if (list.length) for (const r of list) runs.append(featRow(r.request || r.id, r.passRate === null ? "plan only" : `${r.passRate}% passed`, () => { setView("qa"); ensureQaHarness().show(r.id); }));
-  else runs.append(el("p", "feat-empty", ov ? "No QA runs yet." : "Loading..."));
-  if (ov && ov.inbox && ov.inbox.total) runs.append(featRow(`${ov.inbox.total} waiting in the inbox`, "review", () => setView("inbox")));
-
-  const notes = featCard("feat-notes", "Recent notes", "View all", () => setView("reports"));
-  const nl = ov ? ov.recentNotes.slice(0, 3) : [];
-  if (nl.length) for (const n of nl) notes.append(featRow(n.title, [n.type, n.status].filter(Boolean).join(", "), () => openSource({ ref: n.ref, kind: "note", title: n.title })));
-  else notes.append(el("p", "feat-empty", ov ? "No notes are indexed yet." : "Loading..."));
-  feats.append(proj, runs, notes);
-  box.appendChild(feats);
-
-  // Tabbed suggestion card: real suggestions, real recent chats, real commands.
-  const card = el("section", "sug-card");
-  const tabs = el("div", "sug-tabs");
-  tabs.setAttribute("role", "tablist");
-  const body = el("div", "examples");
-  const fill = (kind) => {
-    body.replaceChildren();
-    if (kind === "suggested") {
-      for (const sg of suggestionCards(state.suggestions)) {
-        const b = el("button", "suggest" + (sg.fill ? " suggest-qa" : ""));
-        b.type = "button";
-        b.setAttribute("data-suggest", sg.id);
-        const ic = el("span", "suggest-ic");
-        ic.appendChild(svg(ICON[sg.icon] || ICON.note, 1.5));
-        const tx = el("span", "suggest-text");
-        tx.append(el("span", "suggest-title", sg.title), el("span", "suggest-hint", sg.hint));
-        b.append(ic, tx, el("span", "suggest-go", "→"));
-        // A question card sends at once. "QA this change" only fills the box: the person decides when to send.
-        b.addEventListener("click", () => (sg.fill ? qaCtx.fillComposer(sg.fill) : send(sg.text)));
-        body.appendChild(b);
-      }
-    } else if (kind === "recent") {
-      const chats = (state.chats || []).slice(0, 5);
-      if (!chats.length) body.appendChild(el("p", "feat-empty", "No saved chats yet."));
-      for (const c of chats) {
-        const b = el("button", "suggest");
-        b.type = "button";
-        b.append(el("span", "suggest-text", ""), el("span", "suggest-go", "→"));
-        b.firstChild.append(el("span", "suggest-title", shortTitle(c.title || "Untitled", 70)), el("span", "suggest-hint", relTime(c.updated)));
-        b.addEventListener("click", () => openChat(c.id));
-        body.appendChild(b);
-      }
-    } else {
-      const cmds = state.commands || [];
-      if (!cmds.length) body.appendChild(el("p", "feat-empty", "No commands are available."));
-      for (const c of cmds) {
-        const b = el("button", "suggest");
-        b.type = "button";
-        b.append(el("span", "suggest-text", ""), el("span", "suggest-go", "→"));
-        b.firstChild.append(el("span", "suggest-title", c.usage || `/${c.name}`), el("span", "suggest-hint", c.help || ""));
-        b.addEventListener("click", () => {
-          $("input").value = `/${c.name} `;
-          growInput();
-          $("input").focus();
-        });
-        body.appendChild(b);
-      }
-    }
-  };
-  for (const [id, label] of [["suggested", "Suggested"], ["recent", "Recent chats"], ["commands", "Commands"]]) {
-    const t = el("button", "sug-tab", label);
-    t.type = "button";
-    t.setAttribute("role", "tab");
-    t.setAttribute("aria-selected", String(id === "suggested"));
-    t.addEventListener("click", () => {
-      for (const x of tabs.children) x.setAttribute("aria-selected", String(x === t));
-      fill(id);
-    });
-    tabs.appendChild(t);
-  }
-  fill("suggested");
-  card.append(tabs, body);
-  box.appendChild(card);
   return box;
 }
 
@@ -1042,10 +937,85 @@ function userNode(text) {
   return wrap;
 }
 
+$("harness-close")?.addEventListener("click", () => { $("harness-pane").hidden = true; });
+
+async function runLiveMission(prompt, signal) {
+  const pane = $("harness-pane");
+  const stream = $("harness-stream");
+  const sub = $("harness-sub");
+  if (!pane || !stream) return;
+  pane.hidden = false;
+  if (sub) sub.textContent = "Planning sub-agent mission...";
+  stream.replaceChildren();
+
+  const planBox = el("div", "mission-card");
+  const planTitle = el("strong", "", "Mission Plan");
+  const planList = el("div", "mission-card");
+  planBox.append(planTitle, planList);
+  stream.appendChild(planBox);
+
+  const res = await fetch("/api/reo/mission", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+    signal,
+  });
+  if (!res.ok || !res.body) return;
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      try {
+        const ev = JSON.parse(line);
+        if (ev.type === "mission" && sub) {
+          sub.textContent = ev.status === "started" ? `Active agents: ${ev.agents.join(", ")}` : `Completed (${ev.agents.join(", ")})`;
+        } else if (ev.type === "plan" && Array.isArray(ev.steps)) {
+          planList.replaceChildren();
+          for (const st of ev.steps) {
+            const row = el("div", "mission-step");
+            row.append(el("span", "", `[${st.agent.toUpperCase()}] ${st.title}`), el("span", "reo-pill", st.status));
+            planList.appendChild(row);
+          }
+        } else if (ev.type === "tool") {
+          const card = el("div", "tool-log");
+          const h = el("div", "tool-log-head");
+          h.append(el("span", "", `${ev.agent.toUpperCase()} · ${ev.tool}`), el("span", "reo-pill", ev.status));
+          card.append(h, el("div", "", ev.detail || ""));
+          if (ev.output) card.appendChild(el("pre", "", JSON.stringify(ev.output, null, 2).slice(0, 600)));
+          stream.appendChild(card);
+        } else if (ev.type === "defect" && ev.defect) {
+          const dc = el("div", "mission-card");
+          dc.append(el("strong", "", `Auto-Filed Defect ${ev.defect.id}: ${ev.defect.title}`));
+          const openBtn = el("button", "btn btn-quiet", "Open in Defects →");
+          openBtn.type = "button";
+          openBtn.addEventListener("click", () => setView("defects"));
+          dc.appendChild(openBtn);
+          stream.appendChild(dc);
+        }
+      } catch { /* ignore partial JSON line */ }
+    }
+  }
+}
+
 async function send(forced, opts = {}) {
   const input = $("input");
   const text = (typeof forced === "string" ? forced : input.value).trim();
   if (!text || state.busy) return;
+  if (state.view === "overview") {
+    api("/api/reo/route", { method: "POST", body: JSON.stringify({ prompt: text }) }).then((r) => {
+      if (r.ok && r.data && r.data.destination === "workspace" && Array.isArray(r.data.agents)) {
+        toast(`Routing to ${r.data.agents.join(", ")} agent(s) in Workspace`);
+      }
+    }).catch(() => {});
+  }
   setView("chat");
   hideMenu();
   // An older question or run button must not stay live once the conversation moves on.
@@ -1065,6 +1035,10 @@ async function send(forced, opts = {}) {
   const controller = new AbortController();
   state.abort = controller;
   try {
+    const isMission = /^@(qa|qe|review|security|api|report)\b/i.test(text) || /\b(run mission|audit|probe|crawl)\b/i.test(text);
+    if (isMission) {
+      await runLiveMission(text, controller.signal);
+    }
     const route = opts.runJourneys ? { kind: "ask", text } : routeSlash(text);
     if (route.kind === "command") await runCommand(text, chat, controller.signal);
     else if (route.kind === "qa") await runAsk(route.text, chat, controller.signal, { mode: "qa" });
@@ -1235,7 +1209,7 @@ function syncPills() {
   $("top-work").setAttribute("aria-checked", String(on));
 }
 function syncSend() {
-  $("robot-busy").hidden = !state.busy;
+  if ($("robot-busy")) $("robot-busy").hidden = !state.busy;
   $("work-note").hidden = !state.busy;
   $("send").disabled = !$("input").value.trim();
 }
@@ -1381,6 +1355,18 @@ const overviewView = mountOverview({
 });
 let settingsView = null;
 let qaHarnessView = null;
+const reoPages = mountReoPages({
+  api,
+  toast,
+  onRunMission: (prompt) => { setView("chat"); send(prompt); },
+  openView: (v) => (v === "settings" ? openSettings() : setView(v)),
+  openSource: (src) => openSource(src),
+});
+let defectsView = null;
+let pluginsView = null;
+let agentsView = null;
+let knowledgeView = null;
+let systemSettingsView = null;
 function ensureQaHarness() {
   if (!qaHarnessView) {
     qaHarnessView = createQaHarnessController({
@@ -1412,10 +1398,10 @@ function setView(name) {
   const slot = $("hero-composer-slot");
   const wrap = $("composer-wrap");
   if (wrap && name === "overview") slot.appendChild(wrap);
-  else if (wrap && wrap.parentNode === slot) $("view-chat").appendChild(wrap);
+  else if (wrap && wrap.parentNode === slot) $("chat-col").appendChild(wrap);
   wrap?.classList.toggle("is-hero", name === "overview");
   $("settings-btn")?.classList.toggle("active", name === "settings");
-  for (const v of ["overview", "chat", "inbox", "reports", "qa", "settings"]) {
+  for (const v of ["overview", "how", "chat", "defects", "agents", "plugins", "knowledge", "inbox", "reports", "qa", "settings"]) {
     $(`view-${v}`).hidden = v !== name;
     const tab = $(`tab-${v}`);
     if (!tab) continue;
@@ -1426,7 +1412,11 @@ function setView(name) {
   closePanel();
   if (name === "inbox" || name === "reports") review.show(name);
   if (name === "qa") ensureQaHarness().show();
-  if (name === "overview") overviewView.show();
+  if (name === "how") overviewView.show();
+  if (name === "defects") (defectsView ||= reoPages.mountDefects($("view-defects"))).show();
+  if (name === "plugins") (pluginsView ||= reoPages.mountPlugins($("view-plugins"))).show();
+  if (name === "agents") (agentsView ||= reoPages.mountAgents($("view-agents"))).show();
+  if (name === "knowledge") (knowledgeView ||= reoPages.mountKnowledge($("view-knowledge"))).show();
   if (name === "chat") {
     if (!state.busy && !(state.chat && state.chat.messages && state.chat.messages.length)) renderMessages();
     $("input").focus();
@@ -1435,8 +1425,10 @@ function setView(name) {
     if (!settingsView) {
       settingsView = mountSettings({ root: $("view-settings"), onBack: closeSettings });
       mountThemeCard($("view-settings"));
+      systemSettingsView = reoPages.mountSystemSettings($("view-settings"));
     }
     settingsView.show();
+    systemSettingsView?.refresh();
   }
 }
 

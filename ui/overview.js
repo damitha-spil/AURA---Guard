@@ -305,11 +305,30 @@ export function mountOverview({ root, api, getProject, actions }) {
     return p;
   }
 
+  function howToUse() {
+    const p = panel("How to use SPIL REO", "REVIEW · EVALUATE · OPTIMIZE — Powered by SPIL Labs", "Open Chat", () => actions.openChat());
+    const ul = el("ul", "ov-list");
+    const guide = [
+      ["1. Chat (Main Workspace)", "Ask questions about SPIL AURA, run /qa, /review, /check, or inspect commit history backed by your local vault."],
+      ["2. QA Harness", "Run live UI/Desktop crawls (Windows UIA & Playwright), OpenAPI contract checks, and safe local DevSecOps probes."],
+      ["3. Inbox & Reports", "Review proposed vault rules, commit trajectory alerts, bug sheets, and PR readiness packets."],
+      ["4. Privacy & Safety", "SPIL REO is strictly read-only on your repos and ERP, and masks 100% of secrets before any model call."],
+    ];
+    for (const [title, desc] of guide) {
+      const li = el("li", "ov-repo");
+      li.append(el("span", "ov-repo-name", title), el("span", "ov-repo-branch", desc));
+      ul.appendChild(li);
+    }
+    p.appendChild(ul);
+    return p;
+  }
+
   function paint() {
     const project = getProject();
     root.replaceChildren();
     const body = el("div", "ov-wrap");
     if (failed) body.appendChild(el("p", "ov-note warn", "The overview could not be loaded. The numbers below come from the project summary only."));
+    body.appendChild(howToUse());
     body.appendChild(stats(project));
     body.appendChild(process(project));
     body.appendChild(pipeline(project));

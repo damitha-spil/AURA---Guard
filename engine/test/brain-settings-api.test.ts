@@ -90,9 +90,9 @@ test("GET /api/brain: shape, no-store, nothing secret", async () => {
     assert.equal(j.picked, "anthropic-api");
     assert.deepEqual(j.apiKey, { source: "stored", storage: "dpapi", canStore: true });
     assert.deepEqual(j.planCli, { found: false, help: j.planCli.help });
-    assert.deepEqual(j.backends.map((b: { id: string; available: boolean }) => [b.id, b.available]), [["anthropic-api", true], ["claude-cli", false]]);
-    assert.deepEqual(j.models.current, { "anthropic-api": "claude-sonnet-5-5", "claude-cli": "sonnet" });
-    assert.equal(j.models.catalogue.length, 7);
+    assert.deepEqual(j.backends.map((b: { id: string; available: boolean }) => [b.id, b.available]), [["anthropic-api", true], ["claude-cli", false], ["antigravity-cli", false]]);
+    assert.deepEqual(j.models.current, { "anthropic-api": "claude-sonnet-5-5", "claude-cli": "sonnet", "antigravity-cli": "gemini-4-neon-medium" });
+    assert.equal(j.models.catalogue.length, 28);
     const all = everything(r);
     for (const part of [key, key.slice(0, 12), key.slice(-12), key.slice(8, 24), Buffer.from(key).toString("base64").slice(0, 16)]) assert.ok(!all.includes(part), part);
   } finally {

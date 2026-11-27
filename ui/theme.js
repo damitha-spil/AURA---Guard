@@ -8,7 +8,7 @@
   var MODES = ["system", "light", "dark"];
   var MOTIONS = ["auto", "reduced"];
   var WORK = ["auto", "on", "off"];
-  var DEFAULTS = { style: "noir", mode: "light", motion: "auto", showWork: "auto" };
+  var DEFAULTS = { style: "noir", mode: "dark", motion: "auto", showWork: "auto" };
 
   function pick(v, list, fallback) {
     return list.indexOf(v) >= 0 ? v : fallback;

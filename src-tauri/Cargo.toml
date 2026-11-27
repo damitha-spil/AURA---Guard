@@ -1,7 +1,7 @@
 [package]
-name = "aura-sentinel-desktop"
+name = "spil-reo-desktop"
 version = "0.1.0"
-description = "AURA Sentinel native desktop application (Tauri 2)"
+description = "SPIL REO — Review · Evaluate · Optimize (Autonomous Engineering Intelligence, Powered by SPIL Labs)"
 edition = "2021"
 
 [build-dependencies]
