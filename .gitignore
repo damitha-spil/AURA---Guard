@@ -47,3 +47,4 @@ src-tauri/target/
 web/node_modules/
 web/dist/
 web/tsconfig.tsbuildinfo
+REO_ARCHITECTURE_V2.md
