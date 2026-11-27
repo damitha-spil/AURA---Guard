@@ -1,5 +1,5 @@
 // Shared test helpers for the chat and server tests (not a test file itself).
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, upsertDoc } from "../src/index/db.ts";
@@ -21,4 +21,12 @@ export function seed(): Db {
   upsertDoc(db, { kind: "note", ref: "support-only", title: "Customer ERP create help", body: "ERP create help for customers", hash: "3", status: "active", audience: "customer_support" });
   upsertDoc(db, { kind: "commit", ref: "aura@abc1234", title: "Add ERP create guard", body: "ERP create guard", hash: "4", audience: "internal_dev", repo: "aura" });
   return db;
+}
+
+/** A stand-in for the built web app, so server tests do not depend on web/dist. */
+export function fixtureUiDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "guard-ui-"));
+  writeFileSync(join(dir, "index.html"), "<!doctype html><html><head><title>SPIL REO</title></head><body></body></html>");
+  for (const f of ["theme-init.js", "themes.css", "pair.css", "favicon.svg"]) writeFileSync(join(dir, f), "/* fixture */");
+  return dir;
 }

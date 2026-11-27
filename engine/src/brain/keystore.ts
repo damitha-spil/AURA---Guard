@@ -16,7 +16,10 @@ export const KEY_MIN_CHARS = 20;
 export const KEY_MAX_CHARS = 300;
 /** Not secret: a fixed extra input that ties the encrypted file to Guard's key use. */
 const DPAPI_ENTROPY = "aura-guard:anthropic-api-key:v1";
-const KEYCHAIN_SERVICE = "aura-guard-anthropic-api-key";
+/** One saved key per provider. `name` is a fixed word from this code; it names the file or keychain entry. */
+export interface KeySlot { name: string; env: string }
+export const ANTHROPIC_SLOT: KeySlot = { name: "anthropic", env: KEY_ENV };
+const serviceName = (slot: KeySlot): string => `aura-guard-${slot.name}-api-key`;
 const KEYCHAIN_ACCOUNT = "aura-guard";
 /** A secure-store helper that takes longer than this is stuck. */
 const TOOL_TIMEOUT_MS = 20_000;
@@ -129,8 +132,8 @@ const psArgs = (script: string): string[] => [
 
 export const DPAPI_FILE = ["secrets", "anthropic.key.dpapi"] as const;
 
-export function dpapiBackend(dataDir: string): SecretBackend {
-  const file = join(dataDir, ...DPAPI_FILE);
+export function dpapiBackend(dataDir: string, slot: KeySlot = ANTHROPIC_SLOT): SecretBackend {
+  const file = join(dataDir, DPAPI_FILE[0], `${slot.name}.key.dpapi`);
   let ok: boolean | undefined;
   return {
     name: "dpapi",
@@ -199,7 +202,8 @@ async function toolPresent(command: string, args: string[]): Promise<boolean> {
 }
 
 /** `security -i` reads its commands from stdin, so the key is not on the command line. */
-export function keychainBackend(): SecretBackend {
+export function keychainBackend(slot: KeySlot = ANTHROPIC_SLOT): SecretBackend {
+  const KEYCHAIN_SERVICE = serviceName(slot);
   return {
     name: "keychain",
     available: () => (process.platform === "darwin" ? toolPresent("security", ["help"]) : Promise.resolve(false)),
@@ -233,7 +237,8 @@ export function keychainBackend(): SecretBackend {
 }
 
 /** `secret-tool store` reads the secret from stdin. */
-export function secretServiceBackend(): SecretBackend {
+export function secretServiceBackend(slot: KeySlot = ANTHROPIC_SLOT): SecretBackend {
+  const KEYCHAIN_SERVICE = serviceName(slot);
   const attrs = ["service", KEYCHAIN_SERVICE, "account", KEYCHAIN_ACCOUNT];
   return {
     name: "secret-service",
@@ -245,7 +250,7 @@ export function secretServiceBackend(): SecretBackend {
       const input = Buffer.from(secret, "utf8");
       let r: ToolResult;
       try {
-        r = await runTool("secret-tool", ["store", "--label=SPIL Guard Anthropic API key", ...attrs], input);
+        r = await runTool("secret-tool", ["store", `--label=SPIL Guard ${slot.name} API key`, ...attrs], input);
       } finally {
         wipe(input);
       }
@@ -266,10 +271,10 @@ export function secretServiceBackend(): SecretBackend {
 }
 
 /** The store for this operating system. It may turn out to be unavailable; check `available()`. */
-export function defaultSecretBackend(dataDir: string, platform: string = process.platform): SecretBackend {
-  if (platform === "win32") return dpapiBackend(dataDir);
-  if (platform === "darwin") return keychainBackend();
-  return secretServiceBackend();
+export function defaultSecretBackend(dataDir: string, platform: string = process.platform, slot: KeySlot = ANTHROPIC_SLOT): SecretBackend {
+  if (platform === "win32") return dpapiBackend(dataDir, slot);
+  if (platform === "darwin") return keychainBackend(slot);
+  return secretServiceBackend(slot);
 }
 
 // ---- the store the rest of Guard uses ----
@@ -297,13 +302,16 @@ export interface KeyStoreOptions {
   dataDir: string;
   env?: Record<string, string | undefined>;
   backend?: SecretBackend;
+  /** Which provider's key. Default: Anthropic. */
+  slot?: KeySlot;
 }
 
 export function createKeyStore(o: KeyStoreOptions): KeyStore {
   const env = o.env ?? process.env;
-  const backend = o.backend ?? defaultSecretBackend(o.dataDir);
+  const slot = o.slot ?? ANTHROPIC_SLOT;
+  const backend = o.backend ?? defaultSecretBackend(o.dataDir, process.platform, slot);
   const envKey = (): string | undefined => {
-    const v = env[KEY_ENV]?.trim();
+    const v = env[slot.env]?.trim();
     return v ? v : undefined;
   };
   const hasStored = async (): Promise<boolean> => {

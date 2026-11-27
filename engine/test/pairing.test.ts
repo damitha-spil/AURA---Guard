@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createGuardServer, COOKIE_NAME } from "../src/server/server.ts";
-import { seed, tmpCfg } from "./chat-helpers.ts";
+import { fixtureUiDir, seed, tmpCfg } from "./chat-helpers.ts";
 
 const TOKEN = "q".repeat(48);
 
@@ -25,6 +25,7 @@ async function start() {
   const db = seed();
   const server = createGuardServer(tmpCfg(), {
     token: TOKEN,
+    uiDir: fixtureUiDir(),
     complete: async () => ({ text: "x", usage: { input_tokens: 1, output_tokens: 1 } }),
     openIndex: () => ({ db, release: () => {} }),
     commandTable: async () => new Set(),

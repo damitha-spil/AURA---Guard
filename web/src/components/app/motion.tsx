@@ -1,11 +1,18 @@
 import * as React from "react";
 import { animate, motion, useInView, useReducedMotion } from "motion/react";
+import { useAppearance } from "@/lib/appearance";
+
+/** True when the computer or Settings asks for less motion. */
+function useCalm() {
+  const system = useReducedMotion();
+  return useAppearance().reduceMotion || Boolean(system);
+}
 
 /** Number that counts up when it first scrolls into view. Static under reduced motion. */
 export function CountUp({ value, className }: { value: number; className?: string }) {
   const ref = React.useRef<HTMLSpanElement>(null);
   const inView = useInView(ref, { once: true });
-  const reduce = useReducedMotion();
+  const reduce = useCalm();
   const [shown, setShown] = React.useState(reduce ? value : 0);
 
   React.useEffect(() => {
@@ -40,7 +47,7 @@ const item = {
 
 /** Container whose Stagger.Item children fade up one after another. */
 export function Stagger({ children, className }: { children: React.ReactNode; className?: string }) {
-  const reduce = useReducedMotion();
+  const reduce = useCalm();
   return (
     <motion.div className={className} variants={list} initial={reduce ? "show" : "hidden"} animate="show">
       {children}
@@ -49,7 +56,7 @@ export function Stagger({ children, className }: { children: React.ReactNode; cl
 }
 
 export function StaggerItem({ children, className }: { children: React.ReactNode; className?: string }) {
-  const reduce = useReducedMotion();
+  const reduce = useCalm();
   return (
     <motion.div
       className={className}

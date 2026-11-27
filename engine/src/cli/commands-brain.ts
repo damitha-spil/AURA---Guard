@@ -14,9 +14,9 @@ export const BRAIN_SETTINGS_SUBS = ["backend", "model", "models", "key"] as cons
 /** The lines to add to the help text (see copy.ts). */
 export const BRAIN_SETTINGS_HELP = [
   "  brain models                List the models you can choose",
-  "  brain backend <auto|anthropic-api|claude-cli>   Choose where model calls go",
+  "  brain backend <auto|backend id>   Choose where model calls go (brain status lists the ids)",
   "  brain model <backend> <id>  Choose the model for a backend (a listed name, or your own)",
-  "  brain key set               Save the Anthropic API key (read from stdin or a hidden prompt)",
+  "  brain key set               Save the Anthropic API key (other providers: the Settings screen)",
   "  brain key status | remove   Where the key comes from / delete the saved key",
 ];
 
@@ -108,9 +108,9 @@ export async function runBrainSettings(sub: string | undefined, ctx: BrainSettin
   if (sub === "model") {
     const backend = args[0];
     const id = args[1];
-    if (!backend || !id) return usage(out, "brain model <anthropic-api|claude-cli> <model name>");
+    if (!backend || !id) return usage(out, "brain model <backend id> <model name>");
     if (!(MODEL_BACKENDS as readonly string[]).includes(backend)) {
-      out(`Unknown backend "${backend.slice(0, 40)}". Use ${MODEL_BACKENDS.join(" or ")}.`);
+      out(`Unknown backend "${backend.slice(0, 40)}". Use one of: ${MODEL_BACKENDS.join(", ")}.`);
       return 2;
     }
     const v = validateModelId(id);

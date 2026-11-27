@@ -44,7 +44,7 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   --font-heading: var(--font-sans);
-  --font-sans: 'Inter Variable', sans-serif;
+  --font-sans: var(--app-font-sans, 'Inter Variable', sans-serif);
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
@@ -63,12 +63,12 @@
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground-base: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border-base: oklch(0.922 0 0);
+  --input-base: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.871 0.15 154.449);
   --chart-2: oklch(0.723 0.219 149.579);
@@ -81,7 +81,7 @@
   --sidebar-primary-foreground: oklch(0.982 0.018 155.826);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-border-base: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
 }
 
@@ -97,12 +97,12 @@
   --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
+  --muted-foreground-base: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  --border-base: oklch(1 0 0 / 10%);
+  --input-base: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
   --chart-1: oklch(0.871 0.15 154.449);
   --chart-2: oklch(0.723 0.219 149.579);
@@ -115,7 +115,7 @@
   --sidebar-primary-foreground: oklch(0.982 0.018 155.826);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-border-base: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 }
 
@@ -350,6 +350,35 @@
   --sidebar-ring: oklch(0.769 0.126 62);
 }
 
+/* The user's own theme. Settings sets --custom-hue and --custom-chroma on the html element. */
+[data-theme="custom"] {
+  --primary: oklch(0.53 var(--custom-chroma, 0.17) var(--custom-hue, 150));
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.68 calc(var(--custom-chroma, 0.17) * 0.7) var(--custom-hue, 150));
+  --chart-1: oklch(0.87 calc(var(--custom-chroma, 0.17) * 0.45) var(--custom-hue, 150));
+  --chart-2: oklch(0.72 calc(var(--custom-chroma, 0.17) * 0.85) var(--custom-hue, 150));
+  --chart-3: oklch(0.6 var(--custom-chroma, 0.17) var(--custom-hue, 150));
+  --chart-4: oklch(0.5 calc(var(--custom-chroma, 0.17) * 0.8) var(--custom-hue, 150));
+  --chart-5: oklch(0.42 calc(var(--custom-chroma, 0.17) * 0.65) var(--custom-hue, 150));
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-ring: var(--ring);
+}
+.dark[data-theme="custom"],
+.dark [data-theme="custom"] {
+  --primary: oklch(0.55 var(--custom-chroma, 0.17) var(--custom-hue, 150));
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.6 calc(var(--custom-chroma, 0.17) * 0.7) var(--custom-hue, 150));
+  --chart-1: oklch(0.87 calc(var(--custom-chroma, 0.17) * 0.45) var(--custom-hue, 150));
+  --chart-2: oklch(0.72 calc(var(--custom-chroma, 0.17) * 0.85) var(--custom-hue, 150));
+  --chart-3: oklch(0.6 var(--custom-chroma, 0.17) var(--custom-hue, 150));
+  --chart-4: oklch(0.5 calc(var(--custom-chroma, 0.17) * 0.8) var(--custom-hue, 150));
+  --chart-5: oklch(0.42 calc(var(--custom-chroma, 0.17) * 0.65) var(--custom-hue, 150));
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-ring: var(--ring);
+}
+
 /* Radius choices (data-radius on the html element). */
 [data-radius="none"] { --radius: 0rem; }
 [data-radius="small"] { --radius: 0.375rem; }
@@ -370,3 +399,51 @@
 /* The CSP blocks the <style> tags Radix ScrollArea injects, so hide its native scrollbar here. */
 [data-radix-scroll-area-viewport] { scrollbar-width: none; }
 [data-radix-scroll-area-viewport]::-webkit-scrollbar { display: none; }
+
+/* Contrast: 100% leaves both amounts at 0, which gives the base colours. */
+html {
+  --muted-foreground: color-mix(in oklab, color-mix(in oklab, var(--muted-foreground-base), var(--foreground) var(--contrast-more, 0%)), var(--background) var(--contrast-less, 0%));
+  --border: color-mix(in oklab, color-mix(in oklab, var(--border-base), var(--foreground) var(--contrast-more, 0%)), var(--background) var(--contrast-less, 0%));
+  --input: color-mix(in oklab, color-mix(in oklab, var(--input-base), var(--foreground) var(--contrast-more, 0%)), var(--background) var(--contrast-less, 0%));
+  --sidebar-border: color-mix(in oklab, color-mix(in oklab, var(--sidebar-border-base), var(--foreground) var(--contrast-more, 0%)), var(--background) var(--contrast-less, 0%));
+}
+
+/* Glass opacity below 100%. */
+html[data-glass] :is([data-slot="popover-content"], [data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-sub-content"], [data-slot="select-content"], [data-slot="dialog-content"], [data-slot="alert-dialog-content"], [data-slot="sheet-content"], [data-glass-surface="popover"]) {
+  background-color: color-mix(in oklab, var(--popover) var(--glass), transparent) !important;
+  backdrop-filter: blur(12px);
+}
+html[data-glass] [data-glass-surface="card"] {
+  background-color: color-mix(in oklab, var(--card) var(--glass), transparent) !important;
+  backdrop-filter: blur(12px);
+}
+html[data-glass] [data-slot="popover-content"] [data-slot="command"] {
+  background-color: transparent;
+}
+
+/* Code size and wrapping, only when chosen in Settings. */
+html[data-mono-size] :is(pre, pre code, code.font-mono, .font-mono:not(kbd)) {
+  font-size: var(--mono-size) !important;
+}
+html[data-wrap] pre,
+html[data-wrap] pre code {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere;
+}
+
+html[data-reduce-motion] *,
+html[data-reduce-motion] *::before,
+html[data-reduce-motion] *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Usage > Limits: the used part of a limit bar is hatched. */
+.usage-used {
+  background-color: var(--muted);
+  background-image: repeating-linear-gradient(135deg, color-mix(in oklab, var(--muted-foreground) 35%, transparent) 0 1px, transparent 1px 6px);
+}

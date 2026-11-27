@@ -8,16 +8,18 @@ import { DEFAULT_ANTIGRAVITY_CLI_MODEL, DEFAULT_CLAUDE_CLI_MODEL } from "./backe
 import { MODEL_BACKENDS, MODEL_ID_HELP, MODEL_ID_RE } from "./models.ts";
 import type { ModelBackend } from "./models.ts";
 
-export const BACKEND_CHOICES = ["auto", ...MODEL_BACKENDS] as const;
-export type BackendChoice = (typeof BACKEND_CHOICES)[number];
+export type BackendChoice = "auto" | ModelBackend;
+export const BACKEND_CHOICES: readonly BackendChoice[] = ["auto", ...MODEL_BACKENDS];
 export type Source = "env" | "settings" | "config" | "default";
 
 const modelId = z.string().regex(MODEL_ID_RE);
 export const settingsSchema = z.object({
   version: z.literal(1),
   brain: z.object({
-    backend: z.enum(BACKEND_CHOICES).optional(),
-    models: z.object({ "anthropic-api": modelId.optional(), "claude-cli": modelId.optional(), "antigravity-cli": modelId.optional() }).default({}),
+    backend: z.custom<BackendChoice>((v) => (BACKEND_CHOICES as readonly unknown[]).includes(v)).optional(),
+    models: z.object(
+      Object.fromEntries(MODEL_BACKENDS.map((b) => [b, modelId.optional()])) as Record<ModelBackend, z.ZodOptional<typeof modelId>>,
+    ).prefault({} as Record<ModelBackend, undefined>),
   }).default({ models: {} }),
 });
 export type GuardSettings = z.infer<typeof settingsSchema>;
@@ -122,6 +124,8 @@ export function effectiveBrain(cfg: GuardConfig, env: Record<string, string | un
       return { backend: b.id, backendSource: b.source };
     })(),
     models: {
+      // The newer providers have no built-in model: "" until one is picked.
+      ...(Object.fromEntries(MODEL_BACKENDS.map((b) => [b, pick(undefined, s.models[b], cfg.brain?.models?.[b], "")])) as EffectiveBrain["models"]),
       "anthropic-api": pick(envValue("MODEL", env), s.models["anthropic-api"], cfg.brain?.models?.["anthropic-api"], DEFAULT_MODEL),
       "claude-cli": pick(envValue("CLI_MODEL", env), s.models["claude-cli"], cfg.brain?.models?.["claude-cli"], DEFAULT_CLAUDE_CLI_MODEL),
       "antigravity-cli": pick(envValue("AGY_MODEL", env), s.models["antigravity-cli"], cfg.brain?.models?.["antigravity-cli"], DEFAULT_ANTIGRAVITY_CLI_MODEL),

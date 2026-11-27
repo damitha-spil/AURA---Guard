@@ -5,7 +5,6 @@ import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { appendFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { createGuardServer, COOKIE_NAME } from "../src/server/server.ts";
 import type { ServerDeps } from "../src/server/server.ts";
 import { MAX_REPORT_BYTES } from "../src/server/inbox.ts";
@@ -96,7 +95,7 @@ async function start(over: Partial<ServerDeps> = {}) {
 test("endpoints need the cookie, the right Host and the right Origin", async () => {
   const s = await start();
   try {
-    for (const p of ["/api/inbox", "/api/reports", "/api/report?path=daily/x.md", "/api/inbox/note?id=choice-crlf", "/inbox.js", "/review.js"]) {
+    for (const p of ["/api/inbox", "/api/reports", "/api/report?path=daily/x.md", "/api/inbox/note?id=choice-crlf"]) {
       assert.equal((await http(s.port, { path: p })).status, 401, p);
     }
     assert.equal((await http(s.port, { path: "/api/notes/choice-crlf/status", method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ to: "active" }) })).status, 401);
@@ -104,7 +103,6 @@ test("endpoints need the cookie, the right Host and the right Origin", async () 
     assert.equal((await s.post("/api/notes/choice-crlf/status", { to: "active" }, { Origin: "http://evil.example" })).status, 403);
     assert.equal((await s.post("/api/notes/choice-crlf/status", { to: "active" }, { Host: "evil.example" })).status, 403);
     assert.match(readFileSync(s.fx.files.crlf, "utf8"), /status: proposed/, "nothing changed");
-    for (const p of ["/inbox.js", "/review.js"]) assert.equal((await s.get(p)).status, 200, p);
   } finally {
     await s.stop();
   }
@@ -359,48 +357,6 @@ test("reports: traversal, absolute paths, other extensions and links are refused
   }
 });
 
-/* ---------------- the page's card renderer (pure module, imported in Node) ---------------- */
-
-const ui = (await import(pathToFileURL(join(import.meta.dirname, "..", "..", "ui", "inbox.js")).href)) as {
-  renderCard: (i: unknown, now?: Date) => string;
-  renderGroups: (g: unknown, now?: Date) => string;
-  renderReportList: (r: unknown) => string;
-  ageLabel: (c: string, now?: Date) => string;
-  approveHint: (i: unknown) => string;
-};
-
-const item = (over: Record<string, unknown> = {}) => ({
-  id: "choice-x", type: "choice", status: "proposed", title: "T", source: "session", created: "2026-11-19", file: "inbox/x.md", preview: "p", anchors: 0, ...over,
-});
-
-test("card renderer: note text is shown as text, never as markup", () => {
-  const evil = '<img src=x onerror=alert(1)> "quoted" \'single\' <script>alert(2)</script>';
-  const html = ui.renderCard(item({ title: evil, preview: evil, id: 'a"onmouseover="x', source: "<b>s</b>" }), new Date(2026, 10, 20));
-  assert.ok(!/<img|<script|<b>/.test(html), html);
-  assert.ok(html.includes("&lt;img src=x onerror=alert(1)&gt;"));
-  assert.ok(!html.includes('"onmouseover="'), "an id cannot break out of its attribute");
-  const groups = ui.renderGroups([{ type: "<i>x</i>", count: 1, items: [item({ preview: evil })] }]);
-  assert.ok(!/<i>x|<img/.test(groups));
-  const rl = ui.renderReportList([{ path: 'reviews/"><img src=x>.md', name: "<img src=x>.md", kind: "review", mtime: "2026-11-20T10:00:00.000Z", size: 12 }]);
-  assert.ok(!/<img/.test(rl) && !rl.includes('data-path="reviews/"'), rl);
-});
-
-test("card renderer: age, evidence, anchors and what Approve will enable", () => {
-  const now = new Date(2026, 10, 20);
-  assert.equal(ui.ageLabel("2026-11-20", now), "today");
-  assert.equal(ui.ageLabel("2026-11-19", now), "yesterday");
-  assert.equal(ui.ageLabel("2026-11-10", now), "10 days ago");
-  assert.equal(ui.ageLabel("junk", now), "");
-  const pat = item({ type: "pattern", anchors: 2, evidence: { commits: 5, ratio: 0.83, repo: "demo", ifChanged: [], thenChanged: [] } });
-  const html = ui.renderCard(pat, now);
-  assert.match(html, /Seen in 5 commits \(83%\) in demo/);
-  assert.match(html, /2 code anchors/);
-  assert.match(html, /becomes an active check for the reviewer/);
-  assert.match(ui.approveHint(item()), /active note/);
-  for (const a of ["approve", "dismiss", "open"]) assert.ok(html.includes(`data-act="${a}"`));
-  assert.match(ui.renderCard(item({ checkInvalid: true, type: "pattern" }), now), /data-act="approve" disabled/);
-});
-
 /* ---------------- slash commands added for the merged read-only tools ---------------- */
 
 test("slash allowlist: the new read-only commands run, everything else is refused", () => {
@@ -433,15 +389,4 @@ test("slash allowlist: the new read-only commands run, everything else is refuse
     assert.equal(parseSlash(bad, all).ok, false, bad);
   }
   assert.equal(parseSlash("/quiz list", new Set()).ok, false, "not installed");
-});
-
-test("the safe renderer shows a Markdown table as a table with every cell escaped", async () => {
-  const { renderSafe } = (await import(pathToFileURL(join(import.meta.dirname, "..", "..", "ui", "render.js")).href)) as { renderSafe: (t: string) => string };
-  const html = renderSafe("| Rule | <img src=x onerror=alert(1)> |\n|---|---|\n| a | <script>x</script> |\n| b | **ok** |\n\nafter");
-  assert.match(html, /<table>/);
-  assert.equal((html.match(/<tr>/g) ?? []).length, 3);
-  assert.ok(!/<img|<script/.test(html), html);
-  assert.ok(html.includes("&lt;img src=x onerror=alert(1)&gt;") && html.includes("<strong>ok</strong>"));
-  assert.match(html, /<p>after<\/p>/);
-  assert.ok(!renderSafe("| not | a table |").includes("<table>"));
 });

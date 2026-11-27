@@ -30,7 +30,7 @@ export const copy = {
   brain status                Which model backends exist, and which one is used
   brain test                  One tiny round trip through the chosen backend
   brain models                List the models you can choose
-  brain backend <auto|anthropic-api|claude-cli>
+  brain backend <auto|backend id>
                               Choose where model calls go
   brain model <backend> <id>  Choose the model for a backend (a listed name, or your own)
   brain key set               Save the Anthropic API key (read from stdin or a hidden prompt)

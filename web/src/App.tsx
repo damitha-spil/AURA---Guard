@@ -1,6 +1,8 @@
 import * as React from "react";
 import {
   Activity,
+  Gauge,
+  GitPullRequest,
   Bot,
   History,
   Bug,
@@ -61,11 +63,13 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { BrandAvatar } from "@/components/app/brand";
 import { NotificationsPopover } from "@/components/app/notifications";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { apiGet } from "@/lib/api";
+import { useAppearance } from "@/lib/appearance";
 import { COLOR_THEMES, readRadius, readTheme, writeRadius, writeTheme, type ColorTheme, type Radius } from "@/lib/themes";
 import { ScrollArea } from "@/components/ui/scroll-area";
 const ActivityView = React.lazy(() => import("@/views/ActivityView").then((m) => ({ default: m.ActivityView })));
@@ -77,6 +81,8 @@ const DefectsView = React.lazy(() => import("@/views/DefectsView").then((m) => (
 const AgentsView = React.lazy(() => import("@/views/AgentsView").then((m) => ({ default: m.AgentsView })));
 const PluginsView = React.lazy(() => import("@/views/PluginsView").then((m) => ({ default: m.PluginsView })));
 const KnowledgeView = React.lazy(() => import("@/views/KnowledgeView").then((m) => ({ default: m.KnowledgeView })));
+const UsageView = React.lazy(() => import("@/views/UsageView").then((m) => ({ default: m.UsageView })));
+const PullsView = React.lazy(() => import("@/views/PullsView").then((m) => ({ default: m.PullsView })));
 const SettingsView = React.lazy(() => import("@/views/SettingsView").then((m) => ({ default: m.SettingsView })));
 
 const NAV_ITEMS = [
@@ -86,6 +92,8 @@ const NAV_ITEMS = [
   { id: "qa", label: "QA Lab", icon: FlaskConical },
   { id: "runs", label: "QA Runs", icon: History },
   { id: "defects", label: "Defects", icon: Bug },
+  { id: "usage", label: "Usage", icon: Gauge },
+  { id: "pulls", label: "Pull requests", icon: GitPullRequest },
   { id: "agents", label: "Agents", icon: Bot },
   { id: "plugins", label: "Plugins", icon: Plug },
   { id: "knowledge", label: "Knowledge", icon: Library },
@@ -112,6 +120,11 @@ export function App() {
   });
   const [colorTheme, setColorTheme] = React.useState<ColorTheme>(readTheme);
   const [radius, setRadius] = React.useState<Radius>(readRadius);
+  const appearance = useAppearance();
+  const themeChoices: { id: ColorTheme; label: string }[] = [
+    ...COLOR_THEMES,
+    ...(appearance.custom ? [{ id: "custom" as const, label: appearance.custom.name }] : []),
+  ];
   const applyTheme = React.useCallback((t: ColorTheme) => {
     setColorTheme(t);
     writeTheme(t);
@@ -145,6 +158,15 @@ export function App() {
     const isDark = next === "dark" || (next === "light dark" && prefersDark);
     document.documentElement.classList.toggle("dark", isDark);
   }, []);
+
+  // "System" follows the computer when it switches between light and dark.
+  React.useEffect(() => {
+    if (scheme !== "light dark") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const on = () => document.documentElement.classList.toggle("dark", mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [scheme]);
 
   React.useEffect(() => {
     apiGet<{ total?: number; inbox?: { total?: number } }>("/api/project").then((r) => {
@@ -219,7 +241,7 @@ export function App() {
   const engineLabel = engineOk === null ? "Connecting" : engineOk ? "Engine Ready" : "Offline";
 
   return (
-    <MotionConfig reducedMotion="user">
+    <MotionConfig reducedMotion={appearance.reduceMotion ? "always" : "user"}>
     <TooltipProvider>
       <SidebarProvider className="has-data-[variant=inset]:bg-muted" style={{ "--sidebar-width": "17rem" } as React.CSSProperties}>
         <Sidebar collapsible="icon" variant="inset">
@@ -227,9 +249,7 @@ export function App() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton size="lg" onClick={() => goTo("home")}>
-                  <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg text-xs font-semibold">
-                    SR
-                  </div>
+                  <BrandAvatar />
                   <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-medium">SPIL REO</span>
                     <span className="text-muted-foreground truncate text-xs">Review · Evaluate · Optimize</span>
@@ -292,7 +312,7 @@ export function App() {
                       <DropdownMenuSubTrigger>Colour</DropdownMenuSubTrigger>
                       <DropdownMenuSubContent>
                         <DropdownMenuRadioGroup value={colorTheme} onValueChange={(v) => applyTheme(v as ColorTheme)}>
-                          {COLOR_THEMES.map((t) => (
+                          {themeChoices.map((t) => (
                             <DropdownMenuRadioItem key={t.id} value={t.id}>
                               <span data-theme={t.id} className="bg-primary mr-2 inline-block size-3 rounded-full" />
                               {t.label}
@@ -382,6 +402,8 @@ export function App() {
                     }
                   />
                 )}
+                {view === "usage" && <UsageView />}
+                {view === "pulls" && <PullsView />}
                 {view === "plugins" && <PluginsView />}
                 {view === "knowledge" && <KnowledgeView />}
                 {view === "settings" && <SettingsView scheme={scheme} onSchemeChange={applyScheme} colorTheme={colorTheme} onColorTheme={applyTheme} radius={radius} onRadius={applyRadius} />}
@@ -434,7 +456,7 @@ export function App() {
                   <Sun />
                   Light theme
                 </CommandItem>
-                {COLOR_THEMES.map((t) => (
+                {themeChoices.map((t) => (
                   <CommandItem key={t.id} value={`change theme colour ${t.label}`} onSelect={() => { setSearchOpen(false); applyTheme(t.id); }}>
                     <span data-theme={t.id} className="bg-primary inline-block size-3 rounded-full" />
                     Change theme: {t.label}

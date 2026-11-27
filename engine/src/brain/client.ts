@@ -50,6 +50,8 @@ export interface Usage {
   output_tokens: number;
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
+  /** False when the backend gave no token counts. */
+  reported?: boolean;
 }
 
 export interface CompleteRequest {
@@ -58,11 +60,15 @@ export interface CompleteRequest {
   user: string;
   maxTokens: number;
   dictionary?: DictionaryTerm[];
+  /** The chat this call belongs to, for the usage record only. Never sent. */
+  sessionId?: string;
 }
 
 export interface CompleteResult {
   text: string;
   usage: Usage;
+  /** The model that answered, when the backend says so. */
+  model?: string;
 }
 
 export type CompleteFn = (req: CompleteRequest) => Promise<CompleteResult>;
@@ -98,6 +104,8 @@ export function buildPayload(model: string, maxTokens: number, sys: string[], us
 /** Sends an already-masked payload. One retry on 429 / 5xx. The key never appears in an error. */
 export async function postMessages(a: {
   key: string; payload: string; fetch: typeof fetch; sleep: (ms: number) => Promise<void>;
+  /** Sees the response headers, for rate limits. */
+  onHeaders?: (headers: Headers) => void;
 }): Promise<CompleteResult> {
   let res: Response | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -112,6 +120,7 @@ export async function postMessages(a: {
     await a.sleep(RETRY_BACKOFF_MS);
   }
   if (!res) throw new Error("No response");
+  if (res.headers) a.onHeaders?.(res.headers);
   if (!res.ok) {
     let detail = "";
     try {
@@ -122,7 +131,7 @@ export async function postMessages(a: {
   }
   const j = (await res.json()) as { content?: { type: string; text?: string }[]; usage?: Usage };
   const text = (j.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
-  return { text, usage: j.usage ?? { input_tokens: 0, output_tokens: 0 } };
+  return { text, usage: j.usage ?? { input_tokens: 0, output_tokens: 0, reported: false } };
 }
 
 export function createBrain(cfg: GuardConfig, opts: BrainOptions = {}): { complete: CompleteFn } {

@@ -1,6 +1,8 @@
 // The local chat server. Treat it like a local admin tool: 127.0.0.1 only, a per-launch token,
 // Host and Origin checks, capped bodies, an allowlist for static files, no CORS.
 
+import { findProvider } from "../brain/providers.ts";
+import { isModelBackend } from "../brain/models.ts";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -53,7 +55,17 @@ import { describeBackends } from "../brain/select.ts";
 import { effectiveBrain } from "../brain/settings.ts";
 import type { CompleteFn } from "../brain/client.ts";
 import type { GuardConfig } from "../types.ts";
-import { answer, MAX_QUESTION_CHARS } from "../chat/answer.ts";
+import { answer, MAX_QUESTION_CHARS, UNTRUSTED_MARK } from "../chat/answer.ts";
+import { identityReply, isGreetingOrIdentity } from "../chat/identity.ts";
+import { NOTES_NEED_INDEX, openAnswer } from "../chat/open-answer.ts";
+import { loadPrices } from "../usage/prices.ts";
+import { readUsage } from "../usage/record.ts";
+import { RANGES, usageReport } from "../usage/report.ts";
+import type { Range } from "../usage/report.ts";
+import { limitsReport } from "../usage/limits.ts";
+import type { LimitsOptions } from "../usage/limits.ts";
+import { parseToolLine, runToolLine } from "../tools/native/chat.ts";
+import type { NativeDeps } from "../tools/native/chat.ts";
 import type { AnswerResult, ChatTurn, Step } from "../chat/answer.ts";
 import { recordFeedback } from "../chat/feedback.ts";
 import { isChatId } from "../chat/store.ts";
@@ -71,17 +83,14 @@ export const COOKIE_NAME = "guard_token";
 const BACKEND_CACHE_MS = 30_000;
 
 const ROOT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const WEB_DIST_DIR = join(ROOT_DIR, "web", "dist");
-export const DEFAULT_UI_DIR = existsSync(join(WEB_DIST_DIR, "index.html")) ? WEB_DIST_DIR : join(ROOT_DIR, "ui");
+/** The built web app is the only UI. Files are looked up on each request, so a build made after start is picked up. */
+export const DEFAULT_UI_DIR = join(ROOT_DIR, "web", "dist");
+/** Source copies of the pair page's assets, used while the app is not built. */
+const PUBLIC_SOURCE_DIR = join(ROOT_DIR, "web", "public");
 
-/** The only files that are served, by URL. Nothing else under ui/ is reachable. */
+/** The only files that are served by URL, besides the build's /assets/ folder. */
 export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/": { file: "index.html", type: "text/html; charset=utf-8" },
-  "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
-  "/review.js": { file: "review.js", type: "text/javascript; charset=utf-8" },
-  "/inbox.js": { file: "inbox.js", type: "text/javascript; charset=utf-8" },
-  "/render.js": { file: "render.js", type: "text/javascript; charset=utf-8" },
-  "/styles.css": { file: "styles.css", type: "text/css; charset=utf-8" },
   "/favicon.svg": { file: "favicon.svg", type: "image/svg+xml" },
   "/favicon-16.png": { file: "favicon-16.png", type: "image/png" },
   "/favicon-32.png": { file: "favicon-32.png", type: "image/png" },
@@ -89,37 +98,21 @@ export const STATIC_FILES: Record<string, { file: string; type: string }> = {
   "/favicon-256.png": { file: "favicon-256.png", type: "image/png" },
   "/apple-touch-icon.png": { file: "apple-touch-icon.png", type: "image/png" },
   "/favicon.ico": { file: "favicon.ico", type: "image/x-icon" },
+  "/logo.png": { file: "logo.png", type: "image/png" },
   "/themes.css": { file: "themes.css", type: "text/css; charset=utf-8" },
-  "/theme.js": { file: "theme.js", type: "text/javascript; charset=utf-8" },
   "/theme-init.js": { file: "theme-init.js", type: "text/javascript; charset=utf-8" },
   "/pair.css": { file: "pair.css", type: "text/css; charset=utf-8" },
-  "/process.js": { file: "process.js", type: "text/javascript; charset=utf-8" },
-  "/hero.js": { file: "hero.js", type: "text/javascript; charset=utf-8" },
-  "/overview.js": { file: "overview.js", type: "text/javascript; charset=utf-8" },
-  "/overview.css": { file: "overview.css", type: "text/css; charset=utf-8" },
-  "/marks.js": { file: "marks.js", type: "text/javascript; charset=utf-8" },
-  "/steps.js": { file: "steps.js", type: "text/javascript; charset=utf-8" },
-  "/reveal.js": { file: "reveal.js", type: "text/javascript; charset=utf-8" },
-  "/titles.js": { file: "titles.js", type: "text/javascript; charset=utf-8" },
-  "/brand.js": { file: "brand.js", type: "text/javascript; charset=utf-8" },
-  "/qa.js": { file: "qa.js", type: "text/javascript; charset=utf-8" },
-  "/qa-view.js": { file: "qa-view.js", type: "text/javascript; charset=utf-8" },
-  "/qa.css": { file: "qa.css", type: "text/css; charset=utf-8" },
-  "/qa-harness.js": { file: "qa-harness.js", type: "text/javascript; charset=utf-8" },
-  "/qa-harness-view.js": { file: "qa-harness-view.js", type: "text/javascript; charset=utf-8" },
-  "/qa-harness.css": { file: "qa-harness.css", type: "text/css; charset=utf-8" },
-  "/settings.js": { file: "settings.js", type: "text/javascript; charset=utf-8" },
-  "/settings.css": { file: "settings.css", type: "text/css; charset=utf-8" },
-  "/reo-pages.js": { file: "reo-pages.js", type: "text/javascript; charset=utf-8" },
-  "/reo-pages.css": { file: "reo-pages.css", type: "text/css; charset=utf-8" },
 };
 
 export const CSP = "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'";
 
 /** Files the "Open Guard" page may load before a browser is paired: colours and the icon only. */
-const PUBLIC_FILES = new Set(["/themes.css", "/pair.css", "/favicon.svg", "/favicon-32.png"]);
+const PUBLIC_FILES = new Set(["/themes.css", "/pair.css", "/favicon.svg", "/favicon-32.png", "/logo.png"]);
 
 const PAIR_PAGE = `<!doctype html><html lang="en" data-style="noir" data-mode="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SPIL REO</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/themes.css"><link rel="stylesheet" href="/pair.css"></head><body><main class="pair"><img class="pair-logo" src="/favicon.svg" alt="" width="64" height="64"><h1>SPIL REO</h1><p>REVIEW · EVALUATE · OPTIMIZE — Autonomous Engineering Intelligence, Powered by SPIL Labs. Press the button to open SPIL REO here.</p><a class="pair-btn" href="/pair">Open SPIL REO</a><p class="pair-small">If the button does not work, start SPIL REO again with <code>npm run desktop</code> or <code>npm run ui</code>.</p></main></body></html>`;
+
+/** Shown while web/dist is missing, for example during a build. It reloads by itself; no script (CSP). */
+const BUILDING_PAGE = `<!doctype html><html lang="en" data-style="noir" data-mode="light"><head><meta charset="utf-8"><meta http-equiv="refresh" content="3"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SPIL REO</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/themes.css"><link rel="stylesheet" href="/pair.css"></head><body><main class="pair"><h1>SPIL REO</h1><p>The app is being built. This page reloads by itself.</p><p class="pair-small">If it stays here, run <code>npm run web:build</code>.</p></main></body></html>`;
 
 export interface BackendInfo { wanted: string; picked: string | null; label: string; model?: string }
 
@@ -134,22 +127,26 @@ export interface ServerDeps {
   backendInfo?: () => Promise<BackendInfo>;
   /** Model and API key settings: tests inject a fake environment, secret store and model call. */
   brain?: BrainRouteOptions;
+  /** Network, browser and process access of the native tools: tests inject fakes. */
+  native?: NativeDeps;
+  /** Access used by the limits report: tests inject fakes. */
+  limits?: LimitsOptions;
 }
 
 export function backendLabel(id: string | null): string {
   if (id === "antigravity-cli") return "Antigravity plan";
   if (id === "claude-cli") return "Claude plan";
   if (id === "anthropic-api") return "API key";
+  if (id === "opencode-cli") return "OpenCode";
+  const provider = findProvider(id ?? "");
+  if (provider) return provider.label;
   return "No model";
 }
 
 async function defaultBackendInfo(cfg: GuardConfig): Promise<BackendInfo> {
   const eff = effectiveBrain(cfg);
   const d = await describeBackends(cfg);
-  const model =
-    d.picked === "anthropic-api" || d.picked === "claude-cli" || d.picked === "antigravity-cli"
-      ? eff.models[d.picked].id
-      : undefined;
+  const model = isModelBackend(d.picked) ? eff.models[d.picked].id : undefined;
   const base = backendLabel(d.picked);
   return { wanted: d.wanted, picked: d.picked, label: model ? `${base} (${model})` : base, ...(model ? { model } : {}) };
 }
@@ -236,6 +233,12 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       return;
     }
     const dcfg = cfg;
+    if (path === "/api/usage" && method === "GET") {
+      const range = new URL(req.url ?? "/", "http://x").searchParams.get("range") ?? "7d";
+      if (!(RANGES as readonly string[]).includes(range)) throw new HttpError(400, `Use range: ${RANGES.join(", ")}.`);
+      return json(res, 200, usageReport(readUsage(dcfg.dataDir), range as Range, loadPrices(dcfg.root)));
+    }
+    if (path === "/api/usage/limits" && method === "GET") return json(res, 200, await limitsReport(dcfg, deps.limits));
     if (path === "/api/status" && method === "GET") {
       const index = await withIndex((db) => {
         const rows = db.prepare("SELECT kind, COUNT(*) AS n FROM docs GROUP BY kind").all() as { kind: string; n: number }[];
@@ -320,14 +323,24 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         if (question.length > MAX_QUESTION_CHARS) throw new HttpError(400, "That question is too long.");
         const chat = store.get(id);
         if (!chat) throw new HttpError(404, "No such chat.");
-        const history: ChatTurn[] = chat.messages.filter((x) => !x.error).map((x) => ({ role: x.role, text: x.text }));
+        const history: ChatTurn[] = chat.messages.flatMap((x, i) => {
+          if (x.error) return [];
+          const asked = chat.messages[i - 1];
+          const fromTool = x.role === "assistant" && asked?.role === "user" && parseToolLine(asked.text) !== null;
+          return [{ role: x.role, text: fromTool ? `${UNTRUSTED_MARK} ${x.text}` : x.text }];
+        });
         store.append(id, { role: "user", text: question });
         const notesOnly = body["notesOnly"] === true;
         const streaming = wantsNdjson(req);
         const trace: Step[] = [];
         let live: ((ev: unknown) => void) | null = null;
         if (streaming) live = startStream(res);
-        const backend = await cachedBackend().then((b) => b.label).catch(() => "the model");
+        // Names the chat on every model call, for the usage record.
+        const complete: CompleteFn = (r) => deps.complete({ ...r, sessionId: id });
+        const toolLine = parseToolLine(question);
+        const greeting = !toolLine && body["mode"] !== "qa" && isGreetingOrIdentity(question);
+        const info = toolLine ? null : await cachedBackend().catch(() => null);
+        const backend = info?.label ?? "the model";
         const onStep = (step: Step): void => {
           const i = trace.findIndex((t) => t.id === step.id);
           if (i >= 0) trace[i] = step; else trace.push(step);
@@ -336,13 +349,24 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         // QA requests go to the QA sub-agent (deterministic routing, no model call to decide).
         const modeIn = body["mode"] === "qa" || body["mode"] === "ask" ? (body["mode"] as RouteMode) : undefined;
         const runJourneys = body["runJourneys"] === true;
+        const reply = (result: AnswerResult): void => {
+          const updated = store.append(id, { role: "assistant", text: result.text, sources: result.sources, trace, ...(result.ok ? {} : { error: true }) });
+          if (live) {
+            live(result.ok ? { type: "answer", text: result.text, sources: result.sources, chat: updated } : { type: "error", message: result.text, kind: result.error ?? null, chat: updated });
+            return void res.end();
+          }
+          return json(res, 200, { ...result, chat: updated });
+        };
+        // A typed tool line runs the tool and shows its result: no model and no index.
+        if (toolLine) return reply(await runToolLine(dcfg, toolLine, deps.native ?? {}, onStep));
+        if (greeting) return reply({ ok: true, text: identityReply(info), sources: [] });
         if (decideRoute(question, history, { mode: modeIn, runJourneys }).intent === "qa") {
           live?.({ type: "agent", agent: "qa", label: "QA agent", state: "started" });
           const h = openIndex();
           let out;
           try {
             out = await routeQa(
-              { cfg: dcfg, db: h?.db ?? null, complete: deps.complete, backend, onStep: (s) => onStep(s) },
+              { cfg: dcfg, db: h?.db ?? null, complete, backend, onStep: (s) => onStep(s) },
               { message: question, history, runJourneys, lastQa: lastQaResult(chat.messages) },
             );
           } finally {
@@ -360,14 +384,13 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
           }
           return json(res, 200, { ok: out.ok, text: out.text, sources: [], agent: "qa", trace, ...(qa ? { qa } : {}), ...(needsInput ? { needsInput } : {}), ...(out.ok ? {} : { error: out.kind === "blocked" ? "blocked" : "qa" }), chat: stored });
         }
-        const r: AnswerResult | null = await withIndex((db) => answer(dcfg, db, { history, question, notesOnly }, { complete: deps.complete, onStep, backend }));
-        const result: AnswerResult = r ?? { ok: false, text: "The index is not built yet. Type /index to build it.", sources: [] };
-        const updated = store.append(id, { role: "assistant", text: result.text, sources: result.sources, trace, ...(result.ok ? {} : { error: true }) });
-        if (live) {
-          live(result.ok ? { type: "answer", text: result.text, sources: result.sources, chat: updated } : { type: "error", message: result.text, kind: result.error ?? null, chat: updated });
-          return void res.end();
-        }
-        return json(res, 200, { ...result, chat: updated });
+        const useWeb = body["webSearch"] === true && !notesOnly;
+        const run = (db: Db | null): Promise<AnswerResult> =>
+          db && !useWeb
+            ? answer(dcfg, db, { history, question, notesOnly }, { complete, onStep, backend })
+            : openAnswer(db, { history, question, webSearch: useWeb }, { complete, onStep, backend, ...(deps.native ? { web: deps.native } : {}) });
+        const indexed = await withIndex(run);
+        return reply(indexed ?? (notesOnly ? { ok: false, text: NOTES_NEED_INDEX, sources: [] } : await run(null)));
       }
     }
 
@@ -903,9 +926,10 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         const paired = cookie !== null && safeEqual(cookie, deps.token);
         if (!paired && method === "GET" && PUBLIC_FILES.has(url.pathname)) {
           const pub = STATIC_FILES[url.pathname];
-          if (pub && existsSync(join(uiDir, pub.file))) {
+          const found = pub && [uiDir, PUBLIC_SOURCE_DIR].map((dir) => join(dir, pub.file)).find((f) => existsSync(f));
+          if (pub && found) {
             res.writeHead(200, { "Content-Type": pub.type });
-            return void res.end(readFileSync(join(uiDir, pub.file)));
+            return void res.end(readFileSync(found));
           }
         }
         if (!paired && method === "GET" && (isEntry || url.pathname === "/pair")) {
@@ -946,10 +970,16 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
 
         if (url.pathname.startsWith("/api/")) return await api(req, res, url.pathname, method);
 
+        if (url.pathname === "/" && (method === "GET" || method === "HEAD") && !existsSync(join(uiDir, "index.html"))) {
+          res.writeHead(503, { "Content-Type": "text/html; charset=utf-8", "Retry-After": "3" });
+          return void res.end(method === "HEAD" ? undefined : BUILDING_PAGE);
+        }
         const entry = STATIC_FILES[url.pathname];
         if (entry && (method === "GET" || method === "HEAD")) {
-          const file = join(uiDir, entry.file);
-          if (!existsSync(file)) return fail(404, "Not found.");
+          // The pair and building pages' assets also come from the source folder when there is no build.
+          const dirs = PUBLIC_FILES.has(url.pathname) ? [uiDir, PUBLIC_SOURCE_DIR] : [uiDir];
+          const file = dirs.map((dir) => join(dir, entry.file)).find((f) => existsSync(f));
+          if (!file) return fail(404, "Not found.");
           res.writeHead(200, { "Content-Type": entry.type });
           return void res.end(method === "HEAD" ? undefined : readFileSync(file));
         }

@@ -24,5 +24,6 @@ $s.Arguments = '"' + $launcher + '" ui'
 $s.WorkingDirectory = $repo
 $s.WindowStyle = 7   # minimized
 $s.Description = 'SPIL AURA QA Bot chat'
+$s.IconLocation = (Join-Path $repo 'src-tauri\icons\icon.ico') + ',0'
 $s.Save()
 Write-Output $lnk

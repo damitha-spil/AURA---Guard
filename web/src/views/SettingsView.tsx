@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, ChevronsUpDown, KeyRound, Monitor, Moon, RefreshCw, Sun } from "lucide-react";
+import { KeyRound, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -24,7 +24,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { ModelPicker } from "@/components/app/model-picker";
-import { COLOR_THEMES, RADII, type ColorTheme, type Radius } from "@/lib/themes";
+import { AppearanceSettings } from "@/components/app/appearance-settings";
+import type { ColorTheme, Radius } from "@/lib/themes";
 import { Page, PageHeader } from "@/components/app/page";
 import { apiDelete, apiGet, apiPost, apiPut } from "@/lib/api";
 
@@ -39,6 +40,7 @@ interface BrainView {
     catalogue: { id: string; label: string; note: string; backends: string[] }[];
   };
   apiKey: { source: string | null; storage: string | null; canStore: boolean };
+  apiKeys: { id: string; label: string; env: string; source: "env" | "stored" | null }[];
 }
 
 interface SystemInfo {
@@ -70,6 +72,7 @@ export function SettingsView({
   const [brain, setBrain] = React.useState<BrainView | null>(null);
   const [sys, setSys] = React.useState<SystemInfo | null>(null);
   const [apiKeyInput, setApiKeyInput] = React.useState("");
+  const [keyProvider, setKeyProvider] = React.useState("anthropic-api");
   const [testing, setTesting] = React.useState(false);
 
   async function load() {
@@ -110,7 +113,7 @@ export function SettingsView({
   async function saveKey(e: React.FormEvent) {
     e.preventDefault();
     if (!apiKeyInput.trim()) return;
-    const r = await apiPut<{ ok?: boolean; error?: string }>("/api/brain/key", { key: apiKeyInput.trim() });
+    const r = await apiPut<{ ok?: boolean; error?: string }>(`/api/brain/key/${keyProvider}`, { key: apiKeyInput.trim() });
     if (r.ok) {
       setApiKeyInput("");
       toast.success("API key saved in the encrypted OS store.");
@@ -134,18 +137,26 @@ export function SettingsView({
     load();
   }
 
-  const schemes = [
-    ["light dark", "System", Monitor],
-    ["light", "Light", Sun],
-    ["dark", "Dark", Moon],
-  ] as const;
+  async function removeKey(id: string) {
+    const r = await apiDelete(`/api/brain/key/${id}`);
+    if (r.ok) toast.success("Removed saved API key.");
+    else toast.error("Could not remove key");
+    load();
+  }
+
+  const keyRow = brain?.apiKeys.find((k) => k.id === keyProvider);
+  const storedKeys = brain?.apiKeys.filter((k) => k.source === "stored") ?? [];
+  const groups = [
+    { title: "API keys (pay per use)", rows: brain?.backends.filter((b) => b.kind === "api") ?? [] },
+    { title: "Subscriptions through a CLI", rows: brain?.backends.filter((b) => b.kind === "cli") ?? [] },
+  ];
 
   return (
     <Page>
       <PageHeader title="Settings" description="Appearance, answer backends, models, API key and index maintenance." />
 
-      <Tabs defaultValue="general" orientation="vertical" className="flex-col gap-6 md:flex-row">
-        <TabsList className="h-auto w-full shrink-0 flex-row justify-start overflow-x-auto md:w-48 md:flex-col md:items-stretch">
+      <Tabs defaultValue="general" orientation="vertical" className="flex-col gap-6 lg:flex-row">
+        <TabsList className="h-auto w-full shrink-0 flex-row justify-start overflow-x-auto lg:w-48 lg:flex-col lg:items-stretch">
           <TabsTrigger value="general" className="justify-start">General</TabsTrigger>
           <TabsTrigger value="ai" className="justify-start">AI backend</TabsTrigger>
           <TabsTrigger value="index" className="justify-start">Repositories &amp; index</TabsTrigger>
@@ -154,63 +165,15 @@ export function SettingsView({
         <div className="min-w-0 flex-1">
 
         <TabsContent value="general">
-          <Card>
-            <CardHeader>
-              <CardTitle>Appearance</CardTitle>
-              <CardDescription>Choose light, dark, or match your system theme.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-2 sm:grid-cols-3">
-              {schemes.map(([val, label, Icon]) => (
-                <Button
-                  key={val}
-                  variant={scheme === val ? "default" : "outline"}
-                  className="justify-start"
-                  onClick={() => onSchemeChange(val)}
-                >
-                  <Icon />
-                  {label}
-                </Button>
-              ))}
-            </CardContent>
-          </Card>
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle>Colour theme</CardTitle>
-              <CardDescription>Pick the accent colour used across the app.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-6">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-                {COLOR_THEMES.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => onColorTheme(t.id)}
-                    aria-pressed={colorTheme === t.id}
-                    className={cn(
-                      "focus-visible:ring-ring/50 flex items-center gap-3 rounded-2xl border p-3 text-left text-sm transition-colors focus-visible:ring-[3px] focus-visible:outline-none",
-                      colorTheme === t.id ? "border-primary bg-muted" : "hover:bg-muted/60",
-                    )}
-                  >
-                    <span data-theme={t.id} className="bg-primary text-primary-foreground flex size-7 shrink-0 items-center justify-center rounded-full">
-                      {colorTheme === t.id && <Check className="size-4" />}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate font-medium">{t.label}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="grid gap-2">
-                <Label className="text-xs">Corner radius</Label>
-                <div className="flex flex-wrap gap-2">
-                  {RADII.map((r) => (
-                    <Button key={r.id} variant={radius === r.id ? "default" : "outline"} size="sm" onClick={() => onRadius(r.id)}>
-                      {r.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="mt-4">
+          <AppearanceSettings
+            scheme={scheme}
+            onSchemeChange={onSchemeChange}
+            colorTheme={colorTheme}
+            onColorTheme={onColorTheme}
+            radius={radius}
+            onRadius={onRadius}
+          />
+          <Card className="mt-8">
             <CardHeader>
               <CardTitle>About this engine</CardTitle>
               <CardDescription>Read from the local engine</CardDescription>
@@ -248,7 +211,11 @@ export function SettingsView({
                   </div>
                 </CardHeader>
                 <CardContent className="grid gap-3">
-                  {brain.backends.map((b) => {
+                  {groups.map((g) => (
+                    <div key={g.title} className="grid gap-2">
+                      <h3 className="text-muted-foreground text-xs font-medium uppercase">{g.title}</h3>
+                      <div className="grid gap-2 xl:grid-cols-2">
+                  {g.rows.map((b) => {
                     const inUse = brain.picked === b.id;
                     return (
                       <button
@@ -275,6 +242,9 @@ export function SettingsView({
                       </button>
                     );
                   })}
+                      </div>
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
 
@@ -282,10 +252,13 @@ export function SettingsView({
                 <Card className="min-w-0">
                   <CardHeader>
                     <CardTitle>Model per backend</CardTitle>
-                    <CardDescription>Each backend keeps its own model selection.</CardDescription>
+                    <CardDescription>
+                      Each backend keeps its own model. A provider appears here once its key is saved or its CLI is found.
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="grid gap-4">
-                    {[...brain.backends]
+                    {brain.backends
+                      .filter((b) => brain.models.catalogue.some((m) => m.backends.includes(b.id)))
                       .sort((a, b) => Number(brain.picked === b.id) - Number(brain.picked === a.id))
                       .map((b) => (
                         <div key={b.id} className="grid min-w-0 gap-2">
@@ -303,27 +276,56 @@ export function SettingsView({
                   </CardContent>
                 </Card>
 
-                <Card className="min-w-0">
+                <Card className="min-w-0 self-start">
                   <CardHeader>
-                    <CardTitle>API key</CardTitle>
+                    <CardTitle>API keys</CardTitle>
                     <CardDescription>
-                      {brain.apiKey.source ? `${brain.apiKey.source} (${brain.apiKey.storage || "local"})` : "No key saved"}
+                      {!brain.apiKey.canStore
+                        ? "This computer has no secure key store. Use environment variables instead."
+                        : "One key per provider, encrypted on this computer."}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="grid gap-3">
+                    <Select
+                      value={keyProvider}
+                      onValueChange={(v) => {
+                        setKeyProvider(v);
+                        setApiKeyInput(""); // a key typed for one provider must not be saved for another
+                      }}
+                    >
+                      <SelectTrigger className="w-full" aria-label="Provider">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {brain.apiKeys.map((k) => (
+                          <SelectItem key={k.id} value={k.id}>
+                            {k.label}
+                            {k.source ? " (key set)" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <form onSubmit={saveKey} className="flex gap-2">
                       <Input
                         type="password"
                         value={apiKeyInput}
                         onChange={(e) => setApiKeyInput(e.target.value)}
-                        placeholder="Paste Anthropic API key..."
+                        placeholder={`Paste ${keyRow?.label ?? "API key"}...`}
+                        autoComplete="off"
                         aria-label="API key"
                       />
-                      <Button type="submit" disabled={!apiKeyInput.trim()}>
+                      <Button type="submit" disabled={!apiKeyInput.trim() || !brain.apiKey.canStore}>
                         <KeyRound />
                         Save
                       </Button>
                     </form>
+                    <p className="text-muted-foreground text-xs">
+                      {keyRow?.source === "env"
+                        ? `Using the ${keyRow.env} environment variable.`
+                        : keyRow?.source === "stored"
+                          ? "A key is saved. Saving again replaces it."
+                          : "No key saved for this provider."}
+                    </p>
                   </CardContent>
                 </Card>
               </div>
@@ -364,36 +366,31 @@ export function SettingsView({
               <CardTitle className="text-destructive">Danger zone</CardTitle>
               <CardDescription>These actions cannot be undone.</CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-wrap items-center justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-sm font-medium">Remove saved API key</div>
-                <p className="text-muted-foreground text-xs">
-                  {brain?.apiKey.source === "stored" ? "Deletes the key from the encrypted OS store." : "No stored key to remove."}
-                </p>
-              </div>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm" disabled={brain?.apiKey.source !== "stored"}>Remove key</Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Remove the saved API key?</AlertDialogTitle>
-                    <AlertDialogDescription>You will need to paste it again to use the API backend.</AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={async () => {
-                        const r = await apiDelete("/api/brain/key");
-                        toast(r.ok ? "Removed saved API key." : "Could not remove key");
-                        load();
-                      }}
-                    >
-                      Remove
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+            <CardContent className="grid gap-4">
+              {storedKeys.length === 0 && <p className="text-muted-foreground text-xs">No stored key to remove.</p>}
+              {storedKeys.map((k) => (
+                <div key={k.id} className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{k.label}</div>
+                    <p className="text-muted-foreground text-xs">Deletes this key from the encrypted OS store.</p>
+                  </div>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" size="sm">Remove key</Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove the saved {k.label}?</AlertDialogTitle>
+                        <AlertDialogDescription>You will need to paste it again to use this provider.</AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => removeKey(k.id)}>Remove</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </TabsContent>

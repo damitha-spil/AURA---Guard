@@ -1,4 +1,4 @@
-// The product name, in one place. The UI mirrors it in ui/brand.js.
+// The product name, in one place.
 export const PRODUCT_NAME = "SPIL REO";
 export const PRODUCT_SHORT = "REO";
 export const PRODUCT_MOTTO = "REVIEW · EVALUATE · OPTIMIZE";

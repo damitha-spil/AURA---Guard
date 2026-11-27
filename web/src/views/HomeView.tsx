@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Bug, FileText, Library, MessageSquare, Plug, ShieldCheck, Sparkles, Terminal, TriangleAlert } from "lucide-react";
+import { BrandAvatar } from "@/components/app/brand";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -165,16 +166,22 @@ export function HomeView({
             </form>
 
             {loading && (
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-2/3" />
+              <div className="flex gap-3">
+                <BrandAvatar />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
               </div>
             )}
 
             {answerText !== null && !loading && (
               <div className="bg-muted space-y-3 rounded-2xl p-4">
-                <div className="text-muted-foreground truncate text-xs">Q: {asked}</div>
+                <div className="flex items-center gap-2">
+                  <BrandAvatar className="size-6" />
+                  <div className="text-muted-foreground min-w-0 truncate text-xs">Q: {asked}</div>
+                </div>
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{answerText}</p>
                 {sources.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">

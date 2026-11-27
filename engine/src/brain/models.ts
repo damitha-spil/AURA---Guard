@@ -1,20 +1,25 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { OPENAI_COMPAT } from "./providers.ts";
+import type { OpenAiCompatId } from "./providers.ts";
 
 /** The backends a model can be chosen for. Same ids as select.ts BACKEND_IDS. */
-export const MODEL_BACKENDS = ["anthropic-api", "claude-cli", "antigravity-cli"] as const;
-export type ModelBackend = (typeof MODEL_BACKENDS)[number];
+export type ModelBackend = "anthropic-api" | "claude-cli" | "antigravity-cli" | "opencode-cli" | OpenAiCompatId;
+export const MODEL_BACKENDS: readonly ModelBackend[] = [
+  "anthropic-api", "claude-cli", "antigravity-cli", "opencode-cli", ...OPENAI_COMPAT.map((p) => p.id),
+];
+export const isModelBackend = (id: unknown): id is ModelBackend => (MODEL_BACKENDS as readonly unknown[]).includes(id);
 
 /**
  * A model id ends up in an HTTP body and in a CLI argument (always an argument array, never a
  * shell). Only plain id characters, and never a leading "-" so it cannot look like a CLI flag.
  * (The brief's pattern was ^[A-Za-z0-9._:-]{1,80}$; the first character is stricter on purpose.)
  */
-export const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/;
+export const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/; // "/" for provider/model ids
 
 export const MODEL_ID_HELP =
-  "A model name may use letters, digits and . _ : - only (80 characters at most, starting with a letter or digit).";
+  "A model name may use letters, digits and . _ : / - only (120 characters at most, starting with a letter or digit).";
 
 export interface ModelEntry {
   id: string;
@@ -70,7 +75,7 @@ const entrySchema = z.object({
   id: z.string(),
   label: z.string().min(1).max(80),
   note: z.string().max(300),
-  backends: z.array(z.enum(MODEL_BACKENDS)).min(1),
+  backends: z.array(z.custom<ModelBackend>(isModelBackend)).min(1),
   default: z.boolean().optional(),
 });
 const fileSchema = z.object({ version: z.literal(1), models: z.array(entrySchema) });

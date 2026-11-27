@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { request } from "node:http";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createGuardServer, COOKIE_NAME, MAX_BODY_BYTES } from "../src/server/server.ts";
 import type { ServerDeps } from "../src/server/server.ts";
 import { maskAll } from "../src/brain/client.ts";
 import type { ProcessResult } from "../src/chat/commands.ts";
-import { fakeSecret, seed, tmpCfg } from "./chat-helpers.ts";
+import { fakeSecret, seed, fixtureUiDir, tmpCfg } from "./chat-helpers.ts";
 
 const TOKEN = "t".repeat(48);
 const usage = { input_tokens: 1, output_tokens: 1 };
@@ -36,6 +36,7 @@ async function start(over: Partial<ServerDeps> = {}) {
   const db = seed();
   const server: Server = createGuardServer(cfg, {
     token: TOKEN,
+    uiDir: fixtureUiDir(),
     complete: async () => ({ text: "Answer [rule-erp-create] <img src=x onerror=alert(1)>", usage }),
     openIndex: () => ({ db, release: () => {} }),
     runProcess: async () => ({ code: 0, stdout: "ok", stderr: "" }),
@@ -208,6 +209,29 @@ test("only one heavy command runs at a time; light ones are not blocked", async 
     const done = JSON.parse((await first).body) as { output: string };
     assert.equal(done.output, "indexed");
     assert.equal((await s.post("/api/command", { line: "/diary" })).status, 200, "lock is released");
+  } finally {
+    await s.stop();
+  }
+});
+
+test("without a build, / shows the self-reloading building page and the pair assets still load; a later build is picked up", async () => {
+  const dir = join(fixtureUiDir(), "dist");
+  const s = await start({ uiDir: dir });
+  try {
+    const r = await http(s.port, { path: "/", headers: s.auth });
+    assert.equal(r.status, 503);
+    assert.match(r.body, /http-equiv="refresh"/);
+    assert.match(r.body, /npm run web:build/);
+    assert.ok(!r.body.includes("<script"));
+    for (const path of ["/themes.css", "/pair.css", "/favicon.svg", "/logo.png"]) {
+      assert.equal((await http(s.port, { path })).status, 200, path);
+      assert.equal((await http(s.port, { path, headers: s.auth })).status, 200, path);
+    }
+    mkdirSync(dir);
+    writeFileSync(join(dir, "index.html"), "<title>built</title>");
+    const after = await http(s.port, { path: "/", headers: s.auth });
+    assert.equal(after.status, 200);
+    assert.match(after.body, /built/);
   } finally {
     await s.stop();
   }

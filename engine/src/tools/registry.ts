@@ -1,7 +1,7 @@
 // SPIL REO — Central Permission-Tiered Tool Library.
 // Lists built-in tools + external plugin/MCP tools with explicit risk tiers.
 
-export type ToolCategory = "repo" | "vault" | "ui-driver" | "security" | "api" | "report" | "plugin";
+export type ToolCategory = "repo" | "vault" | "ui-driver" | "security" | "api" | "report" | "plugin" | "web" | "files" | "system";
 export type ToolRiskTier = "read_only" | "local_action" | "external_notify";
 
 export interface ToolEntry {
@@ -15,6 +15,16 @@ export interface ToolEntry {
 }
 
 export const BUILTIN_TOOLS: readonly ToolEntry[] = [
+  // Native tools (engine/src/tools/native/). Guard runs them only when the user asks; models never get tools.
+  { id: "web_search", name: "Web Search", category: "web", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "/web: search the web (Brave with a key, else DuckDuckGo, then Bing). The query passes the masking gate." },
+  { id: "web_fetch", name: "Fetch Web Page", category: "web", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "/fetch: read a public http(s) page as text. Local and private addresses are refused." },
+  { id: "browser_render", name: "Render Web Page", category: "web", riskTier: "local_action", requiresConfirmation: false, source: "builtin", description: "/browse: run installed Chrome or Edge headless with a throwaway profile and return the page text." },
+  { id: "list_dir", name: "List Folder", category: "files", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "/ls: list a folder inside a configured repo or the vault." },
+  { id: "read_file", name: "Read File", category: "files", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "/read: read a text file inside a configured repo or the vault. Secret files are refused." },
+  { id: "search_files", name: "Find in Files", category: "files", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "/find: plain text search across the configured repos and the vault." },
+  { id: "system_info", name: "System Info", category: "system", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "/system: operating system, processor, memory and disk space." },
+  { id: "list_processes", name: "List Processes", category: "system", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "/processes: Windows process names, ids and memory. No command lines." },
+  { id: "get_time", name: "Current Time", category: "system", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "/time: local time, time zone and UTC." },
   { id: "search_knowledge", name: "Search Knowledge", category: "vault", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "FTS5 search across Obsidian vault notes, docs, and commits." },
   { id: "get_doc", name: "Read Vault Note", category: "vault", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "Read a full vault note or indexed document by reference." },
   { id: "list_rules", name: "List Active Rules", category: "vault", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "List approved active engineering rules from the vault." },

@@ -1,3 +1,4 @@
+import { backendLabel } from "../server/server.ts";
 // QA commands: `qa plan | generate | check | run | status`. Merged into EXTRA_COMMANDS by the owner:
 //   import { qaCommands } from "./commands-qa.ts";   Object.assign(EXTRA_COMMANDS, qaCommands);
 // Also add "base", "head" and "widths" to VALUE_FLAGS in main.ts. (`--base=ref` works without that.)
@@ -93,7 +94,7 @@ export const qaCommands: Record<string, (ctx: CommandContext) => Promise<number>
           try {
             complete = createBrain(cfg).complete;
             const d = await describeBackends(cfg);
-            backend = d.picked === "claude-cli" ? "Claude plan" : d.picked === "anthropic-api" ? "API key" : null;
+            backend = d.picked ? backendLabel(d.picked) : null;
           } catch { complete = undefined; }
         }
         const o = await runQaAgent({ cfg, db, complete, backend }, { message: request, history: [], noModel });

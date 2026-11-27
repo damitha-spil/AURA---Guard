@@ -415,7 +415,8 @@ export interface SummaryResult {
   ideas: string[];
   questions: string[];
   sources: { events: number; transcriptTurns: number };
-  backend: "claude-cli" | "anthropic-api" | "none";
+  /** The backend id that answered, or "none". */
+  backend: string;
   /** Count of proposed vault notes written on this machine. */
   notes: number;
   /** Plain words when the model could not be used and the draft is the no-model one. */
@@ -495,7 +496,7 @@ export async function summarizeDay(cfg: GuardConfig, opts: SummarizeOptions, dep
         role: "capture-summarizer", system: p.system, user: p.user, maxTokens: role.limits.maxTokens,
       });
       const used = deps.backendUsed?.();
-      backend = used === "claude-cli" || used === "anthropic-api" ? used : "none";
+      backend = used ?? "none";
       const parsed = ReplySchema.safeParse(extractJson(res.text));
       if (!parsed.success) throw new CaptureError("The model reply did not match the expected shape.");
       for (const r of parsed.data.entries.slice(0, role.limits.maxEntries)) {

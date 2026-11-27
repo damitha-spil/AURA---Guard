@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { fakeSecret, seed, tmpCfg } from "./chat-helpers.ts";
 import { answer, describeError, NOTHING_FOUND, stripInvented } from "../src/chat/answer.ts";
 import { ChatStore, WITHHELD } from "../src/chat/store.ts";
@@ -157,22 +156,4 @@ test("heavy lock allows one at a time", () => {
   assert.equal(l.tryAcquire("diary"), false);
   l.release();
   assert.equal(l.tryAcquire("diary"), true);
-});
-
-test("the safe renderer shows markup as text", async () => {
-  const url = pathToFileURL(join(import.meta.dirname, "..", "..", "ui", "render.js")).href;
-  const { renderSafe } = (await import(url)) as { renderSafe: (t: string, k?: Set<string>) => string };
-  const attack = "<img src=x onerror=alert(1)> <script>alert(2)</script> [x](javascript:alert(3)) **<b>bold</b>** `<i>`";
-  const html = renderSafe(attack, new Set());
-  assert.ok(!/<img|<script|<b>|<i>/.test(html), html);
-  assert.ok(html.includes("&lt;img src=x onerror=alert(1)&gt;"));
-  assert.ok(!html.includes("href"), "no links except guard refs");
-  const fence = renderSafe("```\n<img src=x onerror=alert(1)>\n```");
-  assert.ok(fence.startsWith("<pre><code>&lt;img"));
-  // A quote in a ref cannot break out of the attribute.
-  const evil = renderSafe('[a](guard:x"onmouseover="alert(1)) [q"><img]', new Set(['q"><img']));
-  assert.ok(!/<img/.test(evil) && !evil.includes('"onmouseover'), evil);
-  const good = renderSafe("Hello **bold** and `code`\n\n- one\n- two\n\nSee [rule-a]", new Set(["rule-a"]));
-  assert.ok(good.includes("<strong>bold</strong>") && good.includes("<code>code</code>") && good.includes("<li>two</li>"));
-  assert.ok(good.includes('data-ref="rule-a"'));
 });

@@ -1,4 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { recordUsage } from "../usage/record.ts";
+import { saveLimits } from "../usage/limits.ts";
 import { join } from "node:path";
 import type { GuardConfig } from "../types.ts";
 import { auditOutgoing } from "../mask/audit.ts";
@@ -6,14 +8,23 @@ import { unmask } from "../mask/mask.ts";
 import { anthropicApiBackend, antigravityCliBackend, claudeCliBackend } from "./backends.ts";
 import type { Backend, BackendOptions, BackendStatus } from "./backends.ts";
 import { createKeyStore } from "./keystore.ts";
+import { MODEL_BACKENDS } from "./models.ts";
+import type { ModelBackend } from "./models.ts";
+import { openAiCompatBackend } from "./openai-compat.ts";
+import { opencodeCliBackend } from "./opencode.ts";
+import { OPENAI_COMPAT } from "./providers.ts";
 import type { SecretBackend } from "./keystore.ts";
 import { effectiveBrain, machineDataDir } from "./settings.ts";
 import { maskAll } from "./client.ts";
 import type { CompleteFn, CompleteRequest, CompleteResult } from "./client.ts";
 
 /** Backends in the order `auto` tries them. */
-export const BACKEND_IDS = ["anthropic-api", "claude-cli", "antigravity-cli"] as const;
-export type BackendId = (typeof BACKEND_IDS)[number];
+export const AUTO_BACKEND_IDS: readonly string[] = ["anthropic-api", "claude-cli", "antigravity-cli"];
+export const BACKEND_IDS = MODEL_BACKENDS;
+export type BackendId = ModelBackend;
+
+/** The saved-key slot for an OpenAI-compatible provider. */
+export const providerSlot = (p: { id: string; env: string }) => ({ name: p.id.replace(/-api$/, ""), env: p.env });
 
 export class NoBackendError extends Error {
   constructor(detail: string) {
@@ -29,6 +40,8 @@ export interface SelectOptions extends BackendOptions {
   now?: () => Date;
   /** Replaces the OS secure store for the saved API key (tests). */
   secrets?: SecretBackend;
+  /** The same for the other providers' keys, one store per provider id (tests). */
+  secretsFor?: (providerId: string) => SecretBackend;
 }
 
 /** Backend and model come from env > settings.json > guard.config.local.json > default (settings.ts). */
@@ -38,10 +51,20 @@ export function buildBackends(cfg: GuardConfig, opts: SelectOptions = {}): Backe
   const storedKey = { exists: () => keys.hasStored(), get: async () => (await keys.resolve())?.key ?? null };
   const rest = { ...opts };
   delete rest.secrets;
+  delete rest.secretsFor;
   return [
     anthropicApiBackend({ ...rest, model: eff.models["anthropic-api"].id, storedKey }),
     claudeCliBackend({ ...rest, model: eff.models["claude-cli"].id }),
     antigravityCliBackend({ ...rest, model: eff.models["antigravity-cli"].id }),
+    opencodeCliBackend({ ...rest, model: eff.models["opencode-cli"].id }),
+    ...OPENAI_COMPAT.map((p) => {
+      const secret = opts.secretsFor?.(p.id);
+      const store = createKeyStore({ dataDir: machineDataDir(cfg), slot: providerSlot(p), ...(opts.env ? { env: opts.env } : {}), ...(secret ? { backend: secret } : {}) });
+      return openAiCompatBackend(p, {
+        ...rest, model: eff.models[p.id].id,
+        storedKey: { exists: () => store.hasStored(), get: async () => (await store.resolve())?.key ?? null },
+      });
+    }),
   ];
 }
 
@@ -69,7 +92,9 @@ export async function pickBackend(cfg: GuardConfig, opts: SelectOptions = {}): P
     return { backend: b, status };
   }
   const notes: string[] = [];
-  for (const b of all) {
+  // The other providers are only used when named: a key that happens to be in the environment
+  // must not send project text to a company nobody chose.
+  for (const b of all.filter((x) => AUTO_BACKEND_IDS.includes(x.id))) {
     const status = await b.available();
     if (status.ok) return { backend: b, status };
     notes.push(`${b.id}: ${status.detail}.`);
@@ -98,26 +123,49 @@ export function createBrain(
 ): { complete: CompleteFn; backendUsed: () => string | null } {
   const now = opts.now ?? (() => new Date());
   let used: string | null = null;
+  // Calls outside a chat are grouped by this run.
+  const runId = `run-${randomBytes(6).toString("hex")}`;
 
   async function complete(req: CompleteRequest): Promise<CompleteResult> {
     const { parts, map, replaced } = maskAll([...req.system, req.user], req.dictionary);
     const picked = await pickBackend(cfg, opts);
     used = picked.backend.id;
-    const r = await picked.backend.complete({
+    let model = "";
+    const record = (r: CompleteResult | null): void => {
+      const u = r?.usage;
+      const reported = !!u && u.reported !== false;
+      const n = (x: number | undefined): number => (reported && Number.isFinite(x) ? (x as number) : 0);
+      recordUsage(cfg.dataDir, {
+        ts: now().toISOString(), backend: picked.backend.id, model: r?.model ?? model, role: req.role, session: req.sessionId ?? runId,
+        input: n(u?.input_tokens), cacheRead: n(u?.cache_read_input_tokens), cacheWrite: n(u?.cache_creation_input_tokens), output: n(u?.output_tokens),
+        ok: r !== null, reported,
+      });
+    };
+    const call = picked.backend.complete({
       role: req.role,
       system: parts.slice(0, -1),
       user: parts[parts.length - 1]!,
       maxTokens: req.maxTokens,
-      audit: (outgoing, model) =>
+      limits: (windows) => saveLimits(cfg.dataDir, picked.backend.id, windows, now()),
+      audit: (outgoing, sentModel) => {
+        // The CLI backends put their own name in front of the model.
+        model = sentModel.startsWith(`${picked.backend.id}/`) ? sentModel.slice(picked.backend.id.length + 1) : sentModel;
         auditOutgoing(join(cfg.root, "logs"), {
           ts: now().toISOString(),
           role: req.role,
-          model: `${picked.backend.id}:${model}`,
+          model: `${picked.backend.id}:${sentModel}`,
           sha256: createHash("sha256").update(outgoing).digest("hex"),
           blocked: [],
           replaced,
-        }),
+        });
+      },
     });
+    const r = await call.catch((e: unknown) => {
+      // Only a call that got as far as sending counts.
+      if (model) record(null);
+      throw e;
+    });
+    record(r);
     return { text: unmask(r.text, map), usage: r.usage };
   }
   return { complete, backendUsed: () => used };

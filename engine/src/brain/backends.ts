@@ -6,6 +6,8 @@ import { envValue } from "../config.ts";
 import { buildPayload, DEFAULT_MODEL, postMessages } from "./client.ts";
 import type { CompleteResult, Usage } from "./client.ts";
 import { MODEL_ID_RE } from "./models.ts";
+import { windowsFromClaudeStream, windowsFromHeaders } from "../usage/limits.ts";
+import type { StoredWindow } from "../usage/limits.ts";
 
 /**
  * A model backend. It only ever receives text that has ALREADY been masked and
@@ -20,6 +22,8 @@ export interface BackendRequest {
   maxTokens: number;
   /** Call once, with the exact text about to leave the machine, just before sending. */
   audit: (outgoing: string, model: string) => void;
+  /** Rate-limit facts the provider returned with this call. */
+  limits?: (windows: StoredWindow[]) => void;
 }
 
 export interface BackendStatus { ok: boolean; detail: string }
@@ -240,7 +244,8 @@ export function parseClaudeStream(stdout: string): CompleteResult {
   let text = "";
   let result: string | undefined;
   let error: string | undefined;
-  let usage: Usage = { input_tokens: 0, output_tokens: 0 };
+  let usage: Usage = { input_tokens: 0, output_tokens: 0, reported: false };
+  let model: string | undefined;
   for (const line of stdout.split("\n")) {
     let v: any;
     try { v = JSON.parse(line.trim()); } catch { continue; }
@@ -251,6 +256,7 @@ export function parseClaudeStream(stdout: string): CompleteResult {
         throw new CliError(`Refused: Claude Code started with ${tools} tool(s) and ${mcp} MCP server(s). Guard only uses it as a text model.`);
       }
     } else if (v?.type === "assistant" && Array.isArray(v.message?.content)) {
+      if (typeof v.message.model === "string" && MODEL_ID_RE.test(v.message.model)) model = v.message.model;
       const piece = v.message.content.filter((b: any) => b?.type === "text").map((b: any) => String(b.text ?? "")).join("");
       if (piece.trim()) text += (text ? "\n\n" : "") + piece;
     } else if (v?.type === "result") {
@@ -260,7 +266,7 @@ export function parseClaudeStream(stdout: string): CompleteResult {
       else {
         result = body;
         const u = v.usage ?? {};
-        usage = {
+        if (v.usage) usage = {
           input_tokens: Number(u.input_tokens ?? 0),
           output_tokens: Number(u.output_tokens ?? 0),
           ...(u.cache_creation_input_tokens != null ? { cache_creation_input_tokens: Number(u.cache_creation_input_tokens) } : {}),
@@ -272,7 +278,7 @@ export function parseClaudeStream(stdout: string): CompleteResult {
   if (error !== undefined) throw claudeFailure(error);
   const reply = (result && result.length > 0 ? result : text).trim();
   if (!reply) throw new CliError("Claude Code returned an empty response.");
-  return { text: reply, usage };
+  return { text: reply, usage, ...(model ? { model } : {}) };
 }
 
 // ---- backends ----
@@ -284,6 +290,8 @@ export interface BackendOptions {
   model?: string;
   /** Replaces discovery (tests). */
   launcher?: Launcher | null;
+  /** The same for OpenCode, which `launcher` does not cover (tests). */
+  opencodeLauncher?: Launcher | null;
   home?: string;
   /** A key kept in the secure store (keystore.ts). Used only when ANTHROPIC_API_KEY is not set. */
   storedKey?: { exists(): Promise<boolean>; get(): Promise<string | null> };
@@ -313,6 +321,7 @@ export function anthropicApiBackend(o: BackendOptions = {}): Backend {
       return postMessages({
         key, payload, fetch: o.fetch ?? fetch,
         sleep: o.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms))),
+        onHeaders: (h) => req.limits?.(windowsFromHeaders(h)),
       });
     },
   };
@@ -358,6 +367,7 @@ export function claudeCliBackend(o: BackendOptions = {}): Backend {
         timeoutMs: o.cliTimeoutMs ?? CLI_TIMEOUT_MS, env: childEnv(req.maxTokens),
         ...(o.onCwd ? { onCwd: o.onCwd } : {}),
       });
+      req.limits?.(windowsFromClaudeStream(r.stdout));
       if (r.code !== 0) {
         // A non-zero exit may still carry a result line that explains it.
         try { parseClaudeStream(r.stdout); } catch (e) { if (e instanceof CliError) throw e; }
@@ -460,7 +470,8 @@ export function antigravityCliBackend(o: BackendOptions = {}): Backend {
       }
       const reply = r.stdout.trim();
       if (!reply) throw new CliError("Antigravity CLI returned an empty response.");
-      return { text: reply, usage: { input_tokens: 0, output_tokens: 0 } };
+      // Text output carries no token counts.
+      return { text: reply, usage: { input_tokens: 0, output_tokens: 0, reported: false } };
     },
   };
 }

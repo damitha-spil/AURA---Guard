@@ -45,7 +45,8 @@ Do not commit or push unless the owner asks.
 | `engine/src/cli/` | `aura-guard` command line; words in `copy.ts` |
 | `engine/src/capture/` | read the capture spool, draft ai-log entries |
 | `engine/src/{review,qa,qe,prs,quiz,rules,logcheck,support}/` | roles, QA/DevSecOps, QE brain, and learning |
-| `engine/src/{chat,server}/` and `ui/` | chat app, Control Room UI (four themes) |
+| `engine/src/{chat,server}/` | chat server |
+| `web/` | the app (React, built to `web/dist`; the only UI) |
 | `src-tauri/` | Tauri 2 (Rust + WebView2) native desktop shell |
 | `bin/` | `aura-guard.mjs` CLI/UI entry + `win-uia-crawler.ps1` |
 | `extension/` | VS Code companion extension (own package) |

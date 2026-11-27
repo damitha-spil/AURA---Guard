@@ -28,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { BrandAvatar } from "@/components/app/brand";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +45,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { familyOf } from "@/components/app/model-picker";
 import { cn } from "@/lib/utils";
+import { useAppearance } from "@/lib/appearance";
+import { BASIC_COMMANDS, SLASH_MENU, isRunnerCommand, slashName } from "@/lib/slash";
 import { apiDelete, apiGet, apiPost, apiPut, streamNdjson } from "@/lib/api";
 
 interface ChatSummary {
@@ -137,6 +139,17 @@ function friendlyTitle(t?: string): string {
   return v.length > 3 ? v : "New chat";
 }
 
+/** A failed request arrives as the raw reply body; show only its error sentence. */
+function errorText(message: unknown): string {
+  const raw = String(message || "Error running request.");
+  try {
+    const parsed = JSON.parse(raw) as { error?: unknown };
+    return typeof parsed.error === "string" ? parsed.error : raw;
+  } catch {
+    return raw;
+  }
+}
+
 function statusVariant(s: string) {
   return s === "error" ? ("destructive" as const) : s === "done" ? ("default" as const) : ("secondary" as const);
 }
@@ -178,7 +191,12 @@ export function WorkspaceView({
   const [messages, setMessages] = React.useState<ChatMsg[]>([]);
   const [input, setInput] = React.useState("");
   const [notesOnly, setNotesOnly] = React.useState(false);
-  const [showWork, setShowWork] = React.useState(true);
+  const appearance = useAppearance();
+  const [showWork, setShowWork] = React.useState(appearance.showWork);
+  React.useEffect(() => setShowWork(appearance.showWork), [appearance.showWork]);
+  const [webSearch, setWebSearch] = React.useState(false);
+  const [runnerNames, setRunnerNames] = React.useState<string[]>(BASIC_COMMANDS);
+  const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [harnessOpen, setHarnessOpen] = React.useState(false);
   const [missionSub, setMissionSub] = React.useState("Ready for multi-agent execution");
@@ -286,8 +304,13 @@ export function WorkspaceView({
         { role: "assistant", text: "Working...", pending: true },
       ]);
 
+      // Slash lines other than /qa never start a mission, even if they contain words like "audit".
+      const name = slashName(q);
+      const runner = isRunnerCommand(q, runnerNames);
       const isMission =
-        /^@(qa|qe|review|security|api|report)\b/i.test(q) || /\b(run mission|audit|probe|crawl|qa )\b/i.test(q);
+        (!name || name === "qa") &&
+        !runner &&
+        (/^@(qa|qe|review|security|api|report)\b/i.test(q) || /\b(run mission|audit|probe|crawl|qa )\b/i.test(q));
       if (isMission) {
         setHarnessOpen(true);
         setPlanSteps([]);
@@ -325,10 +348,35 @@ export function WorkspaceView({
         ).catch(() => {});
       }
 
-      if (cid) {
+      const reply = (msg: Omit<ChatMsg, "role">) =>
+        setMessages((prev) => [...prev.slice(0, -1), { role: "assistant", ...msg }]);
+
+      if (runner) {
+        let output = "";
+        let finished = false;
+        await streamNdjson(
+          "/api/command",
+          { line: q, chatId: cid },
+          (ev) => {
+            if (ev.type === "output") {
+              output += String(ev.chunk || "");
+              reply({ text: output, pending: !output });
+            } else if (ev.type === "done") {
+              finished = true;
+              const note = ev.timedOut ? "\n\nStopped: it ran too long." : "";
+              reply({ text: (output.trimEnd() || "(no output)") + note, error: ev.code !== 0 });
+            } else if (ev.type === "error") {
+              finished = true;
+              reply({ text: errorText(ev.message), error: true });
+            }
+          },
+          ctrl.signal,
+        ).catch(() => {});
+        if (!finished) reply({ text: output || "The command did not finish.", error: true });
+      } else if (cid) {
         await streamNdjson(
           `/api/chats/${cid}/ask`,
-          { question: q, notesOnly },
+          { question: q, notesOnly, ...(webSearch && !notesOnly ? { webSearch: true } : {}) },
           (ev) => {
             if (ev.type === "answer") {
               setMessages((prev) => [
@@ -343,7 +391,7 @@ export function WorkspaceView({
             } else if (ev.type === "error") {
               setMessages((prev) => [
                 ...prev.slice(0, -1),
-                { role: "assistant", text: String(ev.message || "Error running request."), error: true },
+                { role: "assistant", text: errorText(ev.message), error: true },
               ]);
             }
           },
@@ -354,12 +402,15 @@ export function WorkspaceView({
       setBusy(false);
       refreshChats();
     },
-    [activeId, busy, notesOnly],
+    [activeId, busy, notesOnly, webSearch, runnerNames],
   );
 
   React.useEffect(() => {
     refreshChats();
     refreshBrain();
+    apiGet<{ commands?: { name: string }[] }>("/api/commands").then((r) => {
+      if (r.ok && r.data.commands) setRunnerNames(r.data.commands.map((c) => c.name));
+    });
     apiGet<{ agents: AgentLite[] }>("/api/reo/agents").then((r) => {
       if (r.ok) setAgents(r.data.agents || []);
     });
@@ -378,8 +429,8 @@ export function WorkspaceView({
   }, [initialPrompt, onClearInitial, runPrompt]);
 
   React.useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    endRef.current?.scrollIntoView({ behavior: appearance.reduceMotion ? "auto" : "smooth" });
+  }, [messages, appearance.reduceMotion]);
 
   const grouped = React.useMemo(() => {
     const q = chatSearch.trim().toLowerCase();
@@ -411,6 +462,15 @@ export function WorkspaceView({
   const mentionAgents = mention
     ? agents.filter((a) => a.id.toLowerCase().startsWith(mention[1].toLowerCase())).slice(0, 6)
     : [];
+
+  // The command menu shows while the first word of a "/" line is still being typed.
+  const slash = /^\/([a-z]*)$/i.exec(input);
+  const slashItems = slash ? SLASH_MENU.filter((c) => c.name.startsWith(slash[1].toLowerCase())) : [];
+
+  function pickCommand(name: string) {
+    setInput(`/${name} `);
+    inputRef.current?.focus();
+  }
 
   const availableBackends = brain ? brain.backends.filter((b) => b.available) : [];
   const activeModelId = brain?.picked ? brain.models.current[brain.picked] : undefined;
@@ -461,17 +521,21 @@ export function WorkspaceView({
       </Popover>
     );
 
+  // In an empty chat the composer sits mid-page, where a menu above it would be cut off.
+  const menuSide = messages.length === 0 ? "top-full mt-2" : "bottom-full mb-2";
+
   const composer = (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-(--chat-width,48rem)">
       <form
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
+        data-glass-surface="card"
         className="bg-card relative rounded-3xl border p-3 shadow-xs"
       >
         {mentionAgents.length > 0 && (
-          <div className="bg-popover absolute right-3 bottom-full left-3 z-10 mb-2 rounded-2xl border p-1 shadow-md">
+          <div data-glass-surface="popover" className={cn("bg-popover absolute right-3 left-3 z-10 rounded-2xl border p-1 shadow-md", menuSide)}>
             {mentionAgents.map((a) => (
               <button
                 key={a.id}
@@ -486,16 +550,38 @@ export function WorkspaceView({
             ))}
           </div>
         )}
+        {slashItems.length > 0 && (
+          <div data-glass-surface="popover" className={cn("bg-popover absolute right-3 left-3 z-10 max-h-72 overflow-y-auto rounded-2xl border p-1 shadow-md", menuSide)}>
+            {slashItems.map((c) => (
+              <button
+                key={c.name}
+                type="button"
+                onClick={() => pickCommand(c.name)}
+                className="hover:bg-muted flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm"
+              >
+                <span className="shrink-0 font-mono text-xs font-medium">{c.usage}</span>
+                <span className="text-muted-foreground min-w-0 truncate text-xs">{c.help}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <Textarea
+          ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
+            // Tab completes the first menu entry. Enter always sends what was typed.
+            if (e.key === "Tab" && !e.shiftKey && slashItems.length > 0 && input.length > 1) {
+              e.preventDefault();
+              pickCommand(slashItems[0].name);
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               submit();
             }
           }}
-          placeholder="Ask a question, or type @ to pick an agent..."
+          placeholder="Ask a question, type @ for an agent or / for a command..."
           className="max-h-52 min-h-20 resize-none border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
           aria-label="Message"
         />
@@ -505,8 +591,11 @@ export function WorkspaceView({
             <Button type="button" size="sm" variant={showWork ? "secondary" : "outline"} aria-pressed={showWork} onClick={() => setShowWork((v) => !v)} className="rounded-full text-xs">
               Show work
             </Button>
-            <Button type="button" size="sm" variant={notesOnly ? "secondary" : "outline"} aria-pressed={notesOnly} onClick={() => setNotesOnly((v) => !v)} className="rounded-full text-xs">
+            <Button type="button" size="sm" variant={notesOnly ? "secondary" : "outline"} aria-pressed={notesOnly} onClick={() => { if (!notesOnly) setWebSearch(false); setNotesOnly(!notesOnly); }} className="rounded-full text-xs">
               Notes only
+            </Button>
+            <Button type="button" size="sm" variant={webSearch ? "secondary" : "outline"} aria-pressed={webSearch} disabled={notesOnly} onClick={() => setWebSearch((v) => !v)} className="rounded-full text-xs">
+              Web search
             </Button>
           </div>
           {busy ? (
@@ -617,8 +706,11 @@ export function WorkspaceView({
 
       {empty ? (
         <ScrollArea className="min-h-0 flex-1">
-          <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-center gap-8 px-4 py-12">
-            <h2 className="text-center text-3xl font-semibold tracking-tight">What should we check today?</h2>
+          <div className="mx-auto flex min-h-full w-full max-w-(--chat-width,48rem) flex-col justify-center gap-8 px-4 py-12">
+            <div className="flex flex-col items-center gap-4">
+              <BrandAvatar className="size-16" />
+              <h2 className="text-center text-3xl font-semibold tracking-tight">What should we check today?</h2>
+            </div>
             {composer}
             <div className="grid gap-3 sm:grid-cols-2">
               {PRESETS.map((p) => (
@@ -643,7 +735,7 @@ export function WorkspaceView({
       ) : (
         <>
           <ScrollArea className="min-h-0 flex-1">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 pt-12 md:p-6 md:pt-12">
+            <div className="mx-auto flex w-full max-w-(--chat-width,48rem) flex-col gap-6 p-4 pt-12 md:p-6 md:pt-12">
               {messages.map((m, i) => {
                 const isUser = m.role === "user";
                 if (isUser) {
@@ -657,9 +749,7 @@ export function WorkspaceView({
                 }
                 return (
                   <div key={i} className="group flex gap-3">
-                    <Avatar className="size-8 shrink-0">
-                      <AvatarFallback className="text-xs">SR</AvatarFallback>
-                    </Avatar>
+                    <BrandAvatar />
                     <div className="flex min-w-0 flex-1 flex-col gap-2">
                       {showWork && m.work && (
                         <Collapsible>

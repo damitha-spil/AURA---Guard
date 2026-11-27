@@ -6,10 +6,15 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { GuardConfig } from "../types.ts";
 import { CLAUDE_INSTALL_HELP, discoverAgyModels, findClaude, runProgram, VERSION_TIMEOUT_MS } from "../brain/backends.ts";
 import type { Launcher } from "../brain/backends.ts";
-import { loadCatalogue } from "../brain/models.ts";
+import { isModelBackend, loadCatalogue, MODEL_BACKENDS } from "../brain/models.ts";
+import type { ModelBackend } from "../brain/models.ts";
+import { discoverApiModels, forgetApiModels } from "../brain/openai-compat.ts";
+import { discoverOpencodeModels } from "../brain/opencode.ts";
+import { findProvider, OPENAI_COMPAT } from "../brain/providers.ts";
+import type { OpenAiCompatProvider } from "../brain/providers.ts";
 import { createKeyStore, KeyStoreError, scrubSecrets, validateApiKey } from "../brain/keystore.ts";
 import type { KeyStore } from "../brain/keystore.ts";
-import { createBrain, describeBackends } from "../brain/select.ts";
+import { createBrain, describeBackends, providerSlot } from "../brain/select.ts";
 import type { SelectOptions } from "../brain/select.ts";
 import type { CompleteFn } from "../brain/client.ts";
 import { effectiveBrain, machineDataDir, updateSettings } from "../brain/settings.ts";
@@ -38,6 +43,8 @@ const LABELS: Record<string, string> = {
   "anthropic-api": "Anthropic API key",
   "claude-cli": "Claude plan (Claude Code)",
   "antigravity-cli": "Antigravity plan (Antigravity CLI)",
+  "opencode-cli": "OpenCode sign-ins (OpenCode CLI)",
+  ...Object.fromEntries(OPENAI_COMPAT.map((p) => [p.id, p.label])),
 };
 const TEST_TOKENS = 20;
 
@@ -69,8 +76,16 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
-function keyStoreFor(cfg: GuardConfig, o: BrainRouteOptions): KeyStore {
-  return createKeyStore({ dataDir: machineDataDir(cfg), ...(o.env ? { env: o.env } : {}), ...(o.secrets ? { backend: o.secrets } : {}) });
+/** Without a provider this is the Anthropic key. */
+function keyStoreFor(cfg: GuardConfig, o: BrainRouteOptions, p?: OpenAiCompatProvider): KeyStore {
+  const backend = p ? o.secretsFor?.(p.id) : o.secrets;
+  return createKeyStore({ dataDir: machineDataDir(cfg), ...(p ? { slot: providerSlot(p) } : {}), ...(o.env ? { env: o.env } : {}), ...(backend ? { backend } : {}) });
+}
+
+/** Every key Guard knows, so error text can hide all of them. */
+async function allSecrets(cfg: GuardConfig, o: BrainRouteOptions): Promise<string[]> {
+  const stores = [keyStoreFor(cfg, o), ...OPENAI_COMPAT.map((p) => keyStoreFor(cfg, o, p))];
+  return (await Promise.all(stores.map((s) => s.secretsForScrub().catch(() => [] as string[])))).flat();
 }
 
 async function planCli(o: BrainRouteOptions): Promise<{ found: boolean; version?: string; path?: string; help?: string }> {
@@ -107,39 +122,49 @@ export async function brainView(cfg: GuardConfig, o: BrainRouteOptions = {}) {
       catalogue.push({ id, label, note: "Available on your Antigravity CLI subscription.", backends: ["antigravity-cli"] });
     }
   }
-  const activeModel =
-    d.picked === "anthropic-api" || d.picked === "claude-cli" || d.picked === "antigravity-cli"
-      ? eff.models[d.picked].id
-      : "";
+  const opencodeIds = await discoverOpencodeModels({
+    ...(o.env ? { env: o.env } : {}),
+    ...(o.home ? { home: o.home } : {}),
+    ...(o.launcher !== undefined ? { launcher: o.launcher } : {}),
+  });
+  for (const id of opencodeIds) catalogue.push({ id, label: id.replace("/", " / "), note: "", backends: ["opencode-cli"] });
+  const providers = await Promise.all(OPENAI_COMPAT.map(async (p) => {
+    const store = keyStoreFor(cfg, o, p);
+    const st = await store.status();
+    // The list is asked for only when this provider already has a key.
+    const key = st.source ? await store.resolve().catch(() => null) : null;
+    const ids = key ? await discoverApiModels(p, key.key, o.fetch) : [];
+    return { row: { id: p.id as string, label: p.label as string, env: p.env as string, source: st.source }, ids };
+  }));
+  for (const { row, ids } of providers) {
+    for (const id of ids) catalogue.push({ id, label: id, note: "", backends: [row.id as ModelBackend] });
+  }
+  const activeModel = isModelBackend(d.picked) ? eff.models[d.picked].id : "";
   return {
     wanted: d.wanted,
     wantedSource: eff.backendSource,
     picked: d.picked,
     reason: d.picked
       ? `Guard will use ${LABELS[d.picked] ?? d.picked}${activeModel ? ` (${activeModel})` : ""}.`
-      : "No model is ready. Save an API key, or sign in to Claude Code or Antigravity CLI.",
+      : "No model is ready. Save an API key and pick its model, or sign in to a plan CLI.",
     backends: d.rows.map((r) => ({ id: r.id, kind: r.kind, label: LABELS[r.id] ?? r.id, available: r.status.ok, detail: r.status.detail })),
     models: {
-      current: {
-        "anthropic-api": eff.models["anthropic-api"].id,
-        "claude-cli": eff.models["claude-cli"].id,
-        "antigravity-cli": eff.models["antigravity-cli"].id,
-      },
-      sources: {
-        "anthropic-api": eff.models["anthropic-api"].source,
-        "claude-cli": eff.models["claude-cli"].source,
-        "antigravity-cli": eff.models["antigravity-cli"].source,
-      },
+      current: Object.fromEntries(MODEL_BACKENDS.map((b) => [b, eff.models[b].id])),
+      sources: Object.fromEntries(MODEL_BACKENDS.map((b) => [b, eff.models[b].source])),
       catalogue,
     },
     apiKey: { source: status.source, storage, canStore: storage !== null },
+    apiKeys: [
+      { id: "anthropic-api", label: LABELS["anthropic-api"]!, env: "ANTHROPIC_API_KEY", source: status.source },
+      ...providers.map((x) => x.row),
+    ],
     planCli: await planCli(o),
     ...(eff.problem ? { problem: eff.problem } : {}),
   };
 }
 
 /** Runs one tiny masked round trip through whatever is selected now. */
-async function runTest(cfg: GuardConfig, o: BrainRouteOptions, keys: KeyStore) {
+async function runTest(cfg: GuardConfig, o: BrainRouteOptions) {
   const eff = effectiveBrain(cfg, o.env ?? process.env);
   const t0 = Date.now();
   let backend: string | null = null;
@@ -154,13 +179,13 @@ async function runTest(cfg: GuardConfig, o: BrainRouteOptions, keys: KeyStore) {
       maxTokens: TEST_TOKENS,
     });
     backend = brain?.backendUsed() ?? backend;
-    const model = backend === "anthropic-api" || backend === "claude-cli" || backend === "antigravity-cli" ? eff.models[backend].id : "";
+    const model = isModelBackend(backend) ? eff.models[backend].id : "";
     const ok = /\bok\b/i.test(r.text);
     return { ok, backend, model, ms: Date.now() - t0, ...(ok ? {} : { error: "The model answered, but not with the expected word." }) };
   } catch (e) {
     const brain = backend;
-    const model = brain === "anthropic-api" || brain === "claude-cli" || brain === "antigravity-cli" ? eff.models[brain].id : "";
-    const text = scrubSecrets(e instanceof Error ? e.message : "The test failed.", await keys.secretsForScrub()).slice(0, 400);
+    const model = isModelBackend(brain) ? eff.models[brain].id : "";
+    const text = scrubSecrets(e instanceof Error ? e.message : "The test failed.", await allSecrets(cfg, o)).slice(0, 400);
     return { ok: false, backend: brain, model, ms: Date.now() - t0, error: text };
   }
 }
@@ -173,7 +198,6 @@ export async function handleBrainRoute(ctx: BrainRouteCtx): Promise<boolean> {
   if (path !== "/api/brain" && !path.startsWith("/api/brain/")) return false;
   const o = ctx.options ?? {};
   res.setHeader("Cache-Control", "no-store");
-  const keys = keyStoreFor(cfg, o);
   const dir = machineDataDir(cfg);
   const wrongMethod = (): never => { throw new RouteError(405, "That method is not allowed here."); };
   try {
@@ -187,7 +211,13 @@ export async function handleBrainRoute(ctx: BrainRouteCtx): Promise<boolean> {
       return sendJson(res, 200, await brainView(cfg, o)), true;
     }
 
-    if (path === "/api/brain/key") {
+    // /api/brain/key is the Anthropic key; /api/brain/key/<provider id> is another provider's.
+    if (path === "/api/brain/key" || path.startsWith("/api/brain/key/")) {
+      const id = path.slice("/api/brain/key/".length);
+      const provider = findProvider(id);
+      if (id && !provider && id !== "anthropic-api") throw new RouteError(404, "Not found.");
+      const keys = keyStoreFor(cfg, o, provider);
+      if (provider && method !== "GET") forgetApiModels(provider.id);
       if (method === "PUT") {
         const body = await readBody(req);
         const v = validateApiKey(body["key"]);
@@ -200,7 +230,7 @@ export async function handleBrainRoute(ctx: BrainRouteCtx): Promise<boolean> {
         }
         const st = await keys.status();
         return sendJson(res, 200, st.source === "env"
-          ? { ok: true, source: "env", stored: true, message: "Saved. The ANTHROPIC_API_KEY environment variable is set and is used instead of the saved key." }
+          ? { ok: true, source: "env", stored: true, message: `Saved. The ${provider?.env ?? "ANTHROPIC_API_KEY"} environment variable is set and is used instead of the saved key.` }
           : { ok: true, source: "stored", stored: true }), true;
       }
       if (method === "DELETE") {
@@ -216,7 +246,7 @@ export async function handleBrainRoute(ctx: BrainRouteCtx): Promise<boolean> {
       if (testRunning) throw new RouteError(409, "A test is already running.");
       testRunning = true;
       try {
-        return sendJson(res, 200, await runTest(cfg, o, keys)), true;
+        return sendJson(res, 200, await runTest(cfg, o)), true;
       } finally {
         testRunning = false;
       }
@@ -228,7 +258,7 @@ export async function handleBrainRoute(ctx: BrainRouteCtx): Promise<boolean> {
       if (e.status === 413) res.setHeader("Connection", "close");
       return sendJson(res, e.status, { error: e.message }), true;
     }
-    const known = await keys.secretsForScrub().catch(() => [] as string[]);
+    const known = await allSecrets(cfg, o);
     const msg = e instanceof KeyStoreError ? scrubSecrets(e.message, known) : "Something went wrong with the model settings.";
     return sendJson(res, 500, { error: msg }), true;
   }

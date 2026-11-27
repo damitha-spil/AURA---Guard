@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/app/page";
+import { useAppearance } from "@/lib/appearance";
 
 export interface DefectLite {
   severity: string;
@@ -66,6 +67,7 @@ const sevConfig = {
 } satisfies ChartConfig;
 
 export function DefectsOverTime({ defects, loading }: { defects: DefectLite[]; loading: boolean }) {
+  const calm = useAppearance().reduceMotion;
   const days = Array.from(new Set(defects.map((d) => d.testedDate))).sort();
   const data = days.map((day) => {
     const row: Record<string, string | number> = { day: day.slice(5) };
@@ -84,7 +86,7 @@ export function DefectsOverTime({ defects, loading }: { defects: DefectLite[]; l
           <ChartTooltip content={<ChartTooltipContent />} />
           <ChartLegend content={<ChartLegendContent />} />
           {Object.keys(sevConfig).map((s) => (
-            <Area
+            <Area isAnimationActive={calm ? false : "auto"}
               key={s}
               dataKey={s}
               type="monotone"
@@ -103,6 +105,7 @@ export function DefectsOverTime({ defects, loading }: { defects: DefectLite[]; l
 const statusConfig = { count: { label: "Defects", color: "var(--chart-3)" } } satisfies ChartConfig;
 
 export function DefectsByStatus({ defects, loading }: { defects: DefectLite[]; loading: boolean }) {
+  const calm = useAppearance().reduceMotion;
   const data = ["open", "triaged", "notified", "fixed", "false_positive"].map((s) => ({
     status: s.replace("_", " "),
     count: defects.filter((d) => d.status === s).length,
@@ -115,7 +118,7 @@ export function DefectsByStatus({ defects, loading }: { defects: DefectLite[]; l
           <XAxis dataKey="status" tickLine={false} axisLine={false} />
           <YAxis allowDecimals={false} width={24} tickLine={false} axisLine={false} />
           <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-          <Bar dataKey="count" fill={statusConfig.count.color} radius={[8, 8, 0, 0]} />
+          <Bar isAnimationActive={calm ? false : "auto"} dataKey="count" fill={statusConfig.count.color} radius={[8, 8, 0, 0]} />
         </BarChart>
       </ChartContainer>
     </Shell>
@@ -128,6 +131,7 @@ const runConfig = {
 } satisfies ChartConfig;
 
 export function RunsOverTime({ runs, loading }: { runs: RunLite[]; loading: boolean }) {
+  const calm = useAppearance().reduceMotion;
   const data = [...runs]
     .sort((a, b) => a.generatedAt.localeCompare(b.generatedAt))
     .slice(-14)
@@ -145,8 +149,8 @@ export function RunsOverTime({ runs, loading }: { runs: RunLite[]; loading: bool
           <YAxis allowDecimals={false} width={24} tickLine={false} axisLine={false} />
           <ChartTooltip content={<ChartTooltipContent />} />
           <ChartLegend content={<ChartLegendContent />} />
-          <Bar dataKey="cases" fill={runConfig.cases.color} radius={[8, 8, 0, 0]} />
-          <Bar dataKey="defects" fill={runConfig.defects.color} radius={[8, 8, 0, 0]} />
+          <Bar isAnimationActive={calm ? false : "auto"} dataKey="cases" fill={runConfig.cases.color} radius={[8, 8, 0, 0]} />
+          <Bar isAnimationActive={calm ? false : "auto"} dataKey="defects" fill={runConfig.defects.color} radius={[8, 8, 0, 0]} />
         </BarChart>
       </ChartContainer>
     </Shell>
@@ -156,6 +160,7 @@ export function RunsOverTime({ runs, loading }: { runs: RunLite[]; loading: bool
 const noteColors = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"];
 
 export function NotesByStatus({ notes, loading }: { notes: NoteLite[]; loading: boolean }) {
+  const calm = useAppearance().reduceMotion;
   const statuses = Array.from(new Set(notes.map((n) => n.status)));
   const data = statuses.map((s) => ({ status: s, count: notes.filter((n) => n.status === s).length }));
   const config: ChartConfig = Object.fromEntries(
@@ -166,7 +171,7 @@ export function NotesByStatus({ notes, loading }: { notes: NoteLite[]; loading: 
       <ChartContainer config={config} className="mx-auto h-48 w-full">
         <PieChart>
           <ChartTooltip content={<ChartTooltipContent hideLabel nameKey="status" />} />
-          <Pie data={data} dataKey="count" nameKey="status" innerRadius={42} strokeWidth={2}>
+          <Pie isAnimationActive={calm ? false : "auto"} data={data} dataKey="count" nameKey="status" innerRadius={42} strokeWidth={2}>
             {data.map((d, i) => (
               <Cell key={d.status} fill={noteColors[i % noteColors.length]} />
             ))}
