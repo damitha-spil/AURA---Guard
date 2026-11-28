@@ -6,6 +6,44 @@
 
 ---
 
+## Wave 1–3 Full Suite Implementation: Browser/Visual/A11y, Tier 0 AST/Mutation, DevSecOps, API Fuzz/Hurl/k6, Observatory, Eval Lab & Skill Proposals (2026-11-28)
+
+- **What changed:**
+  - `engine/src/util/cli-runner.ts`: Safe zero-shell external CLI prober (`runOptionalCli`) and read-only repo file walker (`resolveTargetRepo`, `walkRepoSourceFiles`).
+  - `engine/src/qa/visual_and_a11y.ts`: Implemented `qaA11yTreeSnapshot`, `qaVisionGroundScreen`, `qaVisualDiff`, `qaAxeAudit` (with SHA-256 defect ingestion), and `qaLighthouseBudget` (localhost CWV history).
+  - `engine/src/qe/tier0_suite.ts`: Implemented `reviewAstGrep`, `qeDeadCodeScan`, `qeArchBoundaries`, and `qeMutationScore` (Tier 0 deterministic analysis with optional CLI integration + zero-install TS fallbacks).
+  - `engine/src/qa/devsecops_suite.ts`: Implemented `secSemgrepScan` (OWASP SAST + SARIF v2.1.0 ingestion to `Defects`), `secGitleaksHistory` (read-only git commit secret audit with redaction), `secDependencyCves` (OSV/Trivy/lockfile CVE release gate returning `BLOCK_RELEASE`), and `secNucleiLocal` (localhost-only dynamic exposure probe).
+  - `engine/src/qa/api_and_load.ts`: Implemented `apiSchemathesisFuzz`, `apiHurlRunner`, and `qaK6SmokeLoad` (hard-capped to localhost, max 10 VUs, max 10s, max 100 requests).
+  - `engine/src/automation/observatory_and_evals.ts`: Implemented OpenTelemetry `MissionTrace`/`OtelSpan` storage (`recordMissionTrace`, `listMissionTraces`), Promptfoo-style `runModelBenchmark`/`listModelBenchmarks`, and Hermes/Goose `SkillProposal` loop (`proposeSkillImprovement`, `reviewSkillProposal`, `detectAndProposeFromDefects` — writes only `status: proposed` drafts to Vault `inbox/`).
+  - `engine/src/tools/execute.ts`, `engine/src/tools/registry.ts`, `engine/src/agents/registry.ts`, `engine/src/agents/runner.ts`, `engine/src/mcp/server.ts`, `engine/src/server/server.ts`: Registered and wired all 16 new tools across registries, autonomous mission tracing, dev/qa MCP scopes (`40` tools; `support` remains isolated to `2` tools), and `/api/reo/{tools/run,traces,benchmarks,benchmarks/run,skill-proposals}` HTTP endpoints.
+  - `plugin/aura-guard/skills/*/SKILL.md`: Added all 19 Wave 1–3 skill playbooks.
+  - `web/src/views/HarnessView.tsx` & `web/src/views/QaLabView.tsx`: Added CSP-safe SVG **Observatory** trace waterfall tab, **Evaluation Lab** benchmark comparator tab, **Skill Proposals** human review tab, plus 4 interactive **QA Lab** runner tabs (`Visual & A11y`, `Tier 0 AST & Mutation`, `DevSecOps`, `Fuzz, Hurl & Load`).
+  - `engine/test/waves-all.test.ts` & `engine/test/mcp.test.ts`: Added full automated coverage for Categories 1–6 and updated MCP dev tool count (`40`).
+- **Not verified:** Live browser rendering inspection of the new `HarnessView` / `QaLabView` tabs or live native optional binaries (`sg`, `semgrep`, `gitleaks`, `osv-scanner`, `nuclei`, `k6`).
+
+---
+
+## Chat, search, shortcuts, resilience and diff reading (T3 Code review) (2026-11-28)
+
+Ideas came from reading pingdotgg/t3code (MIT) as untrusted reference. **No code, names or assets were copied**, so there is no `THIRD_PARTY_NOTICES.md`. Nothing from it was run. No new dependency; CSP unchanged. **No tests were run** (not clearly allowed). No commit.
+
+- **Chat history** (`web/src/components/app/chat-list.tsx`): search titles and message text, pin, rename, copy as Markdown, delete. Engine: `ChatStore.search` / `update`, `pinned` on `Chat` and `ChatSummary` (`chat/store.ts`); `GET /api/chats/search?q=`, `PATCH /api/chats/:id` (a name with a detected secret is refused).
+- **Chat page** (`views/WorkspaceView.tsx`, `lib/chat.ts`, `components/app/chat-find.tsx`): find in chat with marks (plain React text), per-chat unsent drafts (memory only, never on disk), up/down arrow recall, Use again / Copy on own messages, 4,000-character meter, attached file text shortened to fit.
+- **Fixed in the chat page:** a late reply could overwrite a message in another chat; Stop left "Working..." for good; Enter during a reply threw the typed text away; attachments over the engine's 4,000-character limit were refused; a failed chat create left "Working..."; 1-3 character chat titles showed as "New chat".
+- **Saved prompts:** new `engine/src/chat/prompts.ts` (`data/prompts/prompts.json`, secrets refused, max 100), `GET/POST /api/prompts`, `DELETE /api/prompts/:id`; `components/app/saved-prompts.tsx` in the composer.
+- **Command palette** (`App.tsx`): commands filter as you type (before, typing hid them), Settings tabs open directly, chat results open the chat. `CommandDialog` takes `shouldFilter`.
+- **Keyboard:** `lib/keybindings.ts`, Settings > Keyboard (change, turn off, reset, clash check); help dialog shows the current keys.
+- **Notifications:** Settings > Notifications, off by default, fixed text, only when the window is not in front (`lib/notify.ts`).
+- **Resilience:** `components/app/error-boundary.tsx` around the app, each page, Workspace and the 3D bot; `lib/connection.ts` polls new `GET /api/ping` every 15 s, with an offline / not-paired banner and click-to-check in the sidebar (before: checked once at load).
+- **Diffs** (`components/app/diff-view.tsx`, `lib/diff-review.ts`): path filter, Hide test files (by name only; new `hideTests` pref), copy path, Viewed marks that clear when the file's patch differs (turning Hide whitespace on or off changes the patch too). Files without patch text cannot be marked.
+- **Checks:** `npm run web:build` passed on the final code (existing chunk-size warning for `three`). `npx tsc -p engine --noEmit` exit 0 after this work's engine changes; the final run exit 1 with one error, `engine/src/agents/runner.ts(353,16)` (`traceId`), in a file another session was editing at the same time; not touched. No new `dangerouslySetInnerHTML`, dynamic `href`/`src` or `window.open` (grep).
+- **Concurrent edits:** another session was changing `server.ts`, `runner.ts`, the tool/agent/MCP registries and adding engine modules and skills.
+- **Left out:** terminal, project scripts, agent adapters, git write actions, worktrees, PR comments/review submit, remote pairing, voice, browser preview, a tiptap editor, markdown rendering (no renderer by rule), a skill picker (a picked skill would change nothing in a chat answer), PR detail diffs (the list API gives no diff).
+- **Not verified:** all tests, the new routes, and every new screen (nothing opened in a browser or Tauri). Whether WebView2 shows notifications is unknown (the test button reports it). Restart the engine to load the new routes.
+- **Next:** run `npm test` when allowed; add tests for chat search/update, prompt secret refusal, `composeMessage` and `isTestFile`; check the screens live.
+
+---
+
 ## Plan items 1-12: missing screens and wiring (2026-11-28)
 
 Clean-room; the SPIL AURA repo was not opened. Item 13 is still design only. **No tests were run** (the owner's instruction on testing was unclear). No commit.

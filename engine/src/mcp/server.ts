@@ -29,6 +29,7 @@ import { analyzeRefinementAndKbDrift } from "../qe/refine.ts";
 import { analyzeCommitTrajectory } from "../qe/trajectory.ts";
 import { getSkill, listSkills } from "../roles/skills.ts";
 import { n8nListExecutions, n8nListWorkflows, n8nTriggerWebhook } from "../plugins/n8n.ts";
+import { executeReoTool } from "../tools/execute.ts";
 import type { Audience, DocKind, GuardConfig } from "../types.ts";
 
 export type Scope = "dev" | "qa" | "support";
@@ -429,6 +430,90 @@ export function buildServer(db: Db | null, scope: Scope, cfg?: GuardConfig): Mcp
       }
     },
   );
+
+  const registerReo = (
+    name: string,
+    description: string,
+    inputSchema: Record<string, z.ZodTypeAny>,
+  ) => {
+    server.registerTool(name, { description, inputSchema }, async (args: Record<string, unknown>) => {
+      try {
+        return text(JSON.stringify(await executeReoTool(resolveCfg(), name, args), null, 2));
+      } catch (e) {
+        return text(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    });
+  };
+
+  registerReo("qa_a11y_tree_snapshot", "Capture Playwright MCP style semantic ARIA accessibility tree snapshot from a local URL or HTML.", {
+    url: z.string().optional(),
+    html: z.string().optional(),
+  });
+  registerReo("qa_vision_ground_screen", "Ground UI controls into normalized [x1,y1,x2,y2] bounding boxes (OmniParser pattern).", {
+    imagePath: z.string().optional(),
+    html: z.string().optional(),
+    windowTitle: z.string().optional(),
+  });
+  registerReo("qa_visual_diff", "Compare baseline vs current local screenshots and generate a visual regression diff report.", {
+    baselinePath: z.string(),
+    currentPath: z.string(),
+    thresholdPct: z.number().optional(),
+  });
+  registerReo("qa_axe_audit", "Run WCAG 2.1/2.2 accessibility audit on local HTML/URL and ingest critical/serious violations.", {
+    url: z.string().optional(),
+    html: z.string().optional(),
+    recordDefects: z.boolean().optional(),
+  });
+  registerReo("qa_lighthouse_budget", "Measure localhost Core Web Vitals, TTFB, HTML payload, and CLS image sizing budgets.", {
+    url: z.string(),
+    maxTtfbMs: z.number().optional(),
+    maxHtmlKb: z.number().optional(),
+  });
+  registerReo("review_ast_grep", "Run Tier 0 structural AST & Vault-rule safety pattern scan on configured repos.", {
+    repo: z.string().optional(),
+    pattern: z.string().optional(),
+  });
+  registerReo("qe_dead_code_scan", "Detect unused exports, orphan files, and unused npm dependencies (Knip pattern).", {
+    repo: z.string().optional(),
+  });
+  registerReo("qe_arch_boundaries", "Check module boundary rules and circular dependencies (dependency-cruiser pattern).", {
+    repo: z.string().optional(),
+  });
+  registerReo("qe_mutation_score", "Compute scoped unit-test assertion adequacy across high-churn mutant sites.", {
+    repo: z.string().optional(),
+    files: z.array(z.string()).optional(),
+  });
+  registerReo("sec_semgrep_scan", "Run OWASP SAST scan or ingest SARIF JSON findings into deduplicated SHA-256 Defects.", {
+    repo: z.string().optional(),
+    sarifJson: z.string().optional(),
+    recordDefects: z.boolean().optional(),
+  });
+  registerReo("sec_gitleaks_history", "Scan read-only git history for credentials with automatic redaction.", {
+    repo: z.string().optional(),
+    maxCommits: z.number().int().min(1).max(100).optional(),
+  });
+  registerReo("sec_dependency_cves", "Scan lockfiles for CVEs (OSV/Trivy pattern) and compute release gate verdict.", {
+    repo: z.string().optional(),
+    recordDefects: z.boolean().optional(),
+  });
+  registerReo("sec_nuclei_local", "Run localhost-only Nuclei template checks for exposed env/git/headers/CORS.", {
+    baseUrl: z.string(),
+  });
+  registerReo("api_schemathesis_fuzz", "Run property-based OpenAPI fuzzing against a local baseUrl to catch 5xx & schema drift.", {
+    baseUrl: z.string(),
+    specText: z.string(),
+    maxExamples: z.number().int().min(1).max(40).optional(),
+  });
+  registerReo("api_hurl_runner", "Run plain-text chainable .hurl HTTP capture & assertion tests against localhost.", {
+    baseUrl: z.string().optional(),
+    hurlText: z.string(),
+  });
+  registerReo("qa_k6_smoke_load", "Run bounded (<=10s, <=10 VUs) localhost concurrency smoke-load test and check p95 budget.", {
+    url: z.string(),
+    vus: z.number().int().min(1).max(10).optional(),
+    durationSeconds: z.number().int().min(1).max(10).optional(),
+    p95BudgetMs: z.number().optional(),
+  });
 
   return server;
 }

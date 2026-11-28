@@ -7,6 +7,7 @@ export interface DiffPrefs {
   files: "expanded" | "collapsed";
   colors: "red-green" | "orange-blue";
   openPullsInApp: boolean;
+  hideTests: boolean;
 }
 
 export const DEFAULT_DIFF_PREFS: DiffPrefs = {
@@ -15,6 +16,7 @@ export const DEFAULT_DIFF_PREFS: DiffPrefs = {
   files: "expanded",
   colors: "red-green",
   openPullsInApp: true,
+  hideTests: false,
 };
 
 /** A file with more patch lines than this starts closed, so a large diff stays responsive. */
@@ -33,6 +35,7 @@ function load(): DiffPrefs {
       files: pick(raw?.files, ["expanded", "collapsed"] as const, d.files),
       colors: pick(raw?.colors, ["red-green", "orange-blue"] as const, d.colors),
       openPullsInApp: pick(raw?.openPullsInApp, [true, false], d.openPullsInApp),
+      hideTests: pick(raw?.hideTests, [true, false], d.hideTests),
     };
   } catch {
     return DEFAULT_DIFF_PREFS;

@@ -56,6 +56,15 @@ import { addMemory, deleteMemory, listMemory, verifyMemory } from "../memory/qa-
 import type { MemoryConfidence, MemoryLayer } from "../memory/qa-memory.ts";
 import { deleteAutomationRule, listAutomationRules, listCheckpoints, upsertAutomationRule } from "../automation/harness.ts";
 import type { TriggerKind } from "../automation/harness.ts";
+import {
+  listMissionTraces,
+  listModelBenchmarks,
+  listSkillProposals,
+  proposeSkillImprovement,
+  reviewSkillProposal,
+  runModelBenchmark,
+} from "../automation/observatory_and_evals.ts";
+import { executeReoTool } from "../tools/execute.ts";
 import { BUILTIN_TOOLS } from "../tools/registry.ts";
 import type { DefectStatus } from "../defects/store.ts";
 import { buildDailyDigest, DEFECT_STATUSES, generateDefectReportHtml, listDefects, listProductionDefects, saveDefectReportHtml, updateDefectStatus, upsertDefect } from "../defects/store.ts";
@@ -86,7 +95,8 @@ import { parseToolLine, runToolLine } from "../tools/native/chat.ts";
 import type { NativeDeps } from "../tools/native/chat.ts";
 import type { AnswerResult, ChatTurn, Step } from "../chat/answer.ts";
 import { recordFeedback } from "../chat/feedback.ts";
-import { isChatId } from "../chat/store.ts";
+import { isChatId, maskForStorage, WITHHELD } from "../chat/store.ts";
+import { addPrompt, listPrompts, removePrompt } from "../chat/prompts.ts";
 import { decideRoute, lastQaResult, routeQa } from "../chat/qa-route.ts";
 import type { RouteMode } from "../chat/qa-route.ts";
 import { COMMANDS, HeavyLock, loadCommandTable, parseSlash, runMainProcess } from "../chat/commands.ts";
@@ -263,6 +273,8 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     }
     const dcfg = cfg;
     if (await repoRoutes({ req, res, path, method, cfg, complete: deps.complete, openIndex })) return;
+    // Cheap liveness answer for the app's connection check: no index, files or model.
+    if (path === "/api/ping" && method === "GET") return json(res, 200, { ok: true });
     if (path === "/api/health" && method === "GET") return json(res, 200, await runHealth(dcfg, deps.brain ? { brain: deps.brain } : {}));
     if (path === "/api/usage" && method === "GET") {
       const range = new URL(req.url ?? "/", "http://x").searchParams.get("range") ?? "7d";
@@ -333,6 +345,23 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
 
     if (path === "/api/chats" && method === "GET") return json(res, 200, { chats: store.list() });
     if (path === "/api/chats" && method === "POST") return json(res, 201, store.create());
+    if (path === "/api/chats/search" && method === "GET") {
+      return json(res, 200, { hits: store.search(new URL(req.url ?? "/", "http://x").searchParams.get("q") ?? "") });
+    }
+
+    // Saved prompts for the chat box. Text with a detected secret is refused, never stored.
+    if (path === "/api/prompts" && method === "GET") return json(res, 200, { prompts: listPrompts(dcfg.dataDir) });
+    if (path === "/api/prompts" && method === "POST") {
+      const body = await readJson(req);
+      const r = addPrompt(dcfg.dataDir, typeof body["name"] === "string" ? body["name"] : "", typeof body["text"] === "string" ? body["text"] : "");
+      if (!r.ok) throw new HttpError(400, r.error);
+      return json(res, 201, { prompt: r.prompt });
+    }
+    const promptMatch = /^\/api\/prompts\/([a-f0-9]{16})$/.exec(path);
+    if (promptMatch && method === "DELETE") {
+      if (!removePrompt(dcfg.dataDir, promptMatch[1] as string)) throw new HttpError(404, "No such prompt.");
+      return json(res, 200, { deleted: true });
+    }
 
     const m = /^\/api\/chats\/([^/]+)(\/ask)?$/.exec(path);
     if (m) {
@@ -340,6 +369,19 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       if (!isChatId(id)) throw new HttpError(404, "No such chat.");
       if (!m[2] && method === "GET") {
         const c = store.get(id);
+        if (!c) throw new HttpError(404, "No such chat.");
+        return json(res, 200, c);
+      }
+      if (!m[2] && method === "PATCH") {
+        const body = await readJson(req);
+        const title = typeof body["title"] === "string" ? body["title"].trim() : undefined;
+        const pinned = typeof body["pinned"] === "boolean" ? body["pinned"] : undefined;
+        if (title === undefined && pinned === undefined) throw new HttpError(400, "Send a title or pinned.");
+        if (title === "") throw new HttpError(400, "Type a name.");
+        if (title !== undefined && maskForStorage(title) === WITHHELD) {
+          throw new HttpError(400, "That name looks like it holds a secret, so it was not saved.");
+        }
+        const c = store.update(id, { ...(title !== undefined ? { title } : {}), ...(pinned !== undefined ? { pinned } : {}) });
         if (!c) throw new HttpError(404, "No such chat.");
         return json(res, 200, c);
       }
@@ -980,6 +1022,81 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
 
     if (path === "/api/reo/checkpoints" && method === "GET") {
       return json(res, 200, { checkpoints: listCheckpoints(dcfg.dataDir) });
+    }
+
+    if (path === "/api/reo/tools/run" && method === "POST") {
+      const body = await readJson(req);
+      const tool = typeof body["tool"] === "string" ? body["tool"].trim() : "";
+      const args = body["args"] && typeof body["args"] === "object" ? (body["args"] as Record<string, unknown>) : {};
+      if (!tool) throw new HttpError(400, "tool is required.");
+      try {
+        return json(res, 200, await executeReoTool(dcfg, tool, args));
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+    }
+
+    if (path === "/api/reo/traces" && method === "GET") {
+      return json(res, 200, { traces: listMissionTraces(dcfg.dataDir) });
+    }
+
+    if (path === "/api/reo/benchmarks" && method === "GET") {
+      return json(res, 200, { benchmarks: listModelBenchmarks(dcfg.dataDir) });
+    }
+
+    if (path === "/api/reo/benchmarks/run" && method === "POST") {
+      const body = await readJson(req);
+      const prompt = typeof body["prompt"] === "string" ? body["prompt"].trim() : "";
+      if (!prompt) throw new HttpError(400, "prompt is required.");
+      const providers = Array.isArray(body["providers"]) ? body["providers"].map(String) : undefined;
+      const expectedKeywords = Array.isArray(body["expectedKeywords"]) ? body["expectedKeywords"].map(String) : undefined;
+      try {
+        const benchmark = await runModelBenchmark(dcfg, {
+          prompt,
+          ...(providers ? { providers } : {}),
+          ...(expectedKeywords ? { expectedKeywords } : {}),
+          liveCall: body["liveCall"] === true,
+        });
+        return json(res, 200, { ok: true, benchmark });
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+    }
+
+    if (path === "/api/reo/skill-proposals" && method === "GET") {
+      return json(res, 200, { proposals: listSkillProposals(dcfg.dataDir) });
+    }
+
+    if (path === "/api/reo/skill-proposals" && method === "POST") {
+      const body = await readJson(req);
+      const title = typeof body["title"] === "string" ? body["title"].trim() : "";
+      const rationale = typeof body["rationale"] === "string" ? body["rationale"].trim() : "";
+      const proposedPatchMarkdown = typeof body["proposedPatchMarkdown"] === "string" ? body["proposedPatchMarkdown"].trim() : "";
+      const targetName = typeof body["targetName"] === "string" ? body["targetName"].trim() : "qe-ast-rules";
+      if (!title || !rationale || !proposedPatchMarkdown) {
+        throw new HttpError(400, "title, rationale, and proposedPatchMarkdown are required.");
+      }
+      const proposal = proposeSkillImprovement(dcfg.dataDir, {
+        patternKey: typeof body["patternKey"] === "string" ? body["patternKey"] : title.toLowerCase().slice(0, 48),
+        targetKind: body["targetKind"] === "vault_rule" ? "vault_rule" : "skill",
+        targetName,
+        title,
+        rationale,
+        proposedPatchMarkdown,
+      });
+      return json(res, 201, { ok: true, proposal });
+    }
+
+    const propReviewMatch = /^\/api\/reo\/skill-proposals\/(prop-[a-z0-9-]+)$/.exec(path);
+    if (propReviewMatch && method === "PUT") {
+      const body = await readJson(req);
+      const decision = body["decision"];
+      if (decision !== "approved" && decision !== "dismissed") {
+        throw new HttpError(400, "decision must be 'approved' or 'dismissed'.");
+      }
+      const proposal = reviewSkillProposal(dcfg.dataDir, propReviewMatch[1]!, decision, dcfg.vaultDir);
+      if (!proposal) throw new HttpError(404, "Skill proposal not found.");
+      return json(res, 200, { ok: true, proposal });
     }
 
     if (path === "/api/defects" && method === "GET") {

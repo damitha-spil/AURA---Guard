@@ -34,7 +34,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -72,6 +71,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { apiGet } from "@/lib/api";
+import { ErrorBoundary } from "@/components/app/error-boundary";
+import { useEngineStatus } from "@/lib/connection";
+import { SHORTCUTS, keysFor, label as keyLabel, useOverrides, useShortcut } from "@/lib/keybindings";
+import { SETTINGS_TABS, type SettingsTab } from "@/lib/settings-tabs";
 import { useAppearance } from "@/lib/appearance";
 import { COLOR_THEMES, readRadius, readTheme, writeRadius, writeTheme, type ColorTheme, type Radius } from "@/lib/themes";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -146,7 +149,11 @@ export function App() {
   const [pullsSource, setPullsSource] = React.useState("");
   const [headSlot, setHeadSlot] = React.useState<HTMLElement | null>(null);
   const [listSlot, setListSlot] = React.useState<HTMLElement | null>(null);
-  const [engineOk, setEngineOk] = React.useState<boolean | null>(null);
+  const engine = useEngineStatus();
+  const shortcutKeys = useOverrides();
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>("general");
+  const [openRequest, setOpenRequest] = React.useState<{ id: string; n: number } | undefined>(undefined);
+  const [chatHits, setChatHits] = React.useState<{ id: string; title: string; snippet: string }[]>([]);
   const [inboxCount, setInboxCount] = React.useState(0);
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [helpOpen, setHelpOpen] = React.useState(false);
@@ -179,38 +186,31 @@ export function App() {
     return () => mq.removeEventListener("change", on);
   }, [scheme]);
 
+  const online = engine.state === "online";
   React.useEffect(() => {
+    if (!online) return;
     apiGet<{ total?: number; inbox?: { total?: number } }>("/api/project").then((r) => {
-      setEngineOk(r.ok);
       if (r.ok && r.data.inbox?.total) setInboxCount(r.data.inbox.total);
     });
-  }, []);
-
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setSearchOpen((o) => !o);
-      } else if (e.key === "?" && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
-        setHelpOpen(true);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [online]);
 
   React.useEffect(() => {
     const q = searchQuery.trim();
+    setSearched(false);
     if (!q) {
       setSearchHits([]);
-      setSearched(false);
+      setChatHits([]);
       return;
     }
     let cancelled = false;
     const t = window.setTimeout(async () => {
-      const r = await apiGet<{ hits: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`);
+      const [r, c] = await Promise.all([
+        apiGet<{ hits: SearchHit[] }>(`/api/search?q=${encodeURIComponent(q)}`),
+        apiGet<{ hits?: { id: string; title: string; snippet: string }[] }>(`/api/chats/search?q=${encodeURIComponent(q)}`),
+      ]);
       if (cancelled) return;
-      if (r.ok) setSearchHits(r.data.hits || []);
+      setSearchHits(r.ok ? r.data.hits || [] : []);
+      setChatHits(c.ok && Array.isArray(c.data.hits) ? c.data.hits.slice(0, 6) : []);
       setSearched(true);
     }, 250);
     return () => {
@@ -248,9 +248,62 @@ export function App() {
     goTo("workspace");
   }
 
+  function openSettings(tab: SettingsTab) {
+    setSettingsTab(tab);
+    goTo("settings");
+  }
+
+  function openChat(id: string) {
+    setOpenRequest((p) => ({ id, n: (p?.n ?? 0) + 1 }));
+    setRouteNotice(undefined);
+    goTo("workspace");
+  }
+
+  useShortcut("palette", () => setSearchOpen((o) => !o));
+  useShortcut("newChat", newChat);
+  useShortcut("settings", () => goTo("settings"));
+  useShortcut("help", () => setHelpOpen(true));
+
+  // Every word typed must appear in a command's name for it to stay listed.
+  const words = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const run = (fn: () => void) => () => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    fn();
+  };
+  const commandGroups = [
+    {
+      heading: "Go to",
+      items: NAV_ITEMS.map((n) => ({ name: n.label, icon: <n.icon />, act: () => goTo(n.id) })),
+    },
+    {
+      heading: "Actions",
+      items: [
+        { name: "New chat", icon: <Plus />, act: newChat },
+        { name: "Run QA & Review", icon: <FlaskConical />, act: () => launchWorkspace("@qa @review inspect the latest branch changes") },
+        { name: "Cyber Security Audit", icon: <Bug />, act: () => launchWorkspace("@security audit localhost backend safety") },
+        { name: "Dark theme", icon: <Moon />, act: () => applyScheme("dark") },
+        { name: "Light theme", icon: <Sun />, act: () => applyScheme("light") },
+        ...themeChoices.map((t) => ({
+          name: `Change theme colour: ${t.label}`,
+          icon: <span data-theme={t.id} className="bg-primary inline-block size-3 rounded-full" />,
+          act: () => applyTheme(t.id),
+        })),
+        { name: "Keyboard shortcuts", icon: <Keyboard />, act: () => setHelpOpen(true) },
+      ],
+    },
+    {
+      heading: "Settings",
+      items: SETTINGS_TABS.map((t) => ({ name: `Settings: ${t.label}`, icon: <Settings />, act: () => openSettings(t.id) })),
+    },
+  ]
+    .map((g) => ({ ...g, items: g.items.filter((i) => words.every((w) => i.name.toLowerCase().includes(w))) }))
+    .filter((g) => g.items.length > 0);
+  const nothingFound = searched && !commandGroups.length && !chatHits.length && !searchHits.length;
+
   const clearInitial = React.useCallback(() => setPendingPrompt(undefined), []);
   const current = NAV_ITEMS.find((n) => n.id === view)!;
-  const engineLabel = engineOk === null ? "Connecting" : engineOk ? "Engine Ready" : "Offline";
+  const engineLabel = engine.state === "checking" ? "Connecting" : online ? "Engine Ready" : engine.state === "unpaired" ? "Not paired" : "Offline";
 
   return (
     <MotionConfig reducedMotion={appearance.reduceMotion ? "always" : "user"}>
@@ -300,11 +353,11 @@ export function App() {
           <SidebarFooter>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton tooltip={engineLabel} className="cursor-default">
+                <SidebarMenuButton tooltip={`${engineLabel}. Click to check again.`} onClick={engine.check}>
                   <span
                     className={
                       "size-2 shrink-0 rounded-full " +
-                      (engineOk === null ? "bg-muted-foreground" : engineOk ? "bg-primary" : "bg-destructive")
+                      (engine.state === "checking" ? "bg-muted-foreground" : online ? "bg-primary" : "bg-destructive")
                     }
                   />
                   <span>{engineLabel}</span>
@@ -367,7 +420,9 @@ export function App() {
               >
                 <Search />
                 <span className="hidden sm:inline">Search</span>
-                <kbd className="bg-muted hidden rounded px-1.5 font-mono text-[10px] md:inline">Ctrl K</kbd>
+                {keysFor("palette", shortcutKeys) && (
+                  <kbd className="bg-muted hidden rounded px-1.5 font-mono text-[10px] md:inline">{keyLabel(keysFor("palette", shortcutKeys))}</kbd>
+                )}
               </Button>
               <Button variant="outline" size="sm" onClick={newChat}>
                 <Plus />
@@ -377,9 +432,23 @@ export function App() {
             </div>
           </header>
 
+          {(engine.state === "offline" || engine.state === "unpaired") && (
+            <div role="alert" className="border-destructive/50 flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm">
+              <span className="min-w-0 flex-1">
+                {engine.state === "unpaired"
+                  ? "The engine does not recognise this window. Open SPIL REO from its own window again."
+                  : "The engine is not answering. Nothing can be loaded or saved until it is running again."}
+              </span>
+              <Button variant="outline" size="sm" onClick={engine.check}>
+                Check again
+              </Button>
+            </div>
+          )}
+
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {workspaceSeen && (
               <div className={view === "workspace" ? "flex min-h-0 flex-1" : "hidden"}>
+                <ErrorBoundary what="The Workspace">
                 <React.Suspense fallback={<Skeleton className="m-6 h-40 w-full" />}>
                 <WorkspaceView
                   initialPrompt={pendingPrompt}
@@ -390,12 +459,15 @@ export function App() {
                   listSlot={listSlot}
                   onClearInitial={clearInitial}
                   onOpenDefects={() => goTo("defects")}
+                  openRequest={openRequest}
                 />
                 </React.Suspense>
+                </ErrorBoundary>
               </div>
             )}
             {view !== "workspace" && (
               <ScrollArea className="min-h-0 flex-1">
+                <ErrorBoundary key={view} what="This page">
                 <React.Suspense fallback={<div className="space-y-3 p-6"><Skeleton className="h-8 w-48" /><Skeleton className="h-40 w-full" /></div>}>
                 <AnimatePresence mode="wait" initial={false}>
                   <motion.div
@@ -433,10 +505,11 @@ export function App() {
                 {view === "harness" && <HarnessView />}
                 {view === "plugins" && <PluginsView />}
                 {view === "knowledge" && <KnowledgeView />}
-                {view === "settings" && <SettingsView scheme={scheme} onSchemeChange={applyScheme} colorTheme={colorTheme} onColorTheme={applyTheme} radius={radius} onRadius={applyRadius} />}
+                {view === "settings" && <SettingsView tab={settingsTab} onTab={setSettingsTab} scheme={scheme} onSchemeChange={applyScheme} colorTheme={colorTheme} onColorTheme={applyTheme} radius={radius} onRadius={applyRadius} />}
                   </motion.div>
                 </AnimatePresence>
                 </React.Suspense>
+                </ErrorBoundary>
               </ScrollArea>
             )}
           </div>
@@ -447,63 +520,38 @@ export function App() {
         open={searchOpen}
         onOpenChange={setSearchOpen}
         title="Search"
-        description="Search vault notes, commits and files"
+        description="Run a command or search chats, vault notes, commits and files"
+        shouldFilter={false}
       >
-        <CommandInput value={searchQuery} onValueChange={setSearchQuery} placeholder="Search vault & commits..." />
+        <CommandInput value={searchQuery} onValueChange={setSearchQuery} placeholder="Type a command, or search chats, notes and commits..." />
         <CommandList>
-          {!searchQuery.trim() && (
-            <>
-              <CommandGroup heading="Go to">
-                {NAV_ITEMS.map((n) => (
-                  <CommandItem key={n.id} value={`go ${n.label}`} onSelect={() => { setSearchOpen(false); goTo(n.id); }}>
-                    <n.icon />
-                    {n.label}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-              <CommandSeparator />
-              <CommandGroup heading="Actions">
-                <CommandItem value="new chat" onSelect={() => { setSearchOpen(false); newChat(); }}>
-                  <Plus />
-                  New chat
+          {commandGroups.map((g) => (
+            <CommandGroup key={g.heading} heading={g.heading}>
+              {g.items.map((i) => (
+                <CommandItem key={i.name} value={`command ${i.name}`} onSelect={run(i.act)}>
+                  {i.icon}
+                  {i.name}
                 </CommandItem>
-                <CommandItem value="run qa review" onSelect={() => { setSearchOpen(false); launchWorkspace("@qa @review inspect the latest branch changes"); }}>
-                  <FlaskConical />
-                  Run QA &amp; Review
+              ))}
+            </CommandGroup>
+          ))}
+          {chatHits.length > 0 && (
+            <CommandGroup heading="Chats">
+              {chatHits.map((h) => (
+                <CommandItem key={h.id} value={`chat ${h.id}`} onSelect={run(() => openChat(h.id))}>
+                  <MessageSquare />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{h.title}</span>
+                    {h.snippet && <span className="text-muted-foreground block truncate text-xs">{h.snippet}</span>}
+                  </span>
                 </CommandItem>
-                <CommandItem value="security audit" onSelect={() => { setSearchOpen(false); launchWorkspace("@security audit localhost backend safety"); }}>
-                  <Bug />
-                  Cyber Security Audit
-                </CommandItem>
-                <CommandItem value="theme dark" onSelect={() => { setSearchOpen(false); applyScheme("dark"); }}>
-                  <Moon />
-                  Dark theme
-                </CommandItem>
-                <CommandItem value="theme light" onSelect={() => { setSearchOpen(false); applyScheme("light"); }}>
-                  <Sun />
-                  Light theme
-                </CommandItem>
-                {themeChoices.map((t) => (
-                  <CommandItem key={t.id} value={`change theme colour ${t.label}`} onSelect={() => { setSearchOpen(false); applyTheme(t.id); }}>
-                    <span data-theme={t.id} className="bg-primary inline-block size-3 rounded-full" />
-                    Change theme: {t.label}
-                  </CommandItem>
-                ))}
-                <CommandItem value="shortcuts help" onSelect={() => { setSearchOpen(false); setHelpOpen(true); }}>
-                  <Keyboard />
-                  Keyboard shortcuts
-                  <CommandShortcut>?</CommandShortcut>
-                </CommandItem>
-              </CommandGroup>
-            </>
-          )}
-          {searched && searchHits.length === 0 && (
-            <CommandEmpty>No matching notes, commits, or files found.</CommandEmpty>
+              ))}
+            </CommandGroup>
           )}
           {searchHits.length > 0 && (
-            <CommandGroup heading="Results">
+            <CommandGroup heading="Notes, commits and files">
               {searchHits.map((h) => (
-                <CommandItem key={h.ref} value={h.ref} forceMount onSelect={() => openHit(h)}>
+                <CommandItem key={h.ref} value={`ref ${h.ref}`} onSelect={() => openHit(h)}>
                   <FolderOpen />
                   <span className="min-w-0 flex-1 truncate">{h.title}</span>
                   <Badge variant="outline">{h.kind}</Badge>
@@ -511,6 +559,7 @@ export function App() {
               ))}
             </CommandGroup>
           )}
+          {nothingFound && <p className="text-muted-foreground p-6 text-center text-sm">No command, chat, note, commit or file matches.</p>}
         </CommandList>
       </CommandDialog>
 
@@ -522,17 +571,20 @@ export function App() {
           </DialogHeader>
           <dl className="grid gap-2 text-sm">
             {[
-              ["Ctrl K", "Command palette and search"],
+              ...SHORTCUTS.map((k) => [keyLabel(keysFor(k.id, shortcutKeys)), k.label]),
               ["Ctrl B", "Toggle sidebar"],
               ["Enter", "Send message (Shift+Enter for a new line)"],
-              ["?", "Show this help"],
+              ["Up arrow", "Bring back an earlier message"],
             ].map(([k, d]) => (
-              <div key={k} className="flex items-center justify-between gap-4">
+              <div key={d} className="flex items-center justify-between gap-4">
                 <dt className="text-muted-foreground">{d}</dt>
                 <dd><kbd className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">{k}</kbd></dd>
               </div>
             ))}
           </dl>
+          <Button variant="outline" size="sm" onClick={() => { setHelpOpen(false); openSettings("keyboard"); }}>
+            Change shortcuts
+          </Button>
         </DialogContent>
       </Dialog>
 

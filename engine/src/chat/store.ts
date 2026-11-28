@@ -37,9 +37,17 @@ export interface Chat {
   created: string;
   updated: string;
   messages: StoredMessage[];
+  pinned?: boolean;
 }
 
-export interface ChatSummary { id: string; title: string; updated: string }
+export interface ChatSummary { id: string; title: string; updated: string; pinned?: boolean }
+export interface ChatHit extends ChatSummary { snippet: string; matches: number }
+
+/** Bounds a search over every chat file, so one request stays quick. */
+export const MAX_CHAT_HITS = 30;
+export const MAX_CHAT_QUERY_CHARS = 200;
+const SNIPPET_BEFORE = 40;
+const SNIPPET_AFTER = 80;
 
 const ID_RE = /^[a-f0-9]{16}$/;
 export const isChatId = (s: string): boolean => ID_RE.test(s);
@@ -118,9 +126,44 @@ export class ChatStore {
     for (const f of readdirSync(this.dir)) {
       if (!f.endsWith(".json")) continue;
       const c = this.get(f.slice(0, -5));
-      if (c) rows.push({ id: c.id, title: c.title, updated: c.updated });
+      if (c) rows.push({ id: c.id, title: c.title, updated: c.updated, ...(c.pinned ? { pinned: true } : {}) });
     }
     return rows.sort((a, b) => b.updated.localeCompare(a.updated));
+  }
+
+  /** Case-insensitive text search over titles and stored (already masked) messages, newest chat first. */
+  search(query: string): ChatHit[] {
+    const q = query.trim().slice(0, MAX_CHAT_QUERY_CHARS).toLowerCase();
+    if (!q) return [];
+    const hits: ChatHit[] = [];
+    for (const row of this.list()) {
+      const chat = this.get(row.id);
+      if (!chat) continue;
+      let matches = 0;
+      let snippet = "";
+      for (const m of chat.messages) {
+        const at = m.text.toLowerCase().indexOf(q);
+        if (at < 0) continue;
+        matches++;
+        snippet ||= m.text.slice(Math.max(0, at - SNIPPET_BEFORE), at + q.length + SNIPPET_AFTER).replace(/\s+/g, " ").trim();
+      }
+      if (matches || row.title.toLowerCase().includes(q)) hits.push({ ...row, snippet, matches });
+      if (hits.length >= MAX_CHAT_HITS) break;
+    }
+    return hits;
+  }
+
+  /** Renames or pins a chat. `updated` is left alone so the chat keeps its place in the history. */
+  update(id: string, patch: { title?: string; pinned?: boolean }): Chat | null {
+    const chat = this.get(id);
+    if (!chat) return null;
+    if (patch.title !== undefined) chat.title = maskForStorage(patch.title).replace(/\s+/g, " ").trim().slice(0, MAX_TITLE_CHARS) || chat.title;
+    if (patch.pinned !== undefined) {
+      if (patch.pinned) chat.pinned = true;
+      else delete chat.pinned;
+    }
+    this.save(chat);
+    return chat;
   }
 
   /** Appends a message (masked) and keeps the title in step with the first question. */

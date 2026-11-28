@@ -10,6 +10,9 @@ import { DiffSettings } from "@/components/app/diff-settings";
 import { ProvidersSettings } from "@/components/app/providers-settings";
 import { SourceControlSettings } from "@/components/app/source-control-settings";
 import { SystemHealth } from "@/components/app/system-health";
+import { KeyboardSettings } from "@/components/app/keyboard-settings";
+import { NotificationSettings } from "@/components/app/notification-settings";
+import { SETTINGS_TABS, type SettingsTab } from "@/lib/settings-tabs";
 import type { ColorTheme, Radius } from "@/lib/themes";
 import { Page, PageHeader } from "@/components/app/page";
 import { apiGet, apiPost } from "@/lib/api";
@@ -30,6 +33,8 @@ interface SystemInfo {
 type Scheme = "light dark" | "light" | "dark";
 
 export function SettingsView({
+  tab,
+  onTab,
   scheme,
   onSchemeChange,
   colorTheme,
@@ -37,6 +42,8 @@ export function SettingsView({
   radius,
   onRadius,
 }: {
+  tab: SettingsTab;
+  onTab: (t: SettingsTab) => void;
   scheme: Scheme;
   onSchemeChange: (s: Scheme) => void;
   colorTheme: ColorTheme;
@@ -68,14 +75,11 @@ export function SettingsView({
     <Page>
       <PageHeader title="Settings" description="Appearance, providers, source control, diffs and index maintenance." />
 
-      <Tabs defaultValue="general" orientation="vertical" className="flex-col gap-6 lg:flex-row">
+      <Tabs value={tab} onValueChange={(v) => onTab(v as SettingsTab)} orientation="vertical" className="flex-col gap-6 lg:flex-row">
         <TabsList className="h-auto w-full shrink-0 flex-row justify-start overflow-x-auto lg:w-48 lg:flex-col lg:items-stretch">
-          <TabsTrigger value="general" className="justify-start">General</TabsTrigger>
-          <TabsTrigger value="providers" className="justify-start">Providers</TabsTrigger>
-          <TabsTrigger value="source" className="justify-start">Source control</TabsTrigger>
-          <TabsTrigger value="diffs" className="justify-start">Diffs &amp; pull requests</TabsTrigger>
-          <TabsTrigger value="index" className="justify-start">Repositories &amp; index</TabsTrigger>
-          <TabsTrigger value="health" className="justify-start">System health</TabsTrigger>
+          {SETTINGS_TABS.map((t) => (
+            <TabsTrigger key={t.id} value={t.id} className="justify-start">{t.label}</TabsTrigger>
+          ))}
         </TabsList>
         <div className="min-w-0 flex-1">
 
@@ -117,6 +121,13 @@ export function SettingsView({
         </TabsContent>
         <TabsContent value="diffs">
           <DiffSettings />
+        </TabsContent>
+
+        <TabsContent value="keyboard">
+          <KeyboardSettings />
+        </TabsContent>
+        <TabsContent value="notifications">
+          <NotificationSettings />
         </TabsContent>
 
         <TabsContent value="health">

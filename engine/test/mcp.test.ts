@@ -29,7 +29,7 @@ test("tool lists per scope", async () => {
   const names = async (s: Scope) => (await (await connect(seed(), s)).listTools()).tools.map((t) => t.name).sort();
   assert.deepEqual(await names("support"), ["get_doc", "search_knowledge"]);
   const dev = await names("dev");
-  assert.equal(dev.length, 24);
+  assert.equal(dev.length, 40);
   assert.ok(dev.includes("get_blast_radius"));
   assert.ok(dev.includes("pr_readiness_report"));
   assert.ok(dev.includes("advise_architecture"));
@@ -45,6 +45,22 @@ test("tool lists per scope", async () => {
   assert.ok(dev.includes("n8n_list_workflows"));
   assert.ok(dev.includes("n8n_list_executions"));
   assert.ok(dev.includes("n8n_trigger_webhook"));
+  assert.ok(dev.includes("review_ast_grep"));
+  assert.ok(dev.includes("qe_dead_code_scan"));
+  assert.ok(dev.includes("qe_arch_boundaries"));
+  assert.ok(dev.includes("qe_mutation_score"));
+  assert.ok(dev.includes("sec_semgrep_scan"));
+  assert.ok(dev.includes("sec_gitleaks_history"));
+  assert.ok(dev.includes("sec_dependency_cves"));
+  assert.ok(dev.includes("sec_nuclei_local"));
+  assert.ok(dev.includes("api_schemathesis_fuzz"));
+  assert.ok(dev.includes("api_hurl_runner"));
+  assert.ok(dev.includes("qa_k6_smoke_load"));
+  assert.ok(dev.includes("qa_axe_audit"));
+  assert.ok(dev.includes("qa_lighthouse_budget"));
+  assert.ok(dev.includes("qa_a11y_tree_snapshot"));
+  assert.ok(dev.includes("qa_vision_ground_screen"));
+  assert.ok(dev.includes("qa_visual_diff"));
   assert.deepEqual(await names("qa"), dev);
 });
 

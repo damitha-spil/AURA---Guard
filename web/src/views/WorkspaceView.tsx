@@ -13,10 +13,10 @@ import {
   PanelRight,
   Paperclip,
   Plus,
+  RotateCcw,
   Search,
   Shield,
   Square,
-  Trash2,
   TrendingUp,
   X,
 } from "lucide-react";
@@ -38,25 +38,24 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
+import { ChatList, chatTitle, type ChatSummary } from "@/components/app/chat-list";
+import { FindBar, Marked } from "@/components/app/chat-find";
+import { SavedPrompts } from "@/components/app/saved-prompts";
+import { ErrorBoundary } from "@/components/app/error-boundary";
+import { HISTORY_NOTE, MAX_MESSAGE_CHARS, chatMarkdown, composeMessage, recallable } from "@/lib/chat";
+import { useShortcut } from "@/lib/keybindings";
+import { notifyReply } from "@/lib/notify";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { SidebarGroup, SidebarGroupLabel } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ChatModelPicker } from "@/components/app/chat-model-picker";
 import { cn } from "@/lib/utils";
 import { useAppearance } from "@/lib/appearance";
 import { BASIC_COMMANDS, SLASH_MENU, isRunnerCommand, slashName } from "@/lib/slash";
-import { apiDelete, apiGet, apiPost, apiPut, streamNdjson } from "@/lib/api";
-
-interface ChatSummary {
-  id: string;
-  title?: string;
-  updated?: string;
-}
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, streamNdjson } from "@/lib/api";
 
 interface WorkStep {
   label: string;
@@ -71,6 +70,8 @@ interface ChatMsg {
   pending?: boolean;
   sources?: { ref: string; title?: string; kind?: string; status?: string }[];
   work?: { secs: number; steps: WorkStep[] };
+  /** Marks the reply of a run started in this window, so updates reach only that bubble. */
+  run?: number;
 }
 
 interface MissionStep {
@@ -113,7 +114,7 @@ interface AttachedFile {
   text?: string;
 }
 
-/** Cap attached files per message so chat requests stay within the engine's question budget. */
+/** Most files and most text read from each; file text is shortened again to fit the message limit. */
 const MAX_ATTACHMENTS = 5;
 const MAX_ATTACHMENT_CHARS = 12_000;
 
@@ -138,35 +139,6 @@ const PRESETS = [
   { icon: TrendingUp, title: "Trajectory and drift", desc: "7-day commits and knowledge drift", prompt: "@qe compute 7-day commit trajectory & KB drift" },
 ];
 
-function relTime(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  const m = Math.round((Date.now() - t) / 60000);
-  if (m < 1) return "now";
-  if (m < 60) return `${m}m`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.round(h / 24)}d`;
-}
-
-function dayGroup(iso?: string): string {
-  const t = iso ? Date.parse(iso) : NaN;
-  if (Number.isNaN(t)) return "Older";
-  const startToday = new Date();
-  startToday.setHours(0, 0, 0, 0);
-  const days = Math.floor((startToday.getTime() - t) / 86400000) + 1;
-  if (t >= startToday.getTime()) return "Today";
-  if (days <= 1) return "Yesterday";
-  if (days <= 7) return "Previous 7 days";
-  return "Older";
-}
-
-const GROUP_ORDER = ["Today", "Yesterday", "Previous 7 days", "Older"];
-
-function friendlyTitle(t?: string): string {
-  const v = (t || "").trim();
-  return v.length > 3 ? v : "New chat";
-}
 
 /** A failed request arrives as the raw reply body; show only its error sentence. */
 function errorText(message: unknown): string {
@@ -203,6 +175,7 @@ export function WorkspaceView({
   listSlot,
   onClearInitial,
   onOpenDefects,
+  openRequest,
 }: {
   initialPrompt?: string;
   routeNotice?: string;
@@ -212,11 +185,21 @@ export function WorkspaceView({
   listSlot: HTMLElement | null;
   onClearInitial: () => void;
   onOpenDefects: () => void;
+  /** A chat picked outside this page (command palette). `n` changes on each pick. */
+  openRequest?: { id: string; n: number };
 }) {
   const [chats, setChats] = React.useState<ChatSummary[]>([]);
   const [chatsLoaded, setChatsLoaded] = React.useState(false);
-  const [chatSearch, setChatSearch] = React.useState("");
   const [activeId, setActiveId] = React.useState<string | null>(null);
+  // Read by running requests, which outlive the render that started them.
+  const activeRef = React.useRef<string | null>(null);
+  const openSeq = React.useRef(0);
+  const runSeq = React.useRef(0);
+  const [findOpen, setFindOpen] = React.useState(false);
+  const [findQuery, setFindQuery] = React.useState("");
+  const [findFocus, setFindFocus] = React.useState(0);
+  const messagesBox = React.useRef<HTMLDivElement | null>(null);
+  const recall = React.useRef<{ index: number; draft: string } | null>(null);
   const [messages, setMessages] = React.useState<ChatMsg[]>([]);
   const [input, setInput] = React.useState("");
   const [notesOnly, setNotesOnly] = React.useState(false);
@@ -292,24 +275,68 @@ export function WorkspaceView({
     setChatsLoaded(true);
   }
 
-  async function openChat(id: string) {
+  // Unsent text and files stay with their chat. Kept in memory only: unsent text is not masked yet,
+  // so it is never written to disk.
+  const drafts = React.useRef(new Map<string, { input: string; attachments: AttachedFile[] }>());
+  const draftNow = React.useRef({ input, attachments });
+  draftNow.current = { input, attachments };
+
+  const showChat = React.useCallback((id: string | null, next: ChatMsg[]) => {
+    if (id !== activeRef.current) {
+      drafts.current.set(activeRef.current ?? "new", draftNow.current);
+      const draft = drafts.current.get(id ?? "new") ?? { input: "", attachments: [] };
+      // Now held by the box itself; a copy left here could bring back text that was already sent.
+      drafts.current.delete(id ?? "new");
+      draftNow.current = draft;
+      setInput(draft.input);
+      setAttachments(draft.attachments);
+      setFindOpen(false);
+      setFindQuery("");
+      recall.current = null;
+    }
+    activeRef.current = id;
+    setActiveId(id);
+    setMessages(next);
+  }, []);
+
+  async function openChat(id: string, find?: string) {
+    const seq = ++openSeq.current;
     const r = await apiGet<{ id: string; messages: ChatMsg[] }>(`/api/chats/${id}`);
-    if (r.ok) {
-      setActiveId(id);
-      setMessages(r.data.messages || []);
+    if (seq !== openSeq.current) return;
+    if (!r.ok) return void toast.error(r.error || "Could not open the chat.");
+    showChat(id, r.data.messages || []);
+    if (find) {
+      setFindQuery(find);
+      setFindOpen(true);
+      setFindFocus((n) => n + 1);
     }
   }
 
   const newChat = React.useCallback(() => {
-    setActiveId(null);
-    setMessages([]);
-  }, []);
+    openSeq.current++;
+    showChat(null, []);
+  }, [showChat]);
 
   async function deleteChat(id: string) {
     const r = await apiDelete(`/api/chats/${id}`);
-    if (activeId === id) newChat();
+    if (r.ok) {
+      if (activeRef.current === id) newChat();
+      drafts.current.delete(id);
+    }
     toast(r.ok ? "Chat deleted" : "Could not delete chat");
     refreshChats();
+  }
+
+  async function updateChat(id: string, patch: { title?: string; pinned?: boolean }) {
+    const r = await apiPatch(`/api/chats/${id}`, patch);
+    if (!r.ok) toast.error(r.error || "Could not change the chat.");
+    refreshChats();
+  }
+
+  async function copyChat(c: ChatSummary) {
+    const r = await apiGet<{ messages: ChatMsg[] }>(`/api/chats/${c.id}`);
+    if (!r.ok) return void toast.error(r.error || "Could not read the chat.");
+    copy(chatMarkdown(chatTitle(c.title), r.data.messages || []));
   }
 
   async function openSource(ref: string, title?: string) {
@@ -331,21 +358,44 @@ export function WorkspaceView({
       const work: WorkStep[] = [];
       const ctrl = new AbortController();
       abortRef.current = ctrl;
+      const run = ++runSeq.current;
+      recall.current = null;
 
-      let cid = activeId;
+      const startedIn = activeRef.current;
+      let cid = startedIn;
       if (!cid) {
         const created = await apiPost<{ id: string }>("/api/chats", {});
         if (created.ok && created.data.id) {
           cid = created.data.id;
-          setActiveId(cid);
+          if (activeRef.current === startedIn) {
+            activeRef.current = cid;
+            setActiveId(cid);
+          }
         }
       }
+      // The person may open another chat while this one is answering; its replies must stay here.
+      const here = () => activeRef.current === cid;
 
-      setMessages((prev) => [
-        ...prev,
-        { role: "user", text: q },
-        { role: "assistant", text: "Working...", pending: true },
-      ]);
+      if (here()) {
+        setMessages((prev) => [
+          ...prev,
+          { role: "user", text: q },
+          { role: "assistant", text: "Working...", pending: true, run },
+        ]);
+      }
+      let answered = false;
+      let failed = false;
+      const reply = (msg: Omit<ChatMsg, "role">) => {
+        if (!msg.pending) answered = true;
+        failed = Boolean(msg.error);
+        if (!here()) return;
+        setMessages((prev) => {
+          const next: ChatMsg = { role: "assistant", ...msg, run };
+          const at = prev.findIndex((m) => m.run === run);
+          return at < 0 ? [...prev, next] : prev.map((m, i) => (i === at ? next : m));
+        });
+      };
+      let output = "";
 
       // Slash lines other than /qa never start a mission, even if they contain words like "audit".
       const name = slashName(q);
@@ -391,11 +441,7 @@ export function WorkspaceView({
         ).catch(() => {});
       }
 
-      const reply = (msg: Omit<ChatMsg, "role">) =>
-        setMessages((prev) => [...prev.slice(0, -1), { role: "assistant", ...msg }]);
-
       if (runner) {
-        let output = "";
         let finished = false;
         await streamNdjson(
           "/api/command",
@@ -415,37 +461,39 @@ export function WorkspaceView({
           },
           ctrl.signal,
         ).catch(() => {});
-        if (!finished) reply({ text: output || "The command did not finish.", error: true });
+        if (!finished && !ctrl.signal.aborted) reply({ text: output || "The command did not finish.", error: true });
       } else if (cid) {
         await streamNdjson(
           `/api/chats/${cid}/ask`,
           { question: q, notesOnly, ...(webSearch && !notesOnly ? { webSearch: true } : {}) },
           (ev) => {
             if (ev.type === "answer") {
-              setMessages((prev) => [
-                ...prev.slice(0, -1),
-                {
-                  role: "assistant",
-                  text: String(ev.text || ""),
-                  sources: Array.isArray(ev.sources) ? (ev.sources as ChatMsg["sources"]) : [],
-                  work: work.length ? { secs: Math.max(1, Math.round((Date.now() - started) / 1000)), steps: work } : undefined,
-                },
-              ]);
+              reply({
+                text: String(ev.text || ""),
+                sources: Array.isArray(ev.sources) ? (ev.sources as ChatMsg["sources"]) : [],
+                work: work.length ? { secs: Math.max(1, Math.round((Date.now() - started) / 1000)), steps: work } : undefined,
+              });
             } else if (ev.type === "error") {
-              setMessages((prev) => [
-                ...prev.slice(0, -1),
-                { role: "assistant", text: errorText(ev.message), error: true },
-              ]);
+              reply({ text: errorText(ev.message), error: true });
             }
           },
           ctrl.signal,
         ).catch(() => {});
       }
 
+      if (ctrl.signal.aborted) {
+        if (!answered) {
+          const note = "Stopped waiting. The engine may still finish this and save the result in the chat.";
+          reply({ text: output ? `${output.trimEnd()}\n\n${note}` : note, error: true });
+        }
+      } else {
+        if (!answered) reply({ text: "No reply arrived. Check that the engine is running, then try again.", error: true });
+        notifyReply(failed);
+      }
       setBusy(false);
       refreshChats();
     },
-    [activeId, busy, notesOnly, webSearch, runnerNames],
+    [busy, notesOnly, webSearch, runnerNames],
   );
 
   React.useEffect(() => {
@@ -471,20 +519,32 @@ export function WorkspaceView({
     }
   }, [initialPrompt, onClearInitial, runPrompt]);
 
+  const findingRef = React.useRef(false);
+  findingRef.current = findOpen;
   React.useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: appearance.reduceMotion ? "auto" : "smooth" });
+    // While finding, the view stays on the match.
+    if (!findingRef.current) endRef.current?.scrollIntoView({ behavior: appearance.reduceMotion ? "auto" : "smooth" });
   }, [messages, appearance.reduceMotion]);
 
-  const grouped = React.useMemo(() => {
-    const q = chatSearch.trim().toLowerCase();
-    const list = chats.filter((c) => !q || friendlyTitle(c.title).toLowerCase().includes(q));
-    const map = new Map<string, ChatSummary[]>();
-    for (const c of list) {
-      const g = dayGroup(c.updated);
-      map.set(g, [...(map.get(g) || []), c]);
+  const openedRequest = React.useRef(0);
+  React.useEffect(() => {
+    if (openRequest && openRequest.n !== openedRequest.current) {
+      openedRequest.current = openRequest.n;
+      openChat(openRequest.id);
     }
-    return GROUP_ORDER.filter((g) => map.has(g)).map((g) => [g, map.get(g)!] as const);
-  }, [chats, chatSearch]);
+    // openChat reads only refs and state setters, so the request alone decides when this runs.
+  }, [openRequest]);
+
+  useShortcut(
+    "findInChat",
+    () => {
+      setFindOpen(true);
+      setFindFocus((n) => n + 1);
+    },
+    active && messages.length > 0,
+  );
+  useShortcut("focusComposer", () => inputRef.current?.focus(), active);
+  useShortcut("toggleCanvas", () => setHarnessOpen((o) => !o), active);
 
   async function attachFiles(files: FileList | File[]) {
     const incoming = Array.from(files);
@@ -521,23 +581,47 @@ export function WorkspaceView({
     setAttachments((prev) => [...prev, ...read]);
   }
 
+  const outgoing = composeMessage(
+    input,
+    attachments.map((a) => ({ name: a.name, sizeLabel: formatBytes(a.size), type: a.type, text: a.text })),
+  );
+  const canSend = outgoing.text.length > 0 && outgoing.fits;
+  const showMeter = attachments.length > 0 || outgoing.text.length > MAX_MESSAGE_CHARS * 0.75;
+
   function submit() {
-    const val = input.trim();
-    if (!val && attachments.length === 0) return;
-    const attachedBlock =
-      attachments.length > 0
-        ? attachments
-            .map((a) =>
-              a.text
-                ? `[Attached resource: ${a.name} (${formatBytes(a.size)})]\n\`\`\`\n${a.text}\n\`\`\``
-                : `[Attached resource: ${a.name} (${formatBytes(a.size)}, ${a.type})]`,
-            )
-            .join("\n\n")
-        : "";
-    const combined = attachedBlock && val ? `${attachedBlock}\n\n${val}` : attachedBlock || val;
+    // While a reply is running the typed text stays in the box.
+    if (busy || !canSend) return;
     setInput("");
     setAttachments([]);
-    runPrompt(combined);
+    runPrompt(outgoing.text);
+  }
+
+  /** Up and down arrows bring back messages already sent in this chat. */
+  function recallKey(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if ((e.key !== "ArrowUp" && e.key !== "ArrowDown") || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return false;
+    const sent = recallable(messages);
+    const now = recall.current && sent[recall.current.index] === input ? recall.current : null;
+    const box = e.currentTarget;
+    let next: string;
+    if (e.key === "ArrowUp") {
+      if ((!now && input !== "") || !sent.length || box.value.slice(0, box.selectionStart).includes("\n")) return false;
+      const index = now ? Math.max(0, now.index - 1) : sent.length - 1;
+      recall.current = { index, draft: now ? now.draft : input };
+      next = sent[index];
+    } else {
+      if (!now || box.value.slice(box.selectionEnd).includes("\n")) return false;
+      const index = now.index + 1;
+      next = index < sent.length ? sent[index] : now.draft;
+      recall.current = index < sent.length ? { index, draft: now.draft } : null;
+    }
+    e.preventDefault();
+    setInput(next);
+    return true;
+  }
+
+  function editAgain(text: string) {
+    setInput((v) => (v.trim() ? `${v}\n${text}` : text));
+    inputRef.current?.focus();
   }
 
   async function copy(text: string) {
@@ -644,16 +728,18 @@ export function WorkspaceView({
                 : { type: "spring", stiffness: 320, damping: 22 }
             }
           >
-            <React.Suspense fallback={null}>
-              <ReoBot3D
-                active={active && messages.length > 0}
-                typing={input.trim().length > 0}
-                floating={busy}
-                mood={botMood}
-                compact
-                className="h-20 w-24 sm:h-20 sm:w-24"
-              />
-            </React.Suspense>
+            <ErrorBoundary what="The animation" fallback={null}>
+              <React.Suspense fallback={null}>
+                <ReoBot3D
+                  active={active && messages.length > 0}
+                  typing={input.trim().length > 0}
+                  floating={busy}
+                  mood={botMood}
+                  compact
+                  className="h-20 w-24 sm:h-20 sm:w-24"
+                />
+              </React.Suspense>
+            </ErrorBoundary>
           </motion.div>
         </div>
       )}
@@ -755,15 +841,24 @@ export function WorkspaceView({
               pickCommand(slashItems[0].name);
               return;
             }
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               submit();
+              return;
             }
+            if (slashItems.length === 0 && mentionAgents.length === 0) recallKey(e);
           }}
           placeholder="Ask a question, type @ for an agent or / for a command..."
           className="max-h-52 min-h-20 resize-none border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
           aria-label="Message"
         />
+        {showMeter && (
+          <p role={outgoing.fits ? "status" : "alert"} className={cn("px-2 text-xs", outgoing.fits ? "text-muted-foreground" : "text-destructive")} title={HISTORY_NOTE}>
+            {outgoing.text.length.toLocaleString()} / {MAX_MESSAGE_CHARS.toLocaleString()} characters.
+            {!outgoing.fits && ` Too long to send: remove ${(outgoing.text.length - MAX_MESSAGE_CHARS).toLocaleString()} characters.`}
+            {outgoing.fits && outgoing.shortened && " Attached files will be shortened to fit."}
+          </p>
+        )}
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-1">
             <Button
@@ -778,6 +873,7 @@ export function WorkspaceView({
             >
               <Paperclip className="size-4" />
             </Button>
+            <SavedPrompts draft={input} onInsert={editAgain} />
             {modelPicker}
             <Button type="button" size="sm" variant={showWork ? "secondary" : "outline"} aria-pressed={showWork} onClick={() => setShowWork((v) => !v)} className="rounded-full text-xs">
               Show work
@@ -794,13 +890,15 @@ export function WorkspaceView({
               <Square />
             </Button>
           ) : (
-            <Button type="submit" size="icon" className="rounded-full" aria-label="Send" disabled={!input.trim() && attachments.length === 0}>
+            <Button type="submit" size="icon" className="rounded-full" aria-label="Send" disabled={!canSend}>
               <ArrowUp />
             </Button>
           )}
         </div>
       </form>
-      <p className="text-muted-foreground mt-2 text-center text-xs">Enter to send · Shift+Enter new line</p>
+      <p className="text-muted-foreground mt-2 text-center text-xs" title={HISTORY_NOTE}>
+        Enter to send · Shift+Enter new line · Up arrow for earlier messages
+      </p>
     </div>
   );
 
@@ -889,7 +987,46 @@ export function WorkspaceView({
   const conversation = (
     <div className="relative flex h-full min-w-0 flex-col">
       <div className="absolute top-2 right-3 z-10 flex items-center gap-2">
-        {routeNotice && <Badge variant="outline" className="max-w-64"><span className="truncate">{routeNotice}</span></Badge>}
+        {routeNotice && !findOpen && <Badge variant="outline" className="max-w-64"><span className="truncate">{routeNotice}</span></Badge>}
+        {findOpen && !empty && (
+          <FindBar
+            query={findQuery}
+            onQuery={setFindQuery}
+            onClose={() => {
+              setFindOpen(false);
+              setFindQuery("");
+              inputRef.current?.focus();
+            }}
+            scope={messagesBox}
+            messages={messages}
+            focusRequest={findFocus}
+          />
+        )}
+        {!empty && !findOpen && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Find in this chat"
+              title="Find in this chat"
+              onClick={() => {
+                setFindOpen(true);
+                setFindFocus((n) => n + 1);
+              }}
+            >
+              <Search />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Copy chat as Markdown"
+              title="Copy chat as Markdown"
+              onClick={() => copy(chatMarkdown(chatTitle(chats.find((c) => c.id === activeId)?.title), messages))}
+            >
+              <Copy />
+            </Button>
+          </>
+        )}
         <Button variant="ghost" size="icon" aria-label="Toggle Execution Canvas" aria-pressed={harnessOpen} onClick={() => setHarnessOpen((o) => !o)}>
           <PanelRight />
         </Button>
@@ -899,13 +1036,15 @@ export function WorkspaceView({
         <ScrollArea className="min-h-0 flex-1">
           <div className="mx-auto flex min-h-full w-full max-w-(--chat-width,48rem) flex-col justify-center gap-6 px-4 py-8">
             <div className="flex flex-col items-center gap-2">
-              <React.Suspense fallback={<BrandAvatar className="size-16" />}>
-                <ReoBot3D
-                  active={active && empty}
-                  typing={input.trim().length > 0}
-                  gazeX={presetGaze}
-                />
-              </React.Suspense>
+              <ErrorBoundary what="The animation" fallback={<BrandAvatar className="size-16" />}>
+                <React.Suspense fallback={<BrandAvatar className="size-16" />}>
+                  <ReoBot3D
+                    active={active && empty}
+                    typing={input.trim().length > 0}
+                    gazeX={presetGaze}
+                  />
+                </React.Suspense>
+              </ErrorBoundary>
               <h2 className="text-center text-3xl font-semibold tracking-tight">What should we check today?</h2>
             </div>
             {composer}
@@ -934,14 +1073,24 @@ export function WorkspaceView({
       ) : (
         <>
           <ScrollArea className="min-h-0 flex-1">
-            <div className="mx-auto flex w-full max-w-(--chat-width,48rem) flex-col gap-6 p-4 pt-12 md:p-6 md:pt-12">
+            <div ref={messagesBox} className="mx-auto flex w-full max-w-(--chat-width,48rem) flex-col gap-6 p-4 pt-12 md:p-6 md:pt-12">
               {messages.map((m, i) => {
                 const isUser = m.role === "user";
                 if (isUser) {
                   return (
-                    <div key={i} className="flex justify-end">
+                    <div key={i} className="group flex flex-col items-end gap-1">
                       <div className="bg-primary text-primary-foreground max-w-[85%] rounded-3xl px-4 py-2.5 text-sm leading-relaxed break-words whitespace-pre-wrap">
-                        {m.text}
+                        <Marked text={m.text} query={findOpen ? findQuery : ""} />
+                      </div>
+                      <div className="flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => editAgain(m.text)}>
+                          <RotateCcw />
+                          Use again
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => copy(m.text)}>
+                          <Copy />
+                          Copy
+                        </Button>
                       </div>
                     </div>
                   );
@@ -976,7 +1125,7 @@ export function WorkspaceView({
                           m.error && "border-destructive text-destructive rounded-2xl border p-3",
                         )}
                       >
-                        {m.pending ? <Skeleton className="h-4 w-40" /> : m.text}
+                        {m.pending ? <Skeleton className="h-4 w-40" /> : <Marked text={m.text} query={findOpen ? findQuery : ""} />}
                       </div>
                       {m.sources && m.sources.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
@@ -1024,55 +1173,16 @@ export function WorkspaceView({
   const list =
     active && listSlot
       ? createPortal(
-          <SidebarGroup className="min-h-0 flex-1 group-data-[collapsible=icon]:hidden">
-            <SidebarGroupLabel>Chats</SidebarGroupLabel>
-            <div className="relative mb-2 px-2">
-              <Search className="text-muted-foreground pointer-events-none absolute top-2.5 left-4 size-4" />
-              <Input
-                value={chatSearch}
-                onChange={(e) => setChatSearch(e.target.value)}
-                placeholder="Search chats..."
-                className="h-9 pl-8"
-                aria-label="Search chats"
-              />
-            </div>
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="space-y-3 px-2 pb-2">
-                {!chatsLoaded && <Skeleton className="h-8 w-full" />}
-                {chatsLoaded && grouped.length === 0 && <p className="text-muted-foreground p-2 text-xs">No chats yet.</p>}
-                {grouped.map(([label, items]) => (
-                  <div key={label} className="space-y-0.5">
-                    <div className="text-muted-foreground px-2 pb-1 text-[11px] font-medium">{label}</div>
-                    {items.map((c) => (
-                      <div
-                        key={c.id}
-                        className={cn(
-                          "group/chat flex items-center gap-1 rounded-xl text-sm",
-                          activeId === c.id ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/60",
-                        )}
-                      >
-                        <button type="button" onClick={() => openChat(c.id)} className="min-w-0 flex-1 truncate px-2 py-1.5 text-left" title={friendlyTitle(c.title)}>
-                          {friendlyTitle(c.title)}
-                        </button>
-                        {c.updated && (
-                          <span className="text-muted-foreground shrink-0 pr-2 text-[11px] group-hover/chat:hidden">{relTime(c.updated)}</span>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="mr-1 hidden size-6 shrink-0 group-focus-within/chat:inline-flex group-hover/chat:inline-flex"
-                          aria-label="Delete chat"
-                          onClick={() => setDeleteTarget(c)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          </SidebarGroup>,
+          <ChatList
+            chats={chats}
+            loaded={chatsLoaded}
+            activeId={activeId}
+            onOpen={openChat}
+            onPin={(c) => updateChat(c.id, { pinned: !c.pinned })}
+            onRename={(id, title) => updateChat(id, { title })}
+            onCopy={copyChat}
+            onDelete={setDeleteTarget}
+          />,
           listSlot,
         )
       : null;
@@ -1120,7 +1230,7 @@ export function WorkspaceView({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this chat?</AlertDialogTitle>
             <AlertDialogDescription>
-              &quot;{friendlyTitle(deleteTarget?.title)}&quot; will be removed. This cannot be undone.
+              &quot;{chatTitle(deleteTarget?.title)}&quot; will be removed. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -1,6 +1,10 @@
 // Read-only diff viewer. All repository text is rendered as React text, never as HTML.
 import * as React from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { toast } from "sonner";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { isTestFile, useViewedMarks, viewedMark } from "@/lib/diff-review";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -83,20 +87,40 @@ function Patch({ patch, split }: { patch: string; split: boolean }) {
 
 export const fileAnchor = (path: string) => `diff-file-${path}`;
 
-function FileCard({ file, open, onToggle, split }: { file: DiffFile; open: boolean; onToggle: () => void; split: boolean }) {
+async function copyPath(path: string) {
+  try {
+    await navigator.clipboard.writeText(path);
+    toast.success("Path copied");
+  } catch {
+    toast.error("Could not copy");
+  }
+}
+
+function FileCard({ file, open, onToggle, split, viewed, onViewed }: { file: DiffFile; open: boolean; onToggle: () => void; split: boolean; viewed: boolean; onViewed: ((v: boolean) => void) | null }) {
   return (
     <div id={fileAnchor(file.path)} className="min-w-0 overflow-hidden rounded-2xl border">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="bg-muted/60 focus-visible:ring-ring/50 flex w-full items-center gap-2 px-3 py-2 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-inset"
-      >
-        {open ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
-        <span className="min-w-0 flex-1 font-mono text-xs break-all">{file.path}</span>
-        <Badge variant="outline">{file.status}</Badge>
-        <Counts additions={file.additions} deletions={file.deletions} />
-      </button>
+      <div className="bg-muted/60 flex items-center gap-1 pr-2">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="focus-visible:ring-ring/50 flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-inset"
+        >
+          {open ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
+          <span className="min-w-0 flex-1 font-mono text-xs break-all">{file.path}</span>
+          <Badge variant="outline">{file.status}</Badge>
+          <Counts additions={file.additions} deletions={file.deletions} />
+        </button>
+        <Button variant="ghost" size="icon" className="size-7 shrink-0" aria-label={`Copy the path ${file.path}`} title="Copy path" onClick={() => copyPath(file.path)}>
+          <Copy />
+        </Button>
+        {onViewed && (
+          <Label className="flex shrink-0 items-center gap-1.5 text-xs">
+            <Checkbox checked={viewed} onCheckedChange={(v) => onViewed(v === true)} />
+            Viewed
+          </Label>
+        )}
+      </div>
       {open &&
         (file.withheld ? (
           <p className="text-muted-foreground p-3 text-xs">
@@ -126,7 +150,24 @@ export function DiffView({ diff, focus }: { diff: RepoDiff; focus: { path: strin
     return () => observer.disconnect();
   }, []);
 
+  const [filter, setFilter] = React.useState("");
+  const marks = useViewedMarks();
+  const isViewed = (f: DiffFile) => {
+    const m = viewedMark(f);
+    return m !== null && marks.has(m);
+  };
+  const wanted = filter.trim().toLowerCase();
+  const files = diff.files.filter((f) => (!prefs.hideTests || !isTestFile(f.path)) && (!wanted || f.path.toLowerCase().includes(wanted)));
+  const hidden = diff.files.length - files.length;
+  const viewedCount = diff.files.filter(isViewed).length;
+
   React.useEffect(() => setOverrides({}), [prefs.files]);
+  // A file opened from a finding must be shown, so the filters make way for it.
+  React.useEffect(() => {
+    if (!focus) return;
+    setFilter("");
+    if (isTestFile(focus.path)) updateDiffPrefs({ hideTests: false });
+  }, [focus]);
 
   React.useEffect(() => {
     if (!focus) return;
@@ -136,7 +177,7 @@ export function DiffView({ diff, focus }: { diff: RepoDiff; focus: { path: strin
   }, [focus]);
 
   const isOpen = (f: DiffFile) =>
-    overrides[f.path] ?? (prefs.files === "expanded" && (f.patch?.split("\n").length ?? 0) <= LARGE_FILE_LINES);
+    overrides[f.path] ?? (!isViewed(f) && prefs.files === "expanded" && (f.patch?.split("\n").length ?? 0) <= LARGE_FILE_LINES);
   const setAll = (open: boolean) => setOverrides(Object.fromEntries(diff.files.map((f) => [f.path, open])));
 
   return (
@@ -166,6 +207,15 @@ export function DiffView({ diff, focus }: { diff: RepoDiff; focus: { path: strin
           <Switch checked={prefs.hideWhitespace} onCheckedChange={(hideWhitespace) => updateDiffPrefs({ hideWhitespace })} />
           Hide whitespace
         </Label>
+        <Label className="flex items-center gap-2 text-xs">
+          <Switch checked={prefs.hideTests} onCheckedChange={(hideTests) => updateDiffPrefs({ hideTests })} />
+          Hide test files
+        </Label>
+        {viewedCount > 0 && (
+          <span className="text-muted-foreground text-xs">
+            {viewedCount} of {diff.files.length} viewed
+          </span>
+        )}
         <span className="ml-auto flex gap-1">
           <Button variant="ghost" size="sm" onClick={() => setAll(true)}>
             Expand all
@@ -179,8 +229,16 @@ export function DiffView({ diff, focus }: { diff: RepoDiff; focus: { path: strin
       {diff.truncated && <p className="bg-muted rounded-2xl p-3 text-xs">This diff was cut short. Some changes are not shown.</p>}
       {diff.files.length === 0 && <p className="text-muted-foreground rounded-2xl border border-dashed p-6 text-center text-sm">No changes between these.</p>}
       {diff.files.length > 1 && (
+        <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter files by path..." aria-label="Filter files by path" className="h-8" />
+      )}
+      {hidden > 0 && (
+        <p role="status" className="text-muted-foreground text-xs">
+          {hidden} file{hidden === 1 ? " is" : "s are"} hidden by the filter or by "Hide test files" (tests are told apart by name only).
+        </p>
+      )}
+      {files.length > 1 && (
         <ul className="max-h-56 overflow-y-auto rounded-2xl border p-1" aria-label="Changed files">
-          {diff.files.map((f) => (
+          {files.map((f) => (
             <li key={f.path}>
               <button
                 type="button"
@@ -190,22 +248,35 @@ export function DiffView({ diff, focus }: { diff: RepoDiff; focus: { path: strin
                 }}
                 className="hover:bg-muted focus-visible:ring-ring/50 flex w-full items-center gap-2 rounded-xl px-2 py-1 text-left outline-none focus-visible:ring-[3px]"
               >
-                <span className="min-w-0 flex-1 truncate font-mono text-xs">{f.path}</span>
+                <span className={cn("min-w-0 flex-1 truncate font-mono text-xs", isViewed(f) && "text-muted-foreground line-through")}>{f.path}</span>
                 <Counts additions={f.additions} deletions={f.deletions} />
               </button>
             </li>
           ))}
         </ul>
       )}
-      {diff.files.map((f) => (
-        <FileCard
-          key={f.path}
-          file={f}
-          open={isOpen(f)}
-          onToggle={() => setOverrides((o) => ({ ...o, [f.path]: !isOpen(f) }))}
-          split={prefs.layout === "split" && wide}
-        />
-      ))}
+      {files.map((f) => {
+        const mark = viewedMark(f);
+        return (
+          <FileCard
+            key={f.path}
+            file={f}
+            open={isOpen(f)}
+            onToggle={() => setOverrides((o) => ({ ...o, [f.path]: !isOpen(f) }))}
+            split={prefs.layout === "split" && wide}
+            viewed={isViewed(f)}
+            onViewed={
+              mark === null
+                ? null
+                : (v) => {
+                    marks.set(mark, v);
+                    // Marking a file closes it; clearing the mark opens it again.
+                    setOverrides((o) => ({ ...o, [f.path]: !v }));
+                  }
+            }
+          />
+        );
+      })}
     </div>
   );
 }
