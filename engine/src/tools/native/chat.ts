@@ -11,6 +11,7 @@ import { getTime, listProcesses, systemInfo } from "./system.ts";
 import type { RunTaskList } from "./system.ts";
 import { webFetch, webSearch } from "./web.ts";
 import type { WebDeps, WebHit } from "./web.ts";
+import { getN8nStatus, n8nListExecutions, n8nListWorkflows, n8nTriggerWebhook } from "../../plugins/n8n.ts";
 
 export interface NativeDeps extends WebDeps, BrowserDeps { runTaskList?: RunTaskList }
 
@@ -56,10 +57,57 @@ const TOOL_LINES: Record<string, ToolLine> = {
   "/system": { usage: "/system", needsArg: false, kind: "context", label: "Read system information", run: (c) => fenced(systemInfo(c)) },
   "/processes": { usage: "/processes", needsArg: false, kind: "context", label: "Listed processes", run: async (_c, _a, deps) => fenced(await listProcesses(deps.runTaskList)) },
   "/time": { usage: "/time", needsArg: false, kind: "context", label: "Read the clock", run: () => fenced(getTime()) },
+  "/n8n": {
+    usage: "/n8n status|workflows|executions [workflowId]|trigger <webhookPath> [json]",
+    needsArg: true,
+    kind: "context",
+    label: "n8n Automation",
+    run: async (cfg, arg) => {
+      const parts = arg.trim().split(/\s+/);
+      const sub = (parts[0] || "").toLowerCase();
+      try {
+        if (sub === "status") {
+          const st = await getN8nStatus(cfg.dataDir);
+          return fenced(JSON.stringify(st, null, 2));
+        }
+        if (sub === "workflows") {
+          const list = await n8nListWorkflows(cfg.dataDir);
+          return list.length ? fenced(JSON.stringify(list, null, 2)) : "No n8n workflows found.";
+        }
+        if (sub === "executions") {
+          const list = await n8nListExecutions(cfg.dataDir, parts[1]);
+          return list.length ? fenced(JSON.stringify(list, null, 2)) : "No n8n executions found.";
+        }
+        if (sub === "trigger") {
+          const pathOrUrl = parts[1];
+          if (!pathOrUrl) throw new ToolError("Usage: /n8n trigger <webhookPath> [json]");
+          const jsonRaw = arg.trim().slice(parts[0]!.length).trim().slice(pathOrUrl.length).trim();
+          let payload: Record<string, unknown> = { source: "spil-reo" };
+          if (jsonRaw) {
+            try {
+              const parsed = JSON.parse(jsonRaw) as unknown;
+              if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                payload = parsed as Record<string, unknown>;
+              }
+            } catch {
+              throw new ToolError("Invalid JSON payload for /n8n trigger.");
+            }
+          }
+          const res = await n8nTriggerWebhook(cfg.dataDir, { pathOrUrl, payload });
+          return fenced(JSON.stringify(res, null, 2));
+        }
+        throw new ToolError("Usage: /n8n status|workflows|executions [workflowId]|trigger <webhookPath> [json]");
+      } catch (e) {
+        if (e instanceof ToolError) throw e;
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new ToolError(msg, msg.startsWith("Blocked n8n webhook trigger"));
+      }
+    },
+  },
 };
 
 export function parseToolLine(line: string): { name: string; arg: string } | null {
-  const m = /^(\/[a-z]+)(?:\s+([\s\S]*))?$/i.exec(line.trim());
+  const m = /^(\/[a-z0-9]+)(?:\s+([\s\S]*))?$/i.exec(line.trim());
   const name = m?.[1]?.toLowerCase() ?? "";
   return Object.hasOwn(TOOL_LINES, name) ? { name, arg: (m?.[2] ?? "").trim() } : null;
 }

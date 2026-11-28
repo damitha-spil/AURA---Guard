@@ -82,6 +82,36 @@ export function reviewRound(dir: string, titlePrefix: string, headStem: string):
   return others + 1;
 }
 
+/** The line shown wherever a review round is shown. */
+export function roundLine(round: number, max: number): string {
+  return `Review round ${round} of ${max}.${round > max ? " The round limit is reached: only blockers are listed. Decide with the owner before another round." : ""}`;
+}
+
+/** Remembered base commits, so the rounds file cannot grow without end. */
+const MAX_ROUND_BASES = 200;
+
+/**
+ * Round number for a review that saves no report (the app's repository review). A round is one distinct
+ * change against the same base commit; reviewing the same change again keeps its number.
+ */
+export function noteReviewRound(dir: string, baseSha: string, changeKey: string): number {
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, "rounds.json");
+  let all: Record<string, string[]> = {};
+  try {
+    const v = JSON.parse(readFileSync(file, "utf8")) as unknown;
+    if (v && typeof v === "object" && !Array.isArray(v)) all = v as Record<string, string[]>;
+  } catch { /* no file yet, or unreadable: start again */ }
+  const seen = Array.isArray(all[baseSha]) ? (all[baseSha] as string[]) : [];
+  const at = seen.indexOf(changeKey);
+  if (at >= 0) return at + 1;
+  all[baseSha] = [...seen, changeKey];
+  const bases = Object.keys(all);
+  for (const old of bases.slice(0, Math.max(0, bases.length - MAX_ROUND_BASES))) delete all[old];
+  writeFileSync(file, JSON.stringify(all));
+  return seen.length + 1;
+}
+
 function findingBlock(f: Finding, patchFile?: string): string[] {
   const out = [`- **${f.severity}** \`${f.file}:${f.line}\` (${f.rule}): ${plainText(f.message)}`];
   if (f.why) out.push(`  - ${copy.why}: ${plainText(f.why)}`);
@@ -100,7 +130,13 @@ export function countsLine(list: Finding[]): string {
   return counts(list);
 }
 
-export interface WrittenReport { reportPath: string; patchPaths: string[] }
+export interface WrittenReport {
+  reportPath: string;
+  patchPaths: string[];
+  /** Set for change reviews: the round, and the comments the report lists as its top ones. */
+  round?: { n: number; max: number; capped: boolean };
+  shown?: Finding[];
+}
 
 export function writeReviewReport(cfg: GuardConfig, r: Review, now: Date = new Date(), maxRounds: number = MAX_REVIEW_ROUNDS): WrittenReport {
   const dir = join(reviewsDir(cfg), r.repo);
@@ -113,7 +149,7 @@ export function writeReviewReport(cfg: GuardConfig, r: Review, now: Date = new D
   const capped = round > maxRounds;
   const lines: string[] = [
     `# ${copy.title(r.repo, r.baseSha.slice(0, 8), r.headSha.slice(0, 8))}`, "", copy.shadow, "",
-    `Review round ${round} of ${maxRounds}.${capped ? " The round limit is reached: only blockers are listed. Decide with the owner before another round." : ""}`, "",
+    roundLine(round, maxRounds), "",
     `## ${copy.summary}`, "",
     `- Files reviewed: ${r.stats.files} (+${r.stats.addedLines} -${r.stats.removedLines} lines)`,
     `- ${copy.fixedChecks}: ${counts(r.tier0)}`,
@@ -143,22 +179,26 @@ export function writeReviewReport(cfg: GuardConfig, r: Review, now: Date = new D
   for (const f of split.owner) lines.push(...block(f));
   if (split.reviewer.length) lines.push("", "### For the reviewer to judge", "");
   for (const f of split.reviewer) lines.push(...block(f));
-  if (t.moreDefects.length > 0) lines.push("", copy.lowerPriority(t.moreDefects.length));
+  // Past the cap nothing but blockers is listed anywhere in the report.
+  const onlyBlockers = (list: Finding[]): Finding[] => (capped ? list.filter((f) => f.severity === "blocker") : list);
+  const more = onlyBlockers(t.moreDefects);
+  const policy = onlyBlockers(t.policy);
+  if (more.length > 0) lines.push("", copy.lowerPriority(more.length));
   if (r.model.used && r.model.error) lines.push("", copy.modelFailed(r.model.error));
   if (!r.model.used) lines.push("", copy.noModel);
 
   lines.push("", `## ${copy.compliance}`, "", copy.complianceNote);
-  if (t.policy.length === 0) lines.push("", copy.nothing);
+  if (policy.length === 0) lines.push("", copy.nothing);
   else {
     lines.push("", "| Rule | Findings |", "|---|---|");
-    for (const [rule, n] of countByRule(t.policy)) lines.push(`| ${rule} | ${n} |`);
+    for (const [rule, n] of countByRule(policy)) lines.push(`| ${rule} | ${n} |`);
   }
 
-  if (t.moreDefects.length > 0 || t.policy.length > 0) {
+  if (more.length > 0 || policy.length > 0) {
     lines.push("", `## ${copy.appendix}`, "");
-    for (const f of t.moreDefects) lines.push(...block(f));
+    for (const f of more) lines.push(...block(f));
     const seen = new Map<string, number>();
-    for (const f of t.policy) {
+    for (const f of policy) {
       const n = seen.get(f.rule) ?? 0;
       seen.set(f.rule, n + 1);
       if (n < APPENDIX_POLICY_PER_RULE) lines.push(...block(f));
@@ -171,7 +211,7 @@ export function writeReviewReport(cfg: GuardConfig, r: Review, now: Date = new D
   }
   lines.push("", ...evidenceMarkdown(evaluateEvidence(classifyChange(r.changedPaths), [])), "This code review is not proof. Check saved proof per QA run with `qa evidence <run-id>`.");
   writeFileSync(reportPath, lines.join("\n") + "\n");
-  return { reportPath, patchPaths };
+  return { reportPath, patchPaths, round: { n: round, max: maxRounds, capped }, shown };
 }
 
 export function writeRefactorReport(cfg: GuardConfig, r: RefactorResult, now: Date = new Date()): WrittenReport {

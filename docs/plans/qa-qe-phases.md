@@ -18,23 +18,23 @@ Rules that apply to every phase:
 | 3 | Nightly QA | Adds read-only health and QA checks to the daily routine. Unattended runs skip model calls and anything needing approval. |
 | 4 | Desktop-test safety | Desktop testing stays off until exact apps are listed. Refuses shells, elevated windows and REO's own window. |
 
-## Phase 2: repeat bugs, review quality and knowledge hygiene
+## Phase 2: repeat bugs, review quality and knowledge hygiene (built, tests not run)
 
 | # | Capability | What it does |
 |---|---|---|
-| 5 | Repeat-bug handling | Matches duplicate defects, raises severity when a defect recurs, tracks acknowledged defects, and writes a plain daily digest. |
-| 6 | Review rounds and report style | Caps repeat review rounds, splits owner and reviewer findings, and keeps report text short and plain. |
-| 7 | Outdated and duplicate notes | Flags knowledge notes that overlap in wording or are older than a limit. |
-| 8 | Lesson suggestions | Proposes notes from past sessions as proposed items only. The owner approves them. |
-| 9 | Sample-data guard | Keeps sample or fixture data out of real app data and marks it clearly. |
+| 5 | Repeat-bug handling | Matches duplicate defects, raises severity when a defect recurs, tracks acknowledged defects, and writes a plain daily digest. Status: built with screens, untested. |
+| 6 | Review rounds and report style | Caps repeat review rounds, splits owner and reviewer findings, and keeps report text short and plain. Status: built with screens, untested. |
+| 7 | Outdated and duplicate notes | Flags knowledge notes that overlap in wording or are older than a limit. Status: built with screens, untested. |
+| 8 | Lesson suggestions | Proposes notes from past sessions as proposed items only. The owner approves them. Status: built with screens, untested. |
+| 9 | Sample-data guard | Keeps sample or fixture data out of real app data and marks it clearly. Status: built with screens, untested. |
 
 ## Phase 3: later (10-12 built, untested; 13 design only, not built)
 
 | # | Capability | What it does |
 |---|---|---|
-| 10 | Repeated steps | Turns repeated testing work into reusable step lists. Status: built, untested. |
-| 11 | Follow-ups and task list | Tracks follow-ups and a per-session task list. Status: built, untested. |
-| 12 | Report views | Simple and technical versions of the same report. Status: built, untested. |
+| 10 | Repeated steps | Turns repeated testing work into reusable step lists. Status: built with screens, untested. |
+| 11 | Follow-ups and task list | Tracks follow-ups and a per-session task list. Status: built with screens, untested. |
+| 12 | Report views | Simple and technical versions of the same report. Status: built with screens, untested. |
 | 13 | Limited helper agents | Helpers with narrower permissions, only if needed. Status: design only, not built. |
 
 ### Item 13 design: limited helper agents (design only, not built)

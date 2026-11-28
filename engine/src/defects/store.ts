@@ -48,6 +48,8 @@ export interface DefectRecord {
   history?: DefectHistoryEntry[];
 }
 
+export const DEFECT_STATUSES: readonly DefectStatus[] = ["open", "triaged", "notified", "fixed", "false_positive", "resolved"];
+
 export const SEVERITY_ORDER: DefectSeverity[] = ["low", "medium", "high", "critical"];
 
 /** One step up, capped at critical. */
@@ -167,6 +169,8 @@ export function updateDefectStatus(
   const now = new Date().toISOString();
   if (patch.status && patch.status !== found.status) {
     found.status = patch.status;
+    if (patch.status === "resolved") found.resolvedAt = now;
+    else delete found.resolvedAt;
     addHistory(found, "status", patch.status, now);
   }
   if (patch.assignedTo !== undefined) found.assignedTo = patch.assignedTo;
@@ -196,7 +200,7 @@ export function buildDailyDigest(records: DefectRecord[], date: string): string 
   const day = (iso?: string): string => (iso || "").slice(0, 10);
   const fresh = real.filter((d) => day(d.firstSeen || d.testedDate) === date);
   const recurring = real.filter((d) => (d.recurrenceCount ?? 1) > 1 && day(d.lastSeen) === date);
-  const acked = real.filter((d) => d.acknowledged && d.status !== "resolved" && d.status !== "false_positive");
+  const acked = real.filter((d) => d.acknowledged && d.status !== "fixed" && d.status !== "resolved" && d.status !== "false_positive");
   const line = (d: DefectRecord): string =>
     `- ${d.id} [${d.severity}] ${d.title} (${d.appName}, ${d.branch})` +
     ((d.recurrenceCount ?? 1) > 1 ? ` - seen ${d.recurrenceCount} times` : "");

@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type PluginId = "composio" | "ms-teams" | "azure-devops" | "github" | "mcp-hub";
+export type PluginId = "composio" | "ms-teams" | "azure-devops" | "github" | "mcp-hub" | "n8n";
 
 export interface PluginConfig {
   id: PluginId;
@@ -34,6 +34,7 @@ const DEFAULT_PLUGINS: PluginConfig[] = [
   { id: "azure-devops", name: "Azure DevOps", category: "Source & PRs", description: "Read-only PR diff sync, thread mining, and work-item draft export for SPIL repositories.", enabled: false, status: "disconnected", scope: "read_only", hasCredential: false },
   { id: "github", name: "GitHub", category: "Source & PRs", description: "Read-only pull request diffs, issue drafts, and repository metadata.", enabled: false, status: "disconnected", scope: "read_only", hasCredential: false },
   { id: "mcp-hub", name: "MCP Server Hub", category: "Protocol Bridge", description: "Connect external MCP servers or expose SPIL REO's 21+ tools to Claude Code, VS Code, and Cursor.", enabled: true, status: "connected", scope: "read_only", hasCredential: false },
+  { id: "n8n", name: "n8n Automation", category: "Workflow Automation", description: "Discover n8n workflows, inspect executions, and trigger n8n webhooks autonomously from REO missions, QA gates, and /n8n commands.", enabled: false, status: "disconnected", scope: "notify", hasCredential: false },
 ];
 
 function pluginsFile(dataDir: string): string {

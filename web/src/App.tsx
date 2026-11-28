@@ -5,6 +5,7 @@ import {
   GitPullRequest,
   Bot,
   History,
+  ListTodo,
   Bug,
   FlaskConical,
   FolderGit2,
@@ -80,6 +81,7 @@ const HomeView = React.lazy(() => import("@/views/HomeView").then((m) => ({ defa
 const WorkspaceView = React.lazy(() => import("@/views/WorkspaceView").then((m) => ({ default: m.WorkspaceView })));
 const QaLabView = React.lazy(() => import("@/views/QaLabView").then((m) => ({ default: m.QaLabView })));
 const DefectsView = React.lazy(() => import("@/views/DefectsView").then((m) => ({ default: m.DefectsView })));
+const FollowupsView = React.lazy(() => import("@/views/FollowupsView").then((m) => ({ default: m.FollowupsView })));
 const AgentsView = React.lazy(() => import("@/views/AgentsView").then((m) => ({ default: m.AgentsView })));
 const HarnessView = React.lazy(() => import("@/views/HarnessView").then((m) => ({ default: m.HarnessView })));
 const PluginsView = React.lazy(() => import("@/views/PluginsView").then((m) => ({ default: m.PluginsView })));
@@ -96,6 +98,7 @@ const NAV_ITEMS = [
   { id: "qa", label: "QA Lab", icon: FlaskConical },
   { id: "runs", label: "QA Runs", icon: History },
   { id: "defects", label: "Defects", icon: Bug },
+  { id: "followups", label: "Follow-ups", icon: ListTodo },
   { id: "usage", label: "Usage", icon: Gauge },
   { id: "pulls", label: "Pull requests", icon: GitPullRequest },
   { id: "repos", label: "Repositories", icon: FolderGit2 },
@@ -409,6 +412,7 @@ export function App() {
                 {view === "qa" && <QaLabView />}
                 {view === "runs" && <RunsView />}
                 {view === "defects" && <DefectsView />}
+                {view === "followups" && <FollowupsView />}
                 {view === "agents" && (
                   <AgentsView
                     onRunMission={(prompt) =>

@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Stagger, StaggerItem } from "@/components/app/motion";
 import { EmptyState, IconRow, Page, PageHeader } from "@/components/app/page";
+import { inboxItems, type InboxReply } from "@/lib/inbox";
 import { apiGet } from "@/lib/api";
 
 type Kind = "defect" | "run" | "chat" | "inbox";
@@ -36,15 +37,15 @@ export function ActivityView({ onOpenView }: { onOpenView: (view: string) => voi
 
   React.useEffect(() => {
     Promise.all([
-      apiGet<{ defects: { id: string; title: string; testedDate: string; severity: string; status: string; appName: string }[] }>("/api/defects"),
+      apiGet<{ defects: { id: string; title: string; testedDate: string; severity: string; status: string; appName: string; sample?: boolean }[] }>("/api/defects"),
       apiGet<{ runs: { id: string; generatedAt: string; request: string; summary: string; scorecard: { defectsCount: number; runStatus: string } }[] }>("/api/qa/runs"),
       apiGet<{ chats: { id: string; title?: string; updated?: string }[] }>("/api/chats"),
-      apiGet<{ items?: { id: string; title?: string; reason?: string; status?: string }[]; notes?: { id: string; title?: string; reason?: string; status?: string }[] }>("/api/inbox"),
+      apiGet<InboxReply>("/api/inbox"),
     ]).then(([d, r, c, i]) => {
       const out: Entry[] = [];
       if (d.ok)
         for (const x of d.data.defects || [])
-          out.push({ key: `d-${x.id}`, kind: "defect", when: x.testedDate, title: x.title, detail: `${x.id} · ${x.appName}`, tag: `${x.severity} · ${x.status.replace("_", " ")}`, view: "defects" });
+          out.push({ key: `d-${x.id}`, kind: "defect", when: x.testedDate, title: x.title, detail: `${x.id} · ${x.appName}`, tag: `${x.sample ? "sample data · " : ""}${x.severity} · ${x.status.replace("_", " ")}`, view: "defects" });
       if (r.ok)
         for (const x of r.data.runs || [])
           out.push({ key: `r-${x.id}`, kind: "run", when: x.generatedAt, title: x.request || x.id, detail: x.summary, tag: `${x.scorecard.defectsCount} defects · ${x.scorecard.runStatus}`, view: "runs" });
@@ -52,8 +53,8 @@ export function ActivityView({ onOpenView }: { onOpenView: (view: string) => voi
         for (const x of c.data.chats || [])
           out.push({ key: `c-${x.id}`, kind: "chat", when: x.updated || "", title: x.title || "Untitled chat", detail: "Conversation updated", tag: "chat", view: "workspace" });
       if (i.ok)
-        for (const x of i.data.items || i.data.notes || [])
-          out.push({ key: `i-${x.id}`, kind: "inbox", when: "", title: x.title || x.id, detail: x.reason || "Waiting for review", tag: x.status || "proposed", view: "knowledge" });
+        for (const x of inboxItems(i.data))
+          out.push({ key: `i-${x.id}`, kind: "inbox", when: "", title: x.title || x.id, detail: x.preview || "Waiting for review", tag: x.status || "proposed", view: "knowledge" });
       out.sort((a, b) => b.when.localeCompare(a.when));
       setEntries(out);
       setLoaded(true);

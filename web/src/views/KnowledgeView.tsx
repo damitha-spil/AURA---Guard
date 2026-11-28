@@ -13,7 +13,9 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable, SortHeader } from "@/components/app/data-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState, IconRow, Page, PageHeader } from "@/components/app/page";
+import { NoteChecks } from "@/components/app/note-checks";
 import { apiGet, apiPost } from "@/lib/api";
+import { inboxItems, type InboxItem, type InboxReply } from "@/lib/inbox";
 
 interface VaultNote {
   id: string;
@@ -23,14 +25,6 @@ interface VaultNote {
   audience: string[];
   ref: string;
   anchors: number;
-}
-
-interface InboxItem {
-  id: string;
-  title?: string;
-  type?: string;
-  status?: string;
-  reason?: string;
 }
 
 interface ReportItem {
@@ -53,11 +47,11 @@ export function KnowledgeView() {
   async function loadAll() {
     const [n, i, r] = await Promise.all([
       apiGet<{ notes: VaultNote[] }>("/api/reo/notes"),
-      apiGet<{ items?: InboxItem[]; notes?: InboxItem[] }>("/api/inbox"),
+      apiGet<InboxReply>("/api/inbox"),
       apiGet<{ reports: ReportItem[] }>("/api/reports"),
     ]);
     if (n.ok) setNotes(n.data.notes || []);
-    if (i.ok) setInbox(i.data.items || i.data.notes || []);
+    if (i.ok) setInbox(inboxItems(i.data));
     if (r.ok) setReports(r.data.reports || []);
     setLoaded(true);
   }
@@ -81,6 +75,17 @@ export function KnowledgeView() {
     if (r.ok) setDecided((prev) => [...prev, { item, to }]);
     if (r.ok) toast.success(to === "active" ? "Rule approved" : "Item dismissed");
     else toast.error(r.error || "Update failed");
+    loadAll();
+  }
+
+  const [suggesting, setSuggesting] = React.useState(false);
+  async function suggestLessons() {
+    setSuggesting(true);
+    const r = await apiPost<{ written: number; skippedDuplicate: number; blocked: number }>("/api/notes/lessons");
+    setSuggesting(false);
+    if (!r.ok) return void toast.error(r.error || "Could not suggest lessons.");
+    const { written, skippedDuplicate, blocked } = r.data;
+    toast.success(`New proposed notes: ${written}. Already saved: ${skippedDuplicate}. Left out as possible secrets: ${blocked}.`);
     loadAll();
   }
 
@@ -109,6 +114,7 @@ export function KnowledgeView() {
         <TabsList>
           <TabsTrigger value="vault">Vault <Badge variant="secondary">{notes.length}</Badge></TabsTrigger>
           <TabsTrigger value="inbox">Inbox board <Badge variant={inbox.length ? "default" : "secondary"}>{inbox.length}</Badge></TabsTrigger>
+          <TabsTrigger value="checks">Note checks</TabsTrigger>
           <TabsTrigger value="reports">Reports <Badge variant="secondary">{reports.length}</Badge></TabsTrigger>
         </TabsList>
 
@@ -129,7 +135,15 @@ export function KnowledgeView() {
           <Card className="p-4"><DataTable columns={noteColumns} data={filteredNotes} loading={!loaded} hideFilter onRowClick={(n) => openNote(n.ref, n.title)} empty="No notes found." /></Card>
         </TabsContent>
 
-        <TabsContent value="inbox">
+        <TabsContent value="inbox" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button variant="outline" size="sm" onClick={suggestLessons} disabled={suggesting}>
+              {suggesting ? "Looking..." : "Suggest lessons"}
+            </Button>
+            <p className="text-muted-foreground min-w-0 flex-1 text-xs">
+              Reads recent Claude session records for your repositories on this computer. No model is used. New notes are only proposed until you approve them.
+            </p>
+          </div>
           {loaded && inbox.length === 0 && decided.length === 0 ? (
             <EmptyState icon={Check} title="Inbox is clear" description="No proposed items are waiting for review." />
           ) : (
@@ -166,7 +180,7 @@ export function KnowledgeView() {
                       >
                         <CardHeader className="px-3">
                           <CardTitle className="text-sm break-words">{item.title || item.id}</CardTitle>
-                          <CardDescription className="line-clamp-2 text-xs">{item.reason || item.type}</CardDescription>
+                          <CardDescription className="line-clamp-2 text-xs">{item.preview || item.type}</CardDescription>
                         </CardHeader>
                         {to === null && (
                           <CardFooter className="gap-2 px-3">
@@ -187,6 +201,10 @@ export function KnowledgeView() {
               })}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="checks">
+          <NoteChecks titleOf={(id) => notes.find((n) => n.id === id)?.title || id} onOpen={openNote} />
         </TabsContent>
 
         <TabsContent value="reports">

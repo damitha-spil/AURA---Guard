@@ -12,7 +12,7 @@ import { createBrain, NoBackendError } from "../brain/select.ts";
 import { reviewChange } from "../review/reviewer.ts";
 import type { ReviewDeps } from "../review/reviewer.ts";
 import { suggestRefactor } from "../review/refactor.ts";
-import { countsLine, writeRefactorReport, writeReviewReport } from "../review/report.ts";
+import { countsLine, roundLine, splitFindings, writeRefactorReport, writeReviewReport } from "../review/report.ts";
 import { classifyChange, evaluateEvidence, SCOPE_LABEL } from "../qa/evidence_scope.ts";
 import { DEFAULT_MODEL_CAP, runReplay } from "../review/replay.ts";
 import type { CommandContext } from "./main.ts";
@@ -110,10 +110,16 @@ async function review(ctx: CommandContext): Promise<number> {
     ctx.out(copy.reviewDone(w.reportPath));
     if (r.stats.files === 0) ctx.out(copy.emptyChange);
     ctx.out(copy.files(r.stats.files, r.stats.addedLines, r.stats.removedLines));
-    for (const f of r.triage.shown) ctx.out(copy.top(f.severity, f.file, f.line, f.rule, f.message));
-    if (r.triage.shown.length === 0) ctx.out(copy.noComments);
-    if (r.triage.moreDefects.length > 0) ctx.out(copy.lowerPriority(r.triage.moreDefects.length));
-    if (r.triage.policy.length > 0) ctx.out(copy.compliance(r.triage.policy.length));
+    if (w.round) ctx.out(roundLine(w.round.n, w.round.max));
+    const shown = w.shown ?? r.triage.shown;
+    const split = splitFindings(shown);
+    for (const [heading, list] of [["For the owner to fix:", split.owner], ["For the reviewer to judge:", split.reviewer]] as const) {
+      if (list.length) ctx.out(heading);
+      for (const f of list) ctx.out(copy.top(f.severity, f.file, f.line, f.rule, f.message));
+    }
+    if (shown.length === 0) ctx.out(copy.noComments);
+    if (!w.round?.capped && r.triage.moreDefects.length > 0) ctx.out(copy.lowerPriority(r.triage.moreDefects.length));
+    if (!w.round?.capped && r.triage.policy.length > 0) ctx.out(copy.compliance(r.triage.policy.length));
     ctx.out(copy.fullReport(w.reportPath));
     ctx.out(copy.fixed(countsLine(r.tier0)));
     ctx.out(r.model.used ? (r.model.error ? copy.modelFailed(r.model.error) : copy.model(countsLine(r.findings))) : copy.modelOff);

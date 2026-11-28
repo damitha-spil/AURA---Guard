@@ -12,6 +12,7 @@ import { runSecurityProbes } from "../qa/security_probes.ts";
 import { analyzeRefinementAndKbDrift } from "../qe/refine.ts";
 import { analyzeCommitTrajectory } from "../qe/trajectory.ts";
 import { listSkills } from "../roles/skills.ts";
+import { getN8nStatus, n8nListWorkflows } from "../plugins/n8n.ts";
 import { getEffectiveAgents } from "./profiles.ts";
 import { addMemory, recallMemory } from "../memory/qa-memory.ts";
 import { evaluateQualityGate, recordCheckpoint } from "../automation/harness.ts";
@@ -71,6 +72,10 @@ export async function runAgenticMission(
   }
   if (agents.includes("security") || agents.includes("api")) {
     steps.push({ id: "step-sec", agent: "security", title: "Run backend QA & local security probes", status: "pending" });
+  }
+  const n8nSt = await getN8nStatus(cfg.dataDir).catch(() => ({ enabled: false, endpoint: "", keySource: null, canStore: false }));
+  if (/\b(n8n|webhook|workflow[- ]?automation)\b/i.test(prompt) || (agents.includes("report") && n8nSt.enabled && Boolean(n8nSt.endpoint))) {
+    steps.push({ id: "step-n8n", agent: "report", title: "Inspect n8n automation workflows & webhook readiness", status: "pending" });
   }
   if (!steps.length) {
     steps.push({ id: "step-review", agent: "review", title: "Audit active rules & skill playbooks", status: "pending" });
@@ -167,6 +172,31 @@ export async function runAgenticMission(
           });
           defects.push(d);
           onEvent({ type: "defect", defect: d });
+        }
+      } else if (step.id === "step-n8n") {
+        onEvent({ type: "tool", stepId: step.id, agent: "report", tool: "n8n_list_workflows", status: "running", detail: "Inspecting configured n8n instance & workflows" });
+        const st = await getN8nStatus(cfg.dataDir);
+        if (!st.enabled || !st.endpoint || !st.keySource) {
+          onEvent({
+            type: "tool",
+            stepId: step.id,
+            agent: "report",
+            tool: "n8n_list_workflows",
+            status: "done",
+            detail: st.enabled ? "n8n enabled; configure endpoint and N8N_API_KEY in Plugins -> n8n Automation" : "n8n plugin disabled",
+            output: st,
+          });
+        } else {
+          const workflows = await n8nListWorkflows(cfg.dataDir);
+          onEvent({
+            type: "tool",
+            stepId: step.id,
+            agent: "report",
+            tool: "n8n_list_workflows",
+            status: "done",
+            detail: `${workflows.length} n8n workflow(s) discovered (${workflows.filter((w) => w.active).length} active)`,
+            output: { count: workflows.length, workflows: workflows.slice(0, 8) },
+          });
         }
       } else {
         onEvent({ type: "tool", stepId: step.id, agent: "review", tool: "list_skills", status: "running", detail: "Loading REO skills & playbooks" });

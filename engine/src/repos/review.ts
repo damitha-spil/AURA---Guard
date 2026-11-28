@@ -1,6 +1,7 @@
 // A code review of a loaded repo, using the reviewer's fixed checks and, only when asked, one
 // model call through the masking pipeline. Always reads the full diff with the hardened git.
 
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CompleteFn } from "../brain/client.ts";
@@ -18,6 +19,7 @@ import { loadRules, loadTier0ActiveChecks, runTier0 } from "../review/tier0.ts";
 import type { Finding } from "../review/tier0.ts";
 import { buildReviewPrompt, validateModelFindings } from "../review/reviewer.ts";
 import { extractJson } from "../review/context.ts";
+import { MAX_REVIEW_ROUNDS, noteReviewRound, reviewsDir, roundLine } from "../review/report.ts";
 import { safeGitSync } from "./safe-git.ts";
 import { rawDiff, withheldReason } from "./repos.ts";
 
@@ -28,6 +30,8 @@ export interface ReviewResult {
   note: string | null;
   /** The proof this change needs. A code review is not proof, so every item starts as missing. */
   evidence: EvidenceStatus;
+  /** Null when there was nothing to review. hidden counts comments left out past the round limit. */
+  round: { n: number; max: number; capped: boolean; hidden: number } | null;
 }
 
 const view = (f: Finding): ReviewResult["findings"][number] => ({
@@ -97,11 +101,22 @@ export async function reviewRepo(
       }
     }
   }
-  const findings = [...tier0, ...model].map(view);
+  const all = [...tier0, ...model];
+  let round: ReviewResult["round"] = null;
+  let listed = all;
+  if (diff.files.length) {
+    const key = createHash("sha256").update(raw.text).digest("hex").slice(0, 16);
+    const n = noteReviewRound(join(reviewsDir(cfg), repo.id), diff.baseSha, key);
+    const capped = n > MAX_REVIEW_ROUNDS;
+    if (capped) listed = all.filter((f) => f.severity === "blocker");
+    round = { n, max: MAX_REVIEW_ROUNDS, capped, hidden: all.length - listed.length };
+    if (capped) notes.push(`${roundLine(n, MAX_REVIEW_ROUNDS)} Other comments left out: ${round.hidden}.`);
+  }
+  const findings = listed.map(view);
   step("done", "done", "Done");
   const summary = diff.files.length === 0 ? "There is nothing to review between these two."
     : `${diff.files.length} files checked: ${findings.length} ${findings.length === 1 ? "finding" : "findings"} (${findings.filter((f) => f.severity === "blocker").length} blockers).`;
   // Every changed path counts, including files the checks skipped.
   const evidence = evaluateEvidence(classifyChange([...parsed.files.map((f) => f.path), ...parsed.skipped.map((s) => s.path)]), []);
-  return { summary, findings, ai: usedAi, note: notes.join(" ") || null, evidence };
+  return { summary, findings, ai: usedAi, note: notes.join(" ") || null, evidence, round };
 }

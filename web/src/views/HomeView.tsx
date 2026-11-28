@@ -57,7 +57,8 @@ export function HomeView({
       apiGet<{ runs: RunLite[] }>("/api/qa/runs"),
       apiGet<{ notes: NoteLite[] }>("/api/reo/notes"),
     ]).then(([d, r, n]) => {
-      if (d.ok) setDefects(d.data.defects || []);
+      // Sample records stay out of the charts.
+      if (d.ok) setDefects((d.data.defects || []).filter((x) => !x.sample));
       if (r.ok) setRuns(r.data.runs || []);
       if (n.ok) setNotes(n.data.notes || []);
       setChartsLoaded(true);

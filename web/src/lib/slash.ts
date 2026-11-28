@@ -9,6 +9,7 @@ export const TOOL_COMMANDS = [
   { name: "system", usage: "/system", help: "Show details of this computer" },
   { name: "processes", usage: "/processes", help: "Show running programs" },
   { name: "time", usage: "/time", help: "Show the date and time" },
+  { name: "n8n", usage: "/n8n status|workflows|executions|trigger <path>", help: "Inspect or trigger n8n workflows" },
 ];
 
 export const SLASH_MENU = [
@@ -21,7 +22,7 @@ export const SLASH_MENU = [
 export const BASIC_COMMANDS = ["index", "status"];
 
 export const slashName = (line: string): string | null =>
-  /^\/([a-z]+)(?=\s|$)/i.exec(line.trim())?.[1].toLowerCase() ?? null;
+  /^\/([a-z0-9]+)(?=\s|$)/i.exec(line.trim())?.[1].toLowerCase() ?? null;
 
 /** True when the line belongs to /api/command. Everything else goes to the chat's ask route. */
 export function isRunnerCommand(line: string, runnerNames: readonly string[]): boolean {

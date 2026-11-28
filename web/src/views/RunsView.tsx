@@ -16,7 +16,10 @@ import { DataTable, SortHeader } from "@/components/app/data-table";
 import { ProofPanel } from "@/components/app/proof-panel";
 import type { Evidence } from "@/lib/repos";
 import { EmptyState, Page, PageHeader, StatCard, Tile } from "@/components/app/page";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
+import { toast } from "sonner";
+import { FetchedReport } from "@/components/app/report-view";
+import { SavedSteps } from "@/components/app/saved-steps";
 import { useMediaQuery } from "@/lib/hooks";
 
 interface Scorecard {
@@ -66,7 +69,7 @@ interface Span {
 }
 
 interface RunDetail {
-  result: { id: string; request: string; summary: string; cases?: Record<string, unknown>[]; run?: { defects?: Record<string, unknown>[] } | null };
+  result: { id: string; request: string; summary: string; cases?: Record<string, unknown>[]; run?: { status?: string; defects?: Record<string, unknown>[] } | null; context?: { changedFiles?: unknown[] } };
   scorecard: Scorecard;
   spans: Span[];
   screenshots: { journey: string; step: string; path: string }[];
@@ -77,7 +80,7 @@ function gateVariant(g: string) {
   return g === "blocked" || g === "fail" ? ("destructive" as const) : ("secondary" as const);
 }
 
-function RunDetailPanel({ id, onClose }: { id: string; onClose?: () => void }) {
+function RunDetailPanel({ id, onClose, onSaved }: { id: string; onClose?: () => void; onSaved: () => void }) {
   const [detail, setDetail] = React.useState<RunDetail | null>(null);
   const [error, setError] = React.useState("");
   const [raw, setRaw] = React.useState(false);
@@ -95,6 +98,18 @@ function RunDetailPanel({ id, onClose }: { id: string; onClose?: () => void }) {
       live = false;
     };
   }, [id]);
+
+  const [saving, setSaving] = React.useState(false);
+  async function saveSteps() {
+    setSaving(true);
+    const r = await apiPost("/api/steps", { runId: id });
+    setSaving(false);
+    if (!r.ok) return void toast.error(r.error || "Could not save the steps.");
+    toast.success("Steps saved. See Repeated steps on the QA runs page.");
+    onSaved();
+  }
+  // Only a passed run with changed files has steps to repeat.
+  const canSave = detail?.result.run?.status === "passed" && (detail.result.context?.changedFiles?.length ?? 0) > 0;
 
   const total = Math.max(1, ...(detail?.spans || []).map((s) => s.startMs + s.durationMs));
 
@@ -123,6 +138,11 @@ function RunDetailPanel({ id, onClose }: { id: string; onClose?: () => void }) {
           {detail && (
             <>
               <p className="text-muted-foreground text-sm">{detail.result.summary}</p>
+              {canSave && (
+                <Button variant="outline" size="sm" onClick={saveSteps} disabled={saving}>
+                  Save as repeated steps
+                </Button>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <Tile label="Pass rate">
                   {detail.scorecard.passRate === null ? "n/a" : <><CountUp value={detail.scorecard.passRate} />%</>}
@@ -137,6 +157,8 @@ function RunDetailPanel({ id, onClose }: { id: string; onClose?: () => void }) {
               </div>
               {detail.scorecard.gateReason && <p className="text-muted-foreground text-xs">{detail.scorecard.gateReason}</p>}
               {detail.evidence && <ProofPanel evidence={detail.evidence} note="The release gate above does not mean the proof is complete." />}
+
+              <FetchedReport url={`/api/qa/run?id=${encodeURIComponent(id)}`} />
 
               <div>
                 <h3 className="mb-2 text-sm font-medium">Steps</h3>
@@ -206,6 +228,8 @@ export function RunsView() {
   const [loaded, setLoaded] = React.useState(false);
   const [selected, setSelected] = React.useState<string | null>(null);
   const wide = useMediaQuery("(min-width: 1100px)");
+  const [stepsReload, setStepsReload] = React.useState(0);
+  const stepsSaved = () => setStepsReload((n) => n + 1);
 
   React.useEffect(() => {
     apiGet<{ runs: RunItem[]; kpis: Kpis }>("/api/qa/runs").then((r) => {
@@ -243,6 +267,7 @@ export function RunsView() {
       ) : (
         <Card className="p-4"><DataTable columns={columns} data={runs} loading={!loaded} onRowClick={(r) => setSelected(r.id)} filterPlaceholder="Filter runs..." /></Card>
       )}
+      <SavedSteps reload={stepsReload} />
     </div>
   );
 
@@ -254,7 +279,7 @@ export function RunsView() {
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize="45%" minSize="30%">
-          <RunDetailPanel id={selected} onClose={() => setSelected(null)} />
+          <RunDetailPanel id={selected} onClose={() => setSelected(null)} onSaved={stepsSaved} />
         </ResizablePanel>
       </ResizablePanelGroup>
     );
@@ -269,7 +294,7 @@ export function RunsView() {
             <SheetTitle>Run detail</SheetTitle>
             <SheetDescription>Steps and findings for the selected run</SheetDescription>
           </SheetHeader>
-          {selected && <RunDetailPanel id={selected} />}
+          {selected && <RunDetailPanel id={selected} onSaved={stepsSaved} />}
         </SheetContent>
       </Sheet>
     </>

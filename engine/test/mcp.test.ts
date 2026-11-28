@@ -29,7 +29,7 @@ test("tool lists per scope", async () => {
   const names = async (s: Scope) => (await (await connect(seed(), s)).listTools()).tools.map((t) => t.name).sort();
   assert.deepEqual(await names("support"), ["get_doc", "search_knowledge"]);
   const dev = await names("dev");
-  assert.equal(dev.length, 21);
+  assert.equal(dev.length, 24);
   assert.ok(dev.includes("get_blast_radius"));
   assert.ok(dev.includes("pr_readiness_report"));
   assert.ok(dev.includes("advise_architecture"));
@@ -42,6 +42,9 @@ test("tool lists per scope", async () => {
   assert.ok(dev.includes("qa_crawl_desktop_app"));
   assert.ok(dev.includes("qa_feature_map"));
   assert.ok(dev.includes("qe_recommend_constraint"));
+  assert.ok(dev.includes("n8n_list_workflows"));
+  assert.ok(dev.includes("n8n_list_executions"));
+  assert.ok(dev.includes("n8n_trigger_webhook"));
   assert.deepEqual(await names("qa"), dev);
 });
 

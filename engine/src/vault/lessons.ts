@@ -37,7 +37,7 @@ export function isLessonCandidate(t: Turn): boolean {
 }
 
 /** Writes proposed `choice` notes for new candidates. Dedupes by hash against notes already in the vault. */
-export function proposeLessonNotes(vaultDir: string, turns: Turn[], now: Date = new Date()): LessonResult {
+export function proposeLessonNotes(vaultDir: string, turns: Turn[], now: Date = new Date(), max: number = MAX_LESSONS_PER_RUN): LessonResult {
   const seen = new Set<string>();
   for (const n of loadVault(vaultDir).notes) {
     const m = /lesson-hash:([0-9a-f]+)/.exec(n.body);
@@ -45,7 +45,7 @@ export function proposeLessonNotes(vaultDir: string, turns: Turn[], now: Date = 
   }
   const result: LessonResult = { written: [], skippedDuplicate: 0, blocked: 0 };
   for (const t of turns) {
-    if (result.written.length >= MAX_LESSONS_PER_RUN) break;
+    if (result.written.length >= max) break;
     if (!isLessonCandidate(t)) continue;
     const h = lessonHash(t);
     if (seen.has(h)) { result.skippedDuplicate++; continue; }
@@ -66,9 +66,25 @@ export function proposeLessonNotes(vaultDir: string, turns: Turn[], now: Date = 
   return result;
 }
 
+/** The owner-triggered action: every configured repo, sharing one cap. Only writes proposed notes. */
+export function suggestLessonsForRepos(
+  vaultDir: string, repoPaths: string[], opts: { now?: Date; sessionsRoot?: string } = {},
+): LessonResult {
+  const total: LessonResult = { written: [], skippedDuplicate: 0, blocked: 0 };
+  for (const path of repoPaths) {
+    const left = MAX_LESSONS_PER_RUN - total.written.length;
+    if (left <= 0) break;
+    const r = suggestLessons(vaultDir, path, { ...opts, max: left });
+    total.written.push(...r.written);
+    total.skippedDuplicate += r.skippedDuplicate;
+    total.blocked += r.blocked;
+  }
+  return total;
+}
+
 /** Reads recent session records for one repo and proposes notes from them. Local only; no model call. */
 export function suggestLessons(
-  vaultDir: string, repoPath: string, opts: { now?: Date; sessionsRoot?: string } = {},
+  vaultDir: string, repoPath: string, opts: { now?: Date; sessionsRoot?: string; max?: number } = {},
 ): LessonResult {
   const now = opts.now ?? new Date();
   const dir = findSessionDir(repoPath, opts.sessionsRoot);
@@ -76,5 +92,5 @@ export function suggestLessons(
   const since = new Date(now.getTime() - LESSON_WINDOW_DAYS * 86_400_000).toISOString();
   const { turns } = readSessions(dir, { since });
   turns.sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
-  return proposeLessonNotes(vaultDir, turns, now);
+  return proposeLessonNotes(vaultDir, turns, now, opts.max);
 }

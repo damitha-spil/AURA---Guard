@@ -42,4 +42,7 @@ export const BUILTIN_TOOLS: readonly ToolEntry[] = [
   { id: "qa_bug_sheet", name: "Defect Fingerprinter & Bug Sheet", category: "report", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "Deduplicate defects by SHA-256 fingerprint and export JSON/CSV/MD." },
   { id: "export_defect_pdf", name: "SPIL REO PDF Report Exporter", category: "report", riskTier: "local_action", requiresConfirmation: false, source: "builtin", description: "Generate branded SPIL REO PDF/HTML defect reports with embedded snaps." },
   { id: "notify_teams", name: "Microsoft Teams Dispatch", category: "plugin", riskTier: "external_notify", requiresConfirmation: true, source: "builtin", description: "Send a defect report summary card to a mapped engineer or Teams channel." },
+  { id: "n8n_list_workflows", name: "n8n List Workflows", category: "plugin", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "Discover configured n8n workflows, active states, tags, and webhook paths." },
+  { id: "n8n_list_executions", name: "n8n List Executions", category: "plugin", riskTier: "read_only", requiresConfirmation: false, source: "builtin", description: "Inspect recent n8n workflow execution statuses and timestamps." },
+  { id: "n8n_trigger_webhook", name: "n8n Trigger Webhook", category: "plugin", riskTier: "external_notify", requiresConfirmation: true, source: "builtin", description: "Trigger an n8n workflow webhook with a masked JSON QA payload." },
 ];

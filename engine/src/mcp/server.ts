@@ -28,6 +28,7 @@ import { recommendDurableConstraint } from "../qe/constraints.ts";
 import { analyzeRefinementAndKbDrift } from "../qe/refine.ts";
 import { analyzeCommitTrajectory } from "../qe/trajectory.ts";
 import { getSkill, listSkills } from "../roles/skills.ts";
+import { n8nListExecutions, n8nListWorkflows, n8nTriggerWebhook } from "../plugins/n8n.ts";
 import type { Audience, DocKind, GuardConfig } from "../types.ts";
 
 export type Scope = "dev" | "qa" | "support";
@@ -370,6 +371,62 @@ export function buildServer(db: Db | null, scope: Scope, cfg?: GuardConfig): Mcp
         isMultiStepProcedure: isMultiStepProcedure ?? false,
       });
       return text(JSON.stringify(rec, null, 2));
+    },
+  );
+
+  server.registerTool(
+    "n8n_list_workflows",
+    {
+      description: "List configured n8n workflows, active states, tags, and webhook paths.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const workflows = await n8nListWorkflows(resolveCfg().dataDir);
+        return text(JSON.stringify(workflows, null, 2));
+      } catch (e) {
+        return text(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "n8n_list_executions",
+    {
+      description: "List recent n8n workflow execution statuses and timestamps.",
+      inputSchema: { workflowId: z.string().optional() },
+    },
+    async ({ workflowId }) => {
+      try {
+        const executions = await n8nListExecutions(resolveCfg().dataDir, workflowId);
+        return text(JSON.stringify(executions, null, 2));
+      } catch (e) {
+        return text(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+  );
+
+  server.registerTool(
+    "n8n_trigger_webhook",
+    {
+      description: "Trigger an n8n workflow webhook with a masked JSON payload (secrets are blocked).",
+      inputSchema: {
+        pathOrUrl: z.string(),
+        payload: z.record(z.string(), z.unknown()).optional(),
+        method: z.enum(["GET", "POST"]).optional(),
+      },
+    },
+    async ({ pathOrUrl, payload, method }) => {
+      try {
+        const res = await n8nTriggerWebhook(resolveCfg().dataDir, {
+          pathOrUrl,
+          ...(payload ? { payload } : {}),
+          ...(method ? { method } : {}),
+        });
+        return text(JSON.stringify(res, null, 2));
+      } catch (e) {
+        return text(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      }
     },
   );
 

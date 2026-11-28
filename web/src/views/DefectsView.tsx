@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ColumnDef } from "@tanstack/react-table";
+import { DailyDigest } from "@/components/app/daily-digest";
 import { DataTable, SortHeader } from "@/components/app/data-table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,6 +38,14 @@ interface Defect {
   fileRef?: string;
   evidencePaths: string[];
   sentTeamsAt?: string;
+  recurrenceCount?: number;
+  firstSeen?: string;
+  lastSeen?: string;
+  acknowledged?: boolean;
+  acknowledgedAt?: string;
+  resolvedAt?: string;
+  sample?: boolean;
+  history?: { at: string; event: string; note?: string }[];
 }
 
 interface TeamMember {
@@ -47,7 +56,10 @@ interface TeamMember {
 }
 
 const SEVERITIES = ["critical", "high", "medium", "low"] as const;
-const STATUSES = ["open", "triaged", "notified", "fixed", "false_positive"] as const;
+const STATUSES = ["open", "triaged", "notified", "fixed", "resolved", "false_positive"] as const;
+
+const seen = (d: Defect) => d.recurrenceCount ?? 1;
+const when = (iso?: string) => (iso ? iso.replace("T", " ").slice(0, 16) : "");
 
 function sevBadge(sev: Defect["severity"]) {
   if (sev === "critical" || sev === "high") return "destructive" as const;
@@ -105,7 +117,11 @@ export function DefectsView() {
     return true;
   });
 
-  const chartData = SEVERITIES.map((s) => ({ severity: s, count: defects.filter((d) => d.severity === s).length }));
+  // Sample records are listed and marked, but never counted, charted, exported or sent.
+  const real = defects.filter((d) => !d.sample);
+  const sampleCount = defects.length - real.length;
+  const shareable = filtered.filter((d) => !d.sample);
+  const chartData = SEVERITIES.map((s) => ({ severity: s, count: real.filter((d) => d.severity === s).length }));
 
   async function createDefect(e: React.FormEvent) {
     e.preventDefault();
@@ -146,7 +162,7 @@ export function DefectsView() {
     const r = await apiPost<{ sent: boolean; count?: number }>("/api/defects/notify-teams", {
       recipientName: m?.name || "Engineering Team",
       note: teamsNote,
-      ids: filtered.map((d) => d.id),
+      ids: shareable.map((d) => d.id),
       webhookUrl,
       confirmed,
     });
@@ -171,15 +187,35 @@ export function DefectsView() {
     setSelected(null);
   }
 
+  async function change(d: Defect, patch: { acknowledged?: boolean; resolved?: boolean }, done: string) {
+    const r = await apiPatch<{ defect: Defect }>(`/api/defects/${encodeURIComponent(d.id)}`, patch);
+    if (r.ok) {
+      toast.success(`${d.id} ${done}`);
+      setSelected(r.data.defect);
+    } else toast.error(r.error || "Update failed");
+    await load();
+  }
+
   const columns = React.useMemo<ColumnDef<Defect>[]>(
     () => [
       { accessorKey: "id", header: ({ column }) => <SortHeader column={column}>ID</SortHeader>, cell: ({ row }) => <span className="font-mono text-xs">{row.original.id}</span> },
-      { accessorKey: "title", header: ({ column }) => <SortHeader column={column}>Defect</SortHeader>, cell: ({ row }) => <span className="font-medium">{row.original.title}</span> },
+      { accessorKey: "title", header: ({ column }) => <SortHeader column={column}>Defect</SortHeader>, cell: ({ row }) => (
+        <span className="flex flex-wrap items-center gap-2 font-medium">
+          {row.original.title}
+          {row.original.sample && <Badge variant="outline">Sample data</Badge>}
+        </span>
+      ) },
+      { id: "seen", header: ({ column }) => <SortHeader column={column}>Seen</SortHeader>, accessorFn: (d) => seen(d), cell: ({ row }) => (seen(row.original) > 1 ? <Badge variant="destructive">{seen(row.original)} times</Badge> : "Once") },
       { accessorKey: "severity", header: ({ column }) => <SortHeader column={column}>Severity</SortHeader>, cell: ({ row }) => <Badge variant={sevBadge(row.original.severity)}>{row.original.severity}</Badge> },
       { id: "app", header: "App / branch", accessorFn: (d) => `${d.appName} / ${d.branch}`, cell: ({ row }) => <span className="text-muted-foreground">{row.original.appName} / {row.original.branch}</span> },
       { accessorKey: "testedDate", header: ({ column }) => <SortHeader column={column}>Tested</SortHeader>, cell: ({ row }) => <span className="text-muted-foreground">{row.original.testedDate} · {row.original.testedBy}</span> },
       { accessorKey: "assignedTo", header: "Assigned", cell: ({ row }) => row.original.assignedTo || "Unassigned" },
-      { accessorKey: "status", header: ({ column }) => <SortHeader column={column}>Status</SortHeader>, cell: ({ row }) => <Badge variant="outline">{row.original.status.replace("_", " ")}</Badge> },
+      { accessorKey: "status", header: ({ column }) => <SortHeader column={column}>Status</SortHeader>, cell: ({ row }) => (
+        <span className="flex flex-wrap gap-1">
+          <Badge variant="outline">{row.original.status.replace("_", " ")}</Badge>
+          {row.original.acknowledged && <Badge variant="secondary">Acknowledged</Badge>}
+        </span>
+      ) },
     ],
     [],
   );
@@ -188,7 +224,7 @@ export function DefectsView() {
     const d = defects.find((x) => x.id === id);
     if (!d || d.status === to) return;
     setDefects((prev) => prev.map((x) => (x.id === id ? { ...x, status: to } : x)));
-    const r = await apiPatch(`/api/defects/${encodeURIComponent(id)}`, { status: to });
+    const r = await apiPatch(`/api/defects/${encodeURIComponent(id)}`, to === "resolved" ? { resolved: true } : { status: to });
     if (r.ok) toast.success(`${id} moved to ${to.replace("_", " ")}`);
     else toast.error(r.error || "Update failed");
     load();
@@ -205,11 +241,11 @@ export function DefectsView() {
               <Plus />
               Log defect
             </Button>
-            <Button variant="outline" onClick={() => setShowTeams(true)}>
+            <Button variant="outline" onClick={() => setShowTeams(true)} disabled={shareable.length === 0}>
               <Send />
               Send to Teams
             </Button>
-            <Button onClick={() => exportPdf(filtered)}>
+            <Button onClick={() => exportPdf(shareable)} disabled={shareable.length === 0}>
               <Download />
               Export PDF
             </Button>
@@ -218,20 +254,21 @@ export function DefectsView() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total" value={defects.length} loading={!loaded} />
-        <StatCard label="Open" value={defects.filter((d) => d.status === "open").length} loading={!loaded} />
+        <StatCard label="Total" value={real.length} hint={sampleCount ? `Sample records not counted: ${sampleCount}` : undefined} loading={!loaded} />
+        <StatCard label="Open" value={real.filter((d) => d.status === "open").length} hint={`Acknowledged: ${real.filter((d) => d.status === "open" && d.acknowledged).length}`} loading={!loaded} />
         <StatCard
           label="Critical / high"
-          value={defects.filter((d) => d.severity === "critical" || d.severity === "high").length}
+          value={real.filter((d) => d.severity === "critical" || d.severity === "high").length}
+          hint={`Came back: ${real.filter((d) => seen(d) > 1).length}`}
           loading={!loaded}
         />
-        <StatCard label="Resolved" value={defects.filter((d) => d.status === "fixed").length} hint={`${defects.filter((d) => Boolean(d.sentTeamsAt)).length} sent to Teams`} loading={!loaded} />
+        <StatCard label="Fixed or resolved" value={real.filter((d) => d.status === "fixed" || d.status === "resolved").length} hint={`${real.filter((d) => Boolean(d.sentTeamsAt)).length} sent to Teams`} loading={!loaded} />
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Defects by severity</CardTitle>
-          <CardDescription>Across all tracked applications</CardDescription>
+          <CardDescription>All tracked applications. Sample data is not counted.</CardDescription>
         </CardHeader>
         <CardContent>
           {!loaded ? (
@@ -279,7 +316,11 @@ export function DefectsView() {
         <TabsList>
           <TabsTrigger value="table">Table</TabsTrigger>
           <TabsTrigger value="board">Board</TabsTrigger>
+          <TabsTrigger value="digest">Daily digest</TabsTrigger>
         </TabsList>
+        <TabsContent value="digest">
+          <DailyDigest />
+        </TabsContent>
         <TabsContent value="table">
           <Card className="p-4"><DataTable columns={columns} data={filtered} loading={!loaded} hideFilter onRowClick={setSelected} empty="No defects matching your filter." /></Card>
         </TabsContent>
@@ -287,7 +328,7 @@ export function DefectsView() {
           {filtered.length === 0 ? (
             <EmptyState title="Nothing to show" description="No defects match the current filters." />
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
               {STATUSES.map((st) => {
                 const col = filtered.filter((d) => d.status === st);
                 return (
@@ -316,8 +357,11 @@ export function DefectsView() {
                           <CardTitle className="line-clamp-2 text-sm break-words">{d.title}</CardTitle>
                           <CardDescription className="truncate font-mono text-xs">{d.id}</CardDescription>
                         </CardHeader>
-                        <CardContent className="px-3">
+                        <CardContent className="flex flex-wrap gap-1 px-3">
                           <Badge variant={sevBadge(d.severity)}>{d.severity}</Badge>
+                          {seen(d) > 1 && <Badge variant="outline">Seen {seen(d)} times</Badge>}
+                          {d.acknowledged && <Badge variant="secondary">Acknowledged</Badge>}
+                          {d.sample && <Badge variant="outline">Sample data</Badge>}
                         </CardContent>
                       </Card>
                     ))}
@@ -385,7 +429,7 @@ export function DefectsView() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Send to MS Teams</DialogTitle>
-            <DialogDescription>Sends the {filtered.length} defect(s) in the current filter. Preview first.</DialogDescription>
+            <DialogDescription>Sends the {shareable.length} defect(s) in the current filter. Sample records are not sent. Preview first.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
             <div className="grid gap-2">
@@ -439,7 +483,15 @@ export function DefectsView() {
                   <Badge variant={sevBadge(selected.severity)}>{selected.severity}</Badge>
                   <Badge variant="outline">{selected.status.replace("_", " ")}</Badge>
                   <Badge variant="secondary">Agent: {selected.agentSource.toUpperCase()}</Badge>
+                  {selected.acknowledged && <Badge variant="secondary">Acknowledged {when(selected.acknowledgedAt)}</Badge>}
+                  {selected.sample && <Badge variant="outline">Sample data</Badge>}
                 </div>
+                <p className="text-muted-foreground text-xs">
+                  {seen(selected) > 1 ? `Seen ${seen(selected)} times.` : "Seen once."}
+                  {selected.firstSeen && ` First: ${when(selected.firstSeen)}.`}
+                  {selected.lastSeen && ` Last: ${when(selected.lastSeen)}.`}
+                  {selected.resolvedAt && ` Resolved: ${when(selected.resolvedAt)}.`}
+                </p>
                 {selected.expected && (
                   <div>
                     <div className="text-muted-foreground text-xs font-medium uppercase">Expected</div>
@@ -470,14 +522,34 @@ export function DefectsView() {
                     <pre className="bg-muted mt-1 overflow-auto rounded-md p-3 font-mono text-xs">{selected.codeSuggestion}</pre>
                   </div>
                 )}
+                {(selected.history?.length ?? 0) > 0 && (
+                  <div>
+                    <div className="text-muted-foreground text-xs font-medium uppercase">History (UTC)</div>
+                    <ul className="mt-1 space-y-1 text-xs">
+                      {selected.history!.map((h, i) => (
+                        <li key={i} className="break-words">
+                          {when(h.at)} {h.event}{h.note ? `: ${h.note.replace("_", " ")}` : ""}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
               <SheetFooter className="flex-row flex-wrap">
+                <Button variant="outline" size="sm" onClick={() => change(selected, { acknowledged: !selected.acknowledged }, selected.acknowledged ? "is no longer acknowledged" : "acknowledged")}>
+                  {selected.acknowledged ? "Remove acknowledgement" : "Acknowledge"}
+                </Button>
+                {selected.status !== "resolved" && (
+                  <Button variant="outline" size="sm" onClick={() => change(selected, { resolved: true }, "marked resolved")}>
+                    Mark resolved
+                  </Button>
+                )}
                 {(["triaged", "fixed", "false_positive"] as const).map((st) => (
                   <Button key={st} variant="outline" size="sm" onClick={() => setStatus(selected, st)}>
                     Mark {st.replace("_", " ")}
                   </Button>
                 ))}
-                <Button size="sm" onClick={() => exportPdf([selected])}>Export PDF</Button>
+                {!selected.sample && <Button size="sm" onClick={() => exportPdf([selected])}>Export PDF</Button>}
               </SheetFooter>
             </>
           )}

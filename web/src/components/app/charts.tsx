@@ -17,6 +17,7 @@ export interface DefectLite {
   severity: string;
   status: string;
   testedDate: string;
+  sample?: boolean;
 }
 export interface RunLite {
   id: string;
@@ -106,7 +107,7 @@ const statusConfig = { count: { label: "Defects", color: "var(--chart-3)" } } sa
 
 export function DefectsByStatus({ defects, loading }: { defects: DefectLite[]; loading: boolean }) {
   const calm = useAppearance().reduceMotion;
-  const data = ["open", "triaged", "notified", "fixed", "false_positive"].map((s) => ({
+  const data = ["open", "triaged", "notified", "fixed", "resolved", "false_positive"].map((s) => ({
     status: s.replace("_", " "),
     count: defects.filter((d) => d.status === s).length,
   }));

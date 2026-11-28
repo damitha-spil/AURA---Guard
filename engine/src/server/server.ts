@@ -22,6 +22,7 @@ import { getDoc, search } from "../index/search.ts";
 import { appVersion, buildOverview } from "./overview.ts";
 import { loadVault } from "../vault/load.ts";
 import { findNoteHygiene } from "../vault/hygiene.ts";
+import { suggestLessonsForRepos } from "../vault/lessons.ts";
 import { indexVault } from "../index/notes.ts";
 import { revertNoteStatus, setNoteStatus } from "../rules/manage.ts";
 import type { StatusSnapshot } from "../rules/manage.ts";
@@ -56,9 +57,12 @@ import type { MemoryConfidence, MemoryLayer } from "../memory/qa-memory.ts";
 import { deleteAutomationRule, listAutomationRules, listCheckpoints, upsertAutomationRule } from "../automation/harness.ts";
 import type { TriggerKind } from "../automation/harness.ts";
 import { BUILTIN_TOOLS } from "../tools/registry.ts";
-import { buildDailyDigest, generateDefectReportHtml, listDefects, listProductionDefects, saveDefectReportHtml, updateDefectStatus, upsertDefect } from "../defects/store.ts";
+import type { DefectStatus } from "../defects/store.ts";
+import { buildDailyDigest, DEFECT_STATUSES, generateDefectReportHtml, listDefects, listProductionDefects, saveDefectReportHtml, updateDefectStatus, upsertDefect } from "../defects/store.ts";
 import { buildTeamsDefectPayload, listPlugins, listTeamMembers, removeTeamMember, updatePlugin, upsertTeamMember } from "../plugins/store.ts";
 import type { PluginId } from "../plugins/store.ts";
+import { getN8nStatus, n8nKeyStore, n8nListExecutions, n8nListWorkflows, n8nTriggerWebhook, validateN8nEndpoint } from "../plugins/n8n.ts";
+import { validateApiKey } from "../brain/keystore.ts";
 import { addFollowup, addTask, isItemId, listFollowups, listTasks, updateFollowup, updateTask } from "../followups/store.ts";
 import { getStepList, isStepListId, listStepLists, replayStepList, saveStepList, stepsFromRun } from "../steps/store.ts";
 import { digestModel, parseView, qaRunModel, renderReport } from "../reports/views.ts";
@@ -999,6 +1003,13 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       return json(res, 200, findNoteHygiene(loadVault(dcfg.vaultDir).notes));
     }
 
+    // Owner-triggered only: reads recent local session records and writes proposed notes. No model call.
+    if (path === "/api/notes/lessons" && method === "POST") {
+      const r = suggestLessonsForRepos(dcfg.vaultDir, dcfg.repos.map((x) => x.path));
+      if (r.written.length) await reindex();
+      return json(res, 200, { written: r.written.length, skippedDuplicate: r.skippedDuplicate, blocked: r.blocked });
+    }
+
     if (path === "/api/defects" && method === "POST") {
       const body = await readJson(req);
       const title = typeof body["title"] === "string" ? body["title"].trim() : "";
@@ -1028,7 +1039,8 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     if (path === "/api/defects/report" && method === "POST") {
       const body = await readJson(req);
       const ids = Array.isArray(body["ids"]) ? body["ids"].map(String) : null;
-      const all = listDefects(dcfg.dataDir);
+      // Sample records never go into an exported report.
+      const all = listProductionDefects(dcfg.dataDir);
       const filtered = ids && ids.length ? all.filter((d) => ids.includes(d.id)) : all;
       const html = generateDefectReportHtml(filtered, {
         appName: typeof body["appName"] === "string" ? body["appName"] : undefined,
@@ -1044,8 +1056,10 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       const recipientName = typeof body["recipientName"] === "string" && body["recipientName"].trim() ? body["recipientName"].trim() : "Engineering Team";
       const note = typeof body["note"] === "string" ? body["note"] : "";
       const ids = Array.isArray(body["ids"]) ? body["ids"].map(String) : [];
-      const all = listDefects(dcfg.dataDir);
+      // Sample records are never sent to people.
+      const all = listProductionDefects(dcfg.dataDir);
       const picked = ids.length ? all.filter((d) => ids.includes(d.id)) : all.slice(0, 10);
+      if (ids.length && !picked.length) throw new HttpError(400, "There are no real defects to send. Sample records are not sent.");
       const payload = buildTeamsDefectPayload({ recipientName, note, defects: picked });
       const webhookUrl = typeof body["webhookUrl"] === "string" ? body["webhookUrl"].trim() : "";
       const confirmed = body["confirmed"] === true;
@@ -1063,8 +1077,9 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     if (defectMatch && method === "PATCH") {
       const body = await readJson(req);
       const id = decodeURIComponent(defectMatch[1] || "");
+      if (body["status"] !== undefined && !(DEFECT_STATUSES as readonly unknown[]).includes(body["status"])) throw new HttpError(400, "Unknown defect status.");
       const updated = updateDefectStatus(dcfg.dataDir, id, {
-        status: typeof body["status"] === "string" ? (body["status"] as "open" | "triaged" | "notified" | "fixed" | "false_positive" | "resolved") : undefined,
+        status: body["status"] as DefectStatus | undefined,
         assignedTo: typeof body["assignedTo"] === "string" ? body["assignedTo"] : undefined,
         acknowledged: typeof body["acknowledged"] === "boolean" ? body["acknowledged"] : undefined,
         resolved: body["resolved"] === true ? true : undefined,
@@ -1081,14 +1096,75 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     if (pluginMatch && method === "PUT") {
       const body = await readJson(req);
       const id = decodeURIComponent(pluginMatch[1] || "") as PluginId;
+      let endpoint = typeof body["endpoint"] === "string" ? body["endpoint"].trim() : undefined;
+      if (id === "n8n" && endpoint) {
+        try {
+          endpoint = validateN8nEndpoint(endpoint);
+        } catch (e) {
+          throw new HttpError(400, e instanceof Error ? e.message : "Invalid n8n endpoint.");
+        }
+      }
       const updated = updatePlugin(dcfg.dataDir, id, {
         enabled: typeof body["enabled"] === "boolean" ? body["enabled"] : undefined,
-        endpoint: typeof body["endpoint"] === "string" ? body["endpoint"].trim() : undefined,
+        endpoint,
         scope: body["scope"] === "notify" || body["scope"] === "read_only" ? body["scope"] : undefined,
         hasCredential: typeof body["hasCredential"] === "boolean" ? body["hasCredential"] : undefined,
       });
       if (!updated) throw new HttpError(404, "Plugin not found.");
       return json(res, 200, { plugin: updated });
+    }
+
+    if (path === "/api/n8n/status" && method === "GET") {
+      return json(res, 200, await getN8nStatus(dcfg.dataDir));
+    }
+
+    if (path === "/api/n8n/key" && method === "PUT") {
+      const body = await readJson(req);
+      const chk = validateApiKey(body["key"]);
+      if (!chk.ok) throw new HttpError(400, chk.error);
+      const keys = n8nKeyStore(dcfg.dataDir);
+      await keys.set(chk.key);
+      updatePlugin(dcfg.dataDir, "n8n", { hasCredential: true });
+      return json(res, 200, { ok: true, ...(await getN8nStatus(dcfg.dataDir)) });
+    }
+
+    if (path === "/api/n8n/key" && method === "DELETE") {
+      await n8nKeyStore(dcfg.dataDir).remove();
+      updatePlugin(dcfg.dataDir, "n8n", { hasCredential: false });
+      return json(res, 200, { ok: true, ...(await getN8nStatus(dcfg.dataDir)) });
+    }
+
+    if (path === "/api/n8n/workflows" && method === "GET") {
+      try {
+        return json(res, 200, { workflows: await n8nListWorkflows(dcfg.dataDir) });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not list n8n workflows.");
+      }
+    }
+
+    if (path === "/api/n8n/executions" && method === "GET") {
+      try {
+        const wfId = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("workflowId") || undefined;
+        return json(res, 200, { executions: await n8nListExecutions(dcfg.dataDir, wfId) });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not list n8n executions.");
+      }
+    }
+
+    if (path === "/api/n8n/trigger" && method === "POST") {
+      const body = await readJson(req);
+      const pathOrUrl = typeof body["pathOrUrl"] === "string" ? body["pathOrUrl"].trim() : "";
+      if (!pathOrUrl) throw new HttpError(400, "pathOrUrl is required.");
+      const payload =
+        body["payload"] && typeof body["payload"] === "object" && !Array.isArray(body["payload"])
+          ? (body["payload"] as Record<string, unknown>)
+          : {};
+      const reqMethod = body["method"] === "GET" ? "GET" : "POST";
+      try {
+        return json(res, 200, await n8nTriggerWebhook(dcfg.dataDir, { pathOrUrl, payload, method: reqMethod }));
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not trigger n8n webhook.");
+      }
     }
 
     if (path === "/api/team" && method === "POST") {

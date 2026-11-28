@@ -7,15 +7,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGet, apiPost } from "@/lib/api";
+import { inboxItems, type InboxItem, type InboxReply } from "@/lib/inbox";
 import { EmptyState } from "@/components/app/page";
-
-interface InboxItem {
-  id: string;
-  title?: string;
-  type?: string;
-  status?: string;
-  reason?: string;
-}
 
 export function NotificationsPopover({
   count,
@@ -30,9 +23,9 @@ export function NotificationsPopover({
   const [items, setItems] = React.useState<InboxItem[] | null>(null);
 
   const load = React.useCallback(async () => {
-    const r = await apiGet<{ items?: InboxItem[]; notes?: InboxItem[] }>("/api/inbox");
+    const r = await apiGet<InboxReply>("/api/inbox");
     if (r.ok) {
-      const list = r.data.items || r.data.notes || [];
+      const list = inboxItems(r.data);
       setItems(list);
       onCount(list.length);
     } else setItems([]);
@@ -78,7 +71,7 @@ export function NotificationsPopover({
             {items?.map((it) => (
               <div key={it.id} className="rounded-2xl border p-2 text-sm">
                 <div className="truncate font-medium">{it.title || it.id}</div>
-                <div className="text-muted-foreground line-clamp-2 text-xs">{it.reason || it.type}</div>
+                <div className="text-muted-foreground line-clamp-2 text-xs">{it.preview || it.type}</div>
                 <div className="mt-2 flex gap-2">
                   <Button size="sm" className="h-7" onClick={() => decide(it, "active")}>
                     <Check />

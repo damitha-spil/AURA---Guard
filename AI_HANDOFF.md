@@ -6,6 +6,26 @@
 
 ---
 
+## Plan items 1-12: missing screens and wiring (2026-11-28)
+
+Clean-room; the SPIL AURA repo was not opened. Item 13 is still design only. **No tests were run** (the owner's instruction on testing was unclear). No commit.
+
+- **Defects page** (`web/src/views/DefectsView.tsx`, new `components/app/daily-digest.tsx`): times seen, first/last seen, history, Acknowledge / Remove acknowledgement, Mark resolved, `resolved` board column and filter, Daily digest tab. Sample records are listed with a "Sample data" mark but left out of stats, the chart, PDF export and Teams. `HomeView.tsx` charts drop samples; `charts.tsx` counts `resolved`; `ActivityView.tsx` marks samples.
+- **Engine, defects:** `DEFECT_STATUSES`; `PATCH /api/defects/:id` refuses unknown status (400); status changes set/clear `resolvedAt`; digest "still open" no longer includes `fixed`; `/api/defects/report` and `/notify-teams` use real records only (400 if every chosen id is a sample or unknown).
+- **Lessons:** new owner-triggered `POST /api/notes/lessons` (`suggestLessonsForRepos`, one cap of 10 across repos, proposed notes only, no model). Button on Knowledge > Inbox board.
+- **Inbox bug fixed:** Knowledge, Activity and the notifications popover read `items`/`notes`, but `/api/inbox` returns `groups`, so they showed nothing. New `web/src/lib/inbox.ts`.
+- **Note hygiene:** Knowledge > Note checks tab (`components/app/note-checks.tsx`), read-only.
+- **Review rounds and split:** the app's repository review now counts rounds too (`noteReviewRound`, `data/reviews/<repo>/rounds.json`, one round per distinct diff per base commit, same cap of 3; separate from the CLI count, which counts saved `.md` reports). Result has `round` and `reportViews`. Past the cap only blockers show. Fixed: a capped saved report still listed non-blockers in the appendix. CLI `review` prints the round line and the owner/reviewer groups. App review is grouped the same way.
+- **Report views:** Simple/Technical toggle (`components/app/report-view.tsx`) in the repo review, QA run detail and digest.
+- **Repeated steps:** "Save as repeated steps" on a passed run; `components/app/saved-steps.tsx` on QA Runs (Check only = dry run; Run steps asks to confirm).
+- **Follow-ups:** new page `web/src/views/FollowupsView.tsx` (follow-ups and per-chat tasks), added to the sidebar in `App.tsx`.
+- **Checks:** `npm run web:build` (`tsc -b && vite build`) passed; Vite warned about a chunk over 500 kB (`three`). `npx tsc -p engine --noEmit` exit 1 with 2 errors, both in `engine/src/plugins/n8n.ts` (lines 81 and 100), a file another session was adding at the same time; not touched. No errors in other engine files. The test tsconfig was not checked.
+- **Concurrent edits:** another session added n8n work (including edits to `server.ts` and `runner.ts`) during this one.
+- **Not verified:** all tests, every new route, and every new screen (not opened in a browser). The running engine needs a restart to load the new routes; until then the rebuilt app's new buttons will get errors.
+- **Next:** fix the two `n8n.ts` type errors, run `npm test` when allowed, add tests for the new route, repo review rounds and the sample filters, then check the screens live.
+
+---
+
 ## Phase 3 items 10-12: repeated steps, follow-ups, report views (2026-11-28)
 
 Clean-room from the plan text; the SPIL AURA repo was not opened. Implement-only session: **no tests, build or typecheck were run.** Item 13 (helper agents) is a design section only in `docs/plans/qa-qe-phases.md`; no runtime.
@@ -47,6 +67,21 @@ Clean-room from written descriptions; the SPIL AURA repo was not opened.
 - **Live:** own engine on a free port with a temp root (copied roles/qa, new config and data), throwing model call, faked launcher, headless Edge: Add repository picker passed (start places, missing-folder error, list, look inside, Backspace, taken id, add, temp config written, "Already added"); proof panels in review and run detail; health section; 0 model calls, 0 page errors, only the expected 404/409; user config hash unchanged. `daily --unattended` in a temp copy (prs/mine steps skipped by flag): diary refused; index refused by the resource guard, health and stale failed as expected there. `health` against the real config: ok/warn only (index behind for one repo; desktop tests off, no allowed app). UIA script on a probe Edge window: 10 windows listed, none unknown; handle/shell/program refusals worked; one real click on "Orders" reached the page; partial name "Order" refused. Not run: cua-driver, an elevated window, the Tauri window, a real scheduled task.
 - **Concurrent edits:** while this ran, something else changed `web/package.json`, `web/package-lock.json`, `web/vite.config.ts`, `web/src/views/WorkspaceView.tsx` and added `web/src/components/app/reo-bot-3d.tsx`. Not touched by this work.
 - **Next:** owner adds `cuaDriver.allowedApps` to the local config before desktop tests; restart the engine to load this code.
+
+---
+
+## n8n Automation Integration, Tools & Skills (2026-11-28)
+
+- **What changed:**
+  - `engine/src/plugins/n8n.ts`: Added n8n integration (`validateN8nEndpoint`, encrypted `N8N_API_KEY` via `createKeyStore`, `n8nListWorkflows`, `n8nListExecutions`, `n8nTriggerWebhook` gated by `maskOutgoing`, and `buildN8nQaEventPayload`).
+  - `engine/src/plugins/store.ts` & `engine/src/tools/registry.ts`: Added `"n8n"` plugin (`n8n Automation`) and `n8n_list_workflows`, `n8n_list_executions`, `n8n_trigger_webhook` to `BUILTIN_TOOLS`.
+  - `engine/src/agents/registry.ts` & `engine/src/agents/runner.ts`: Wired n8n skills/tools to `qa`, `qe`, and `report`, added `n8n`/`webhook` routing pattern, and added `step-n8n` to autonomous missions.
+  - `plugin/aura-guard/skills/qa-n8n-automation/SKILL.md` & `qe-n8n-triage/SKILL.md`: Added autonomous n8n automation and execution triage skills.
+  - `engine/src/tools/native/chat.ts`, `web/src/lib/slash.ts`, & `engine/src/mcp/server.ts`: Added `/n8n` chat command (`status`, `workflows`, `executions`, `trigger`) and registered the 3 n8n tools on `dev`/`qa` MCP scopes (`support` remains 2 tools).
+  - `engine/src/server/server.ts` & `web/src/views/PluginsView.tsx`: Added `/api/n8n/{status,key,workflows,executions,trigger}` and the **n8n Automation** UI tab in Plugins.
+  - `engine/test/n8n-integration.test.ts` & `engine/test/mcp.test.ts`: Added unit tests (including masking-gate blocking on planted secrets) and updated MCP tool count assertion (`24`).
+- **Checks:** `npx.cmd tsc -p engine --noEmit`, `node --experimental-strip-types --test engine/test/n8n-integration.test.ts engine/test/mcp.test.ts engine/test/reo-platform.test.ts`, `npm run web:build`, and `git diff --check` (see below).
+- **Not verified:** Live calls against a running local/remote n8n server and live UI interaction on the Plugins -> n8n Automation tab.
 
 ---
 

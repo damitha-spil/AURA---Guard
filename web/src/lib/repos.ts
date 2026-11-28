@@ -64,8 +64,16 @@ export interface Evidence {
   blockers: string[];
 }
 
+export type ReportViewName = "simple" | "technical";
+
+export type RenderedReport =
+  | { view: "simple"; format: "text"; body: string }
+  | { view: "technical"; format: "json"; body: Record<string, unknown> };
+
 export interface Review {
   evidence?: Evidence;
+  round?: { n: number; max: number; capped: boolean; hidden: number } | null;
+  reportViews?: Record<ReportViewName, RenderedReport>;
   summary: string;
   findings: Finding[];
   ai: unknown;
@@ -80,7 +88,7 @@ export interface SourceControl {
 export const WORKTREE = "WORKTREE";
 export const refLabel = (ref: string) => (ref === WORKTREE ? "Working changes" : ref);
 
-const ORDER = ["critical", "high", "error", "medium", "warning", "low", "info"];
+const ORDER = ["blocker", "risk", "suggestion", "critical", "high", "error", "medium", "warning", "low", "info"];
 
 /** Findings in groups, most serious first. Unknown severities go last. */
 export function bySeverity(findings: Finding[]): [string, Finding[]][] {
@@ -91,6 +99,16 @@ export function bySeverity(findings: Finding[]): [string, Finding[]][] {
   }
   const rank = (s: string) => (ORDER.includes(s) ? ORDER.indexOf(s) : ORDER.length);
   return [...groups].sort((a, b) => rank(a[0]) - rank(b[0]));
+}
+
+/** The owner fixes blockers and risks; the reviewer judges the rest. Same split as the saved review report. */
+export function byWhoActs(findings: Finding[]): { title: string; list: Finding[] }[] {
+  const sorted = bySeverity(findings).flatMap(([, list]) => list);
+  const owns = (f: Finding) => f.severity === "blocker" || f.severity === "risk";
+  return [
+    { title: "For the owner to fix", list: sorted.filter(owns) },
+    { title: "For the reviewer to judge", list: sorted.filter((f) => !owns(f)) },
+  ].filter((g) => g.list.length > 0);
 }
 
 /** GET /api/repos/browse. Folder names only. */

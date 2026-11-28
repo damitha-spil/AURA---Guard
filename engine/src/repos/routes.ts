@@ -189,10 +189,12 @@ export function createRepoRoutes(deps: RepoRouteDeps = {}) {
         const result = await reviewRepo(cfg, index?.db ?? null, repo, input, {
           complete: c.complete, ...(send ? { onStep: (s) => { if (s.status !== "running" || res.headersSent) send!({ type: "step", step: s }); } } : {}),
         });
-        const reviewView = parseView(url.searchParams.get("view"));
-        const report = renderReport(reviewModel(repo.id, result), reviewView);
-        if (!send) return done(200, { ...result, report });
-        send({ type: "result", ...result, report });
+        const model = reviewModel(repo.id, result);
+        const report = renderReport(model, parseView(url.searchParams.get("view")));
+        // Both views are sent so the app can switch between them without reviewing (and calling a model) again.
+        const reportViews = { simple: renderReport(model, "simple"), technical: renderReport(model, "technical") };
+        if (!send) return done(200, { ...result, report, reportViews });
+        send({ type: "result", ...result, report, reportViews });
         res.end();
         return true;
       } catch (e) {

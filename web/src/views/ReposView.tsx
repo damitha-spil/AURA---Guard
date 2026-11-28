@@ -21,12 +21,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AddRepo } from "@/components/app/add-repo";
 import { DiffView } from "@/components/app/diff-view";
 import { ProofPanel } from "@/components/app/proof-panel";
+import { ReportViews } from "@/components/app/report-view";
 import { EmptyState, Page, PageHeader, TableSkeleton } from "@/components/app/page";
 import { PullList, PullSheet, SourceErrors } from "@/components/app/pull-list";
 import { apiDelete, apiGet, apiPost } from "@/lib/api";
 import { useDiffPrefs } from "@/lib/diff-prefs";
 import { ago, type Pull, type PullsReply } from "@/lib/pulls";
-import { WORKTREE, bySeverity, refLabel, type Branch, type Commit, type Repo, type RepoDiff, type Review } from "@/lib/repos";
+import { WORKTREE, byWhoActs, refLabel, type Branch, type Commit, type Repo, type RepoDiff, type Review } from "@/lib/repos";
 
 const api = (id: string, rest = "") => `/api/repos/${encodeURIComponent(id)}${rest}`;
 
@@ -163,17 +164,24 @@ function ReviewPanel({ repoId, base, head, onFile }: { repoId: string; base: str
       {result && (
         <div className="grid gap-3">
           <p className="text-sm break-words whitespace-pre-wrap">{result.summary}</p>
+          {result.round && (
+            <p className="text-muted-foreground text-xs">
+              Review round {result.round.n} of {result.round.max}.
+              {result.round.capped && ` The round limit is reached: only blockers are listed (left out: ${result.round.hidden}). Decide with the owner before another round.`}
+            </p>
+          )}
           {result.note && <p className="bg-muted rounded-2xl p-3 text-xs break-words whitespace-pre-wrap">{result.note}</p>}
           {result.evidence && <ProofPanel evidence={result.evidence} note="A code review is not proof." />}
-          {result.findings.length === 0 && <p className="text-muted-foreground text-sm">No findings. This does not prove the change is safe.</p>}
-          {bySeverity(result.findings).map(([severity, list]) => (
-            <div key={severity} className="grid gap-2">
+          {result.findings.length === 0 && !result.round?.capped && <p className="text-muted-foreground text-sm">No findings. This does not prove the change is safe.</p>}
+          {byWhoActs(result.findings).map(({ title, list }) => (
+            <div key={title} className="grid gap-2">
               <h3 className="text-xs font-semibold uppercase">
-                {severity} ({list.length})
+                {title} ({list.length})
               </h3>
               {list.map((f, i) => (
                 <div key={i} className="rounded-2xl border p-3 text-sm">
-                  <div className="font-medium break-words">{f.title}</div>
+                  <Badge variant={f.severity === "blocker" ? "destructive" : "secondary"}>{f.severity}</Badge>
+                  <div className="mt-1 font-medium break-words">{f.title}</div>
                   <p className="text-muted-foreground mt-1 text-xs break-words whitespace-pre-wrap">{f.detail}</p>
                   {f.file && (
                     <button type="button" onClick={() => onFile(f.file!)} className="text-primary focus-visible:ring-ring/50 mt-1 rounded-md font-mono text-xs break-all underline outline-none focus-visible:ring-[3px]">
@@ -185,6 +193,7 @@ function ReviewPanel({ repoId, base, head, onFile }: { repoId: string; base: str
               ))}
             </div>
           ))}
+          {result.reportViews && <ReportViews reports={result.reportViews} />}
         </div>
       )}
     </section>

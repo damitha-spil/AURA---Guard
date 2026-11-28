@@ -71,7 +71,8 @@ export function reviewModel(repoId: string, r: ReviewResult): ReportModel {
   const next: string[] = [];
   if (blockers) next.push(`Fix the ${blockers} blocking ${blockers === 1 ? "problem" : "problems"} first.`);
   if (r.findings.length > blockers) next.push("Read the other comments and decide which to act on.");
-  if (!r.findings.length) next.push("No change needed from this review.");
+  if (r.round?.capped) next.push("The review round limit is reached. Decide with the owner before another round.");
+  if (!r.findings.length && !r.round?.capped) next.push("No change needed from this review.");
   if (r.evidence && r.evidence.status !== "complete") next.push("Add the proof this change needs before it goes for approval.");
   return {
     kind: "review",
@@ -82,6 +83,7 @@ export function reviewModel(repoId: string, r: ReviewResult): ReportModel {
     technical: {
       repo: repoId,
       counts: { findings: r.findings.length, blockers, risks: count("risk"), suggestions: count("suggestion") },
+      round: r.round,
       ai: r.ai,
       note: r.note,
       findings: r.findings.map((f) => ({ severity: f.severity, file: f.file, line: f.line, title: f.title })),
