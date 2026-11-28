@@ -17,6 +17,7 @@ export default defineConfig({
       output: {
         manualChunks(id: string) {
           if (!id.includes("node_modules")) return undefined;
+          if (id.includes("three")) return "three";
           if (id.includes("recharts") || id.includes("d3-")) return "charts";
           if (id.includes("motion")) return "motion";
           if (id.includes("radix-ui") || id.includes("@radix-ui")) return "radix";

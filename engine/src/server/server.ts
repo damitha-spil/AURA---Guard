@@ -21,6 +21,7 @@ import type { Db } from "../index/db.ts";
 import { getDoc, search } from "../index/search.ts";
 import { appVersion, buildOverview } from "./overview.ts";
 import { loadVault } from "../vault/load.ts";
+import { findNoteHygiene } from "../vault/hygiene.ts";
 import { indexVault } from "../index/notes.ts";
 import { revertNoteStatus, setNoteStatus } from "../rules/manage.ts";
 import type { StatusSnapshot } from "../rules/manage.ts";
@@ -30,7 +31,8 @@ import { adviseDeveloper } from "../chat/advisor.ts";
 import { buildPrReadinessReport } from "../prs/manager.ts";
 import { runBackendQaSuite } from "../qa/backend_qa.ts";
 import { LiveSessionController } from "../qa/dsl.ts";
-import { buildPrEvidencePacket } from "../qa/evidence.ts";
+import { buildPrEvidencePacket, runEvidence } from "../qa/evidence.ts";
+import { runHealth } from "../health/health.ts";
 import { applyTriageDecision, loadQaHints } from "../qa/judge.ts";
 import type { TriageAction } from "../qa/judge.ts";
 import { draftJourneyFromRecording } from "../qa/recorder.ts";
@@ -46,11 +48,20 @@ import { analyzeCommitTrajectory } from "../qe/trajectory.ts";
 import { getSkill, listSkills } from "../roles/skills.ts";
 import type { SkillCategory } from "../roles/skills.ts";
 import { PREBUILT_AGENTS, routeIntentToAgents } from "../agents/registry.ts";
+import type { AgentId } from "../agents/registry.ts";
+import { getEffectiveAgents, saveAgentProfile } from "../agents/profiles.ts";
 import { runAgenticMission } from "../agents/runner.ts";
+import { addMemory, deleteMemory, listMemory, verifyMemory } from "../memory/qa-memory.ts";
+import type { MemoryConfidence, MemoryLayer } from "../memory/qa-memory.ts";
+import { deleteAutomationRule, listAutomationRules, listCheckpoints, upsertAutomationRule } from "../automation/harness.ts";
+import type { TriggerKind } from "../automation/harness.ts";
 import { BUILTIN_TOOLS } from "../tools/registry.ts";
-import { generateDefectReportHtml, listDefects, saveDefectReportHtml, updateDefectStatus, upsertDefect } from "../defects/store.ts";
+import { buildDailyDigest, generateDefectReportHtml, listDefects, listProductionDefects, saveDefectReportHtml, updateDefectStatus, upsertDefect } from "../defects/store.ts";
 import { buildTeamsDefectPayload, listPlugins, listTeamMembers, removeTeamMember, updatePlugin, upsertTeamMember } from "../plugins/store.ts";
 import type { PluginId } from "../plugins/store.ts";
+import { addFollowup, addTask, isItemId, listFollowups, listTasks, updateFollowup, updateTask } from "../followups/store.ts";
+import { getStepList, isStepListId, listStepLists, replayStepList, saveStepList, stepsFromRun } from "../steps/store.ts";
+import { digestModel, parseView, qaRunModel, renderReport } from "../reports/views.ts";
 import { describeBackends } from "../brain/select.ts";
 import { effectiveBrain } from "../brain/settings.ts";
 import type { CompleteFn } from "../brain/client.ts";
@@ -58,6 +69,9 @@ import type { GuardConfig } from "../types.ts";
 import { answer, MAX_QUESTION_CHARS, UNTRUSTED_MARK } from "../chat/answer.ts";
 import { identityReply, isGreetingOrIdentity } from "../chat/identity.ts";
 import { NOTES_NEED_INDEX, openAnswer } from "../chat/open-answer.ts";
+import { createProviderRoutes } from "./providers.ts";
+import { createRepoRoutes } from "../repos/routes.ts";
+import type { RepoRouteDeps } from "../repos/routes.ts";
 import { loadPrices } from "../usage/prices.ts";
 import { readUsage } from "../usage/record.ts";
 import { RANGES, usageReport } from "../usage/report.ts";
@@ -109,7 +123,7 @@ export const CSP = "default-src 'self'; style-src 'self'; script-src 'self'; img
 /** Files the "Open Guard" page may load before a browser is paired: colours and the icon only. */
 const PUBLIC_FILES = new Set(["/themes.css", "/pair.css", "/favicon.svg", "/favicon-32.png", "/logo.png"]);
 
-const PAIR_PAGE = `<!doctype html><html lang="en" data-style="noir" data-mode="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SPIL REO</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/themes.css"><link rel="stylesheet" href="/pair.css"></head><body><main class="pair"><img class="pair-logo" src="/favicon.svg" alt="" width="64" height="64"><h1>SPIL REO</h1><p>REVIEW · EVALUATE · OPTIMIZE — Autonomous Engineering Intelligence, Powered by SPIL Labs. Press the button to open SPIL REO here.</p><a class="pair-btn" href="/pair">Open SPIL REO</a><p class="pair-small">If the button does not work, start SPIL REO again with <code>npm run desktop</code> or <code>npm run ui</code>.</p></main></body></html>`;
+const PAIR_PAGE = `<!doctype html><html lang="en" data-style="noir" data-mode="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SPIL REO</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/themes.css"><link rel="stylesheet" href="/pair.css"></head><body><main class="pair"><img class="pair-logo" src="/favicon.svg" alt="" width="64" height="64"><h1>SPIL REO</h1><p>A Multi-Agent Quality Engineering &amp; Software Assurance Platform. Powered by SPIL Labs. Press the button to open SPIL REO here.</p><a class="pair-btn" href="/pair">Open SPIL REO</a><p class="pair-small">If the button does not work, start SPIL REO again with <code>npm run desktop</code> or <code>npm run ui</code>.</p></main></body></html>`;
 
 /** Shown while web/dist is missing, for example during a build. It reloads by itself; no script (CSP). */
 const BUILDING_PAGE = `<!doctype html><html lang="en" data-style="noir" data-mode="light"><head><meta charset="utf-8"><meta http-equiv="refresh" content="3"><meta name="viewport" content="width=device-width, initial-scale=1"><title>SPIL REO</title><link rel="icon" type="image/svg+xml" href="/favicon.svg"><link rel="stylesheet" href="/themes.css"><link rel="stylesheet" href="/pair.css"></head><body><main class="pair"><h1>SPIL REO</h1><p>The app is being built. This page reloads by itself.</p><p class="pair-small">If it stays here, run <code>npm run web:build</code>.</p></main></body></html>`;
@@ -131,6 +145,8 @@ export interface ServerDeps {
   native?: NativeDeps;
   /** Access used by the limits report: tests inject fakes. */
   limits?: LimitsOptions;
+  /** Access used by the repo and pull request routes: tests inject fakes. */
+  repos?: RepoRouteDeps;
 }
 
 export function backendLabel(id: string | null): string {
@@ -184,6 +200,8 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     }
     return { db: cached.db, release: () => {} };
   };
+  const repoRoutes = createRepoRoutes(deps.repos);
+  const providerRoutes = createProviderRoutes();
   const lock = new HeavyLock();
   const liveQa = new LiveSessionController();
   const runProcess = deps.runProcess ?? runMainProcess;
@@ -229,10 +247,19 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
   async function api(req: IncomingMessage, res: ServerResponse, path: string, method: string): Promise<void> {
     // Model and key settings are machine-wide. A stray `dept` parameter from an older page is ignored.
     if (await handleBrainRoute({ req, res, path, method, cfg, ...(deps.brain ? { options: deps.brain } : {}) })) {
+      if (method !== "GET") {
+        backendCache = null;
+        providerRoutes.forget();
+      }
+      return;
+    }
+    if (await providerRoutes.handle({ req, res, path, method, cfg, options: deps.brain ?? {} })) {
       if (method !== "GET") backendCache = null;
       return;
     }
     const dcfg = cfg;
+    if (await repoRoutes({ req, res, path, method, cfg, complete: deps.complete, openIndex })) return;
+    if (path === "/api/health" && method === "GET") return json(res, 200, await runHealth(dcfg, deps.brain ? { brain: deps.brain } : {}));
     if (path === "/api/usage" && method === "GET") {
       const range = new URL(req.url ?? "/", "http://x").searchParams.get("range") ?? "7d";
       if (!(RANGES as readonly string[]).includes(range)) throw new HttpError(400, `Use range: ${RANGES.join(", ")}.`);
@@ -499,7 +526,85 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       const id = new URL(req.url ?? "/", "http://x").searchParams.get("id") ?? "";
       const detail = getQaRun(dcfg, id);
       if (!detail) throw new HttpError(404, "No such QA run.");
-      return json(res, 200, detail);
+      const view = parseView(new URL(req.url ?? "/", "http://x").searchParams.get("view"));
+      return json(res, 200, { ...detail, evidence: runEvidence(dcfg, detail), report: renderReport(qaRunModel(detail), view) });
+    }
+
+    // Repeated steps: saved from a passed run; replay is dry unless {"run": true} is sent. Never calls a model.
+    if (path === "/api/steps" && method === "GET") return json(res, 200, { steps: listStepLists(dcfg.dataDir) });
+    if (path === "/api/steps" && method === "POST") {
+      const body = await readJson(req);
+      const runId = typeof body["runId"] === "string" ? body["runId"] : "";
+      const detail = getQaRun(dcfg, runId);
+      if (!detail) throw new HttpError(404, "No such QA run.");
+      const steps = stepsFromRun(detail);
+      if (!steps.length) throw new HttpError(409, "Only a run that passed can be saved as steps.");
+      try {
+        const name = typeof body["name"] === "string" && body["name"].trim() ? body["name"] : `Steps from ${runId}`;
+        return json(res, 201, { steps: saveStepList(dcfg.dataDir, { name, sourceRunId: runId, steps }) });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not save the steps.");
+      }
+    }
+    const stepsReplay = /^\/api\/steps\/([^/]+)\/replay$/.exec(path);
+    if (stepsReplay && method === "POST") {
+      const id = decodeURIComponent(stepsReplay[1] || "");
+      const list = isStepListId(id) ? getStepList(dcfg.dataDir, id) : null;
+      if (!list) throw new HttpError(404, "No such step list.");
+      const body = await readJson(req);
+      return json(res, 200, await replayStepList(dcfg, list, { dryRun: body["run"] !== true }));
+    }
+
+    // Follow-ups and per-session tasks (stored on this machine; text with a secret is refused).
+    if (path === "/api/followups" && method === "GET") {
+      const st = new URL(req.url ?? "/", "http://x").searchParams.get("status");
+      return json(res, 200, { followups: listFollowups(dcfg.dataDir, st === "open" || st === "done" ? st : undefined) });
+    }
+    if (path === "/api/followups" && method === "POST") {
+      const body = await readJson(req);
+      try {
+        return json(res, 201, { followup: addFollowup(dcfg.dataDir, { text: body["text"], owner: body["owner"], due: body["due"], link: body["link"] }) });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not save the follow-up.");
+      }
+    }
+    const followupMatch = /^\/api\/followups\/([^/]+)$/.exec(path);
+    if (followupMatch && method === "PATCH") {
+      const body = await readJson(req);
+      const id = decodeURIComponent(followupMatch[1] || "");
+      try {
+        const updated = isItemId(id) ? updateFollowup(dcfg.dataDir, id, { status: body["status"], owner: body["owner"], due: body["due"], text: body["text"] }) : null;
+        if (!updated) throw new HttpError(404, "Follow-up not found.");
+        return json(res, 200, { followup: updated });
+      } catch (e) {
+        if (e instanceof HttpError) throw e;
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not update the follow-up.");
+      }
+    }
+    if (path === "/api/tasks" && method === "GET") {
+      const sid = new URL(req.url ?? "/", "http://x").searchParams.get("session") ?? "";
+      return json(res, 200, { tasks: isItemId(sid) ? listTasks(dcfg.dataDir, sid) : [] });
+    }
+    if (path === "/api/tasks" && method === "POST") {
+      const body = await readJson(req);
+      try {
+        return json(res, 201, { task: addTask(dcfg.dataDir, body["sessionId"], body["text"]) });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not save the task.");
+      }
+    }
+    const taskMatch = /^\/api\/tasks\/([^/]+)$/.exec(path);
+    if (taskMatch && method === "PATCH") {
+      const body = await readJson(req);
+      const id = decodeURIComponent(taskMatch[1] || "");
+      try {
+        const updated = isItemId(id) ? updateTask(dcfg.dataDir, id, body["status"]) : null;
+        if (!updated) throw new HttpError(404, "Task not found.");
+        return json(res, 200, { task: updated });
+      } catch (e) {
+        if (e instanceof HttpError) throw e;
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not update the task.");
+      }
     }
 
     if (path === "/api/qa/compare" && method === "GET") {
@@ -710,7 +815,16 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     }
 
     if (path === "/api/reo/agents" && method === "GET") {
-      return json(res, 200, { agents: PREBUILT_AGENTS, tools: BUILTIN_TOOLS });
+      return json(res, 200, { agents: getEffectiveAgents(dcfg.dataDir), tools: BUILTIN_TOOLS });
+    }
+
+    const agentProfMatch = /^\/api\/reo\/agents\/([a-z]+)$/.exec(path);
+    if (agentProfMatch && method === "PUT") {
+      const id = agentProfMatch[1] as AgentId;
+      if (!PREBUILT_AGENTS.some((a) => a.id === id)) throw new HttpError(404, "Agent not found.");
+      const body = await readJson(req);
+      const agent = saveAgentProfile(dcfg.dataDir, id, body);
+      return json(res, 200, { ok: true, agent });
     }
 
     if (path === "/api/reo/system" && method === "GET") {
@@ -720,7 +834,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         vaultNotes: notes.length,
         vaultProblems: problems.length,
         skillsCount: listSkills(dcfg.root).length,
-        defectsCount: listDefects(dcfg.dataDir).length,
+        defectsCount: listProductionDefects(dcfg.dataDir).length,
         guardrails: {
           readOnlyRepos: true,
           maskingGate: "100% synthetic block",
@@ -762,8 +876,127 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       return void res.end();
     }
 
+    if (path === "/api/reo/memory" && method === "GET") {
+      const qs = new URL(req.url ?? "/", "http://127.0.0.1").searchParams;
+      const layer = qs.get("layer") as MemoryLayer | null;
+      const confidence = qs.get("confidence") as MemoryConfidence | null;
+      const query = qs.get("q") || undefined;
+      return json(res, 200, {
+        entries: listMemory(dcfg.dataDir, {
+          ...(layer ? { layer } : {}),
+          ...(confidence ? { confidence } : {}),
+          ...(query ? { query } : {}),
+        }),
+      });
+    }
+
+    if (path === "/api/reo/memory" && method === "POST") {
+      const body = await readJson(req);
+      const layer = body["layer"];
+      const title = typeof body["title"] === "string" ? body["title"].trim() : "";
+      const content = typeof body["content"] === "string" ? body["content"].trim() : "";
+      if (layer !== "project" && layer !== "execution" && layer !== "procedural") {
+        throw new HttpError(400, "layer must be project, execution, or procedural.");
+      }
+      if (!title || !content) throw new HttpError(400, "title and content are required.");
+      const entry = addMemory(dcfg.dataDir, {
+        layer,
+        confidence: body["confidence"] === "verified" ? "verified" : "hypothesis",
+        title,
+        content,
+        tags: Array.isArray(body["tags"]) ? body["tags"].map(String) : [],
+        source: typeof body["source"] === "string" ? body["source"] : "manual",
+      });
+      return json(res, 201, { ok: true, entry });
+    }
+
+    const memVerifyMatch = /^\/api\/reo\/memory\/(mem-[a-z0-9-]+)\/verify$/.exec(path);
+    if (memVerifyMatch && method === "PUT") {
+      const entry = verifyMemory(dcfg.dataDir, memVerifyMatch[1]!);
+      if (!entry) throw new HttpError(404, "Memory entry not found.");
+      return json(res, 200, { ok: true, entry });
+    }
+
+    const memDelMatch = /^\/api\/reo\/memory\/(mem-[a-z0-9-]+)$/.exec(path);
+    if (memDelMatch && method === "DELETE") {
+      if (!deleteMemory(dcfg.dataDir, memDelMatch[1]!)) throw new HttpError(404, "Memory entry not found.");
+      return json(res, 200, { ok: true });
+    }
+
+    if (path === "/api/reo/automation" && method === "GET") {
+      return json(res, 200, { rules: listAutomationRules(dcfg.dataDir) });
+    }
+
+    if (path === "/api/reo/automation" && method === "POST") {
+      const body = await readJson(req);
+      const name = typeof body["name"] === "string" ? body["name"].trim() : "";
+      const prompt = typeof body["prompt"] === "string" ? body["prompt"].trim() : "";
+      if (!name || !prompt) throw new HttpError(400, "name and prompt are required.");
+      const rule = upsertAutomationRule(dcfg.dataDir, {
+        name,
+        trigger: (typeof body["trigger"] === "string" ? body["trigger"] : "on_commit") as TriggerKind,
+        ...(typeof body["schedule"] === "string" ? { schedule: body["schedule"] } : {}),
+        prompt,
+        enabled: body["enabled"] !== false,
+      });
+      return json(res, 201, { ok: true, rule });
+    }
+
+    const autoRunMatch = /^\/api\/reo\/automation\/([a-z0-9-]+)\/run$/.exec(path);
+    if (autoRunMatch && method === "POST") {
+      const rule = listAutomationRules(dcfg.dataDir).find((r) => r.id === autoRunMatch[1]);
+      if (!rule) throw new HttpError(404, "Automation rule not found.");
+      const result = await runAgenticMission(dcfg, rule.prompt, () => {});
+      const updated = upsertAutomationRule(dcfg.dataDir, {
+        id: rule.id,
+        lastRunAt: new Date().toISOString(),
+        lastVerdict: result.verdict,
+      });
+      return json(res, 200, {
+        ok: true,
+        rule: updated,
+        verdict: result.verdict,
+        defectsCount: result.defects.length,
+        checkpointId: result.checkpointId,
+      });
+    }
+
+    const autoMatch = /^\/api\/reo\/automation\/([a-z0-9-]+)$/.exec(path);
+    if (autoMatch && method === "PUT") {
+      const existing = listAutomationRules(dcfg.dataDir).find((r) => r.id === autoMatch[1]);
+      if (!existing) throw new HttpError(404, "Automation rule not found.");
+      const body = await readJson(req);
+      const rule = upsertAutomationRule(dcfg.dataDir, { id: existing.id, ...body });
+      return json(res, 200, { ok: true, rule });
+    }
+    if (autoMatch && method === "DELETE") {
+      if (!deleteAutomationRule(dcfg.dataDir, autoMatch[1]!)) throw new HttpError(404, "Automation rule not found.");
+      return json(res, 200, { ok: true });
+    }
+
+    if (path === "/api/reo/checkpoints" && method === "GET") {
+      return json(res, 200, { checkpoints: listCheckpoints(dcfg.dataDir) });
+    }
+
     if (path === "/api/defects" && method === "GET") {
       return json(res, 200, { defects: listDefects(dcfg.dataDir) });
+    }
+
+    // Plain daily digest: new, recurring and acknowledged defects. Sample records are left out.
+    if (path === "/api/defects/digest" && method === "GET") {
+      const q = new URL(req.url ?? "/", "http://x").searchParams.get("date") ?? "";
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(q) ? q : new Date().toISOString().slice(0, 10);
+      const recs = listProductionDefects(dcfg.dataDir);
+      const text = buildDailyDigest(recs, date);
+      const view = parseView(new URL(req.url ?? "/", "http://x").searchParams.get("view"));
+      const open = recs.filter((d) => d.status !== "fixed" && d.status !== "resolved" && d.status !== "false_positive");
+      const counts = { total: recs.length, open: open.length, acknowledged: open.filter((d) => d.acknowledged === true).length, recurring: recs.filter((d) => (d.recurrenceCount ?? 1) > 1).length };
+      return json(res, 200, { date, text, report: renderReport(digestModel(date, text, counts), view) });
+    }
+
+    // Read-only: look-alike notes and notes not updated for a while. Nothing is changed.
+    if (path === "/api/notes/hygiene" && method === "GET") {
+      return json(res, 200, findNoteHygiene(loadVault(dcfg.vaultDir).notes));
     }
 
     if (path === "/api/defects" && method === "POST") {
@@ -786,6 +1019,8 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         codeSuggestion: typeof body["codeSuggestion"] === "string" ? body["codeSuggestion"] : "",
         fileRef: typeof body["fileRef"] === "string" ? body["fileRef"] : "",
         evidencePaths: Array.isArray(body["evidencePaths"]) ? body["evidencePaths"].map(String) : [],
+        sample: body["sample"] === true,
+        fixture: body["fixture"] === true,
       });
       return json(res, 200, { defect: rec });
     }
@@ -829,8 +1064,10 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       const body = await readJson(req);
       const id = decodeURIComponent(defectMatch[1] || "");
       const updated = updateDefectStatus(dcfg.dataDir, id, {
-        status: typeof body["status"] === "string" ? (body["status"] as "open" | "triaged" | "notified" | "fixed" | "false_positive") : undefined,
+        status: typeof body["status"] === "string" ? (body["status"] as "open" | "triaged" | "notified" | "fixed" | "false_positive" | "resolved") : undefined,
         assignedTo: typeof body["assignedTo"] === "string" ? body["assignedTo"] : undefined,
+        acknowledged: typeof body["acknowledged"] === "boolean" ? body["acknowledged"] : undefined,
+        resolved: body["resolved"] === true ? true : undefined,
       });
       if (!updated) throw new HttpError(404, "Defect not found.");
       return json(res, 200, { defect: updated });

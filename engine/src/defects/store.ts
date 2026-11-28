@@ -6,7 +6,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
 export type DefectSeverity = "critical" | "high" | "medium" | "low";
-export type DefectStatus = "open" | "triaged" | "notified" | "fixed" | "false_positive";
+export type DefectStatus = "open" | "triaged" | "notified" | "fixed" | "false_positive" | "resolved";
+
+/** One line of a defect's history. History is only ever added to, never removed. */
+export interface DefectHistoryEntry {
+  at: string;
+  event: "created" | "recurred" | "acknowledged" | "unacknowledged" | "resolved" | "reopened" | "status";
+  note?: string;
+}
 
 export interface DefectRecord {
   id: string;
@@ -28,6 +35,25 @@ export interface DefectRecord {
   fileRef?: string;
   evidencePaths: string[];
   sentTeamsAt?: string;
+  /** Times this fingerprint has been seen. 1 on creation; each return adds 1. */
+  recurrenceCount?: number;
+  firstSeen?: string;
+  lastSeen?: string;
+  /** Someone knows about it. Kept apart from status: acknowledging does not change status. */
+  acknowledged?: boolean;
+  acknowledgedAt?: string;
+  resolvedAt?: string;
+  /** True when made from a fixture or sample flag. Never counted in production digests or counts. */
+  sample?: boolean;
+  history?: DefectHistoryEntry[];
+}
+
+export const SEVERITY_ORDER: DefectSeverity[] = ["low", "medium", "high", "critical"];
+
+/** One step up, capped at critical. */
+export function raiseSeverity(s: DefectSeverity): DefectSeverity {
+  const i = SEVERITY_ORDER.indexOf(s);
+  return SEVERITY_ORDER[Math.min(SEVERITY_ORDER.length - 1, Math.max(0, i) + 1)] as DefectSeverity;
 }
 
 function storeFile(dataDir: string): string {
@@ -36,8 +62,9 @@ function storeFile(dataDir: string): string {
   return join(dir, "defects.json");
 }
 
-export function computeDefectFingerprint(input: { appName: string; branch: string; title: string; fileRef?: string }): string {
-  const raw = `${input.appName.toLowerCase()}|${input.branch.toLowerCase()}|${(input.fileRef || "").toLowerCase()}|${input.title.toLowerCase().trim()}`;
+export function computeDefectFingerprint(input: { appName: string; branch: string; title: string; fileRef?: string; sample?: boolean }): string {
+  // Sample records get their own fingerprint space so they can never merge into a real defect.
+  const raw = `${input.sample ? "sample|" : ""}${input.appName.toLowerCase()}|${input.branch.toLowerCase()}|${(input.fileRef || "").toLowerCase()}|${input.title.toLowerCase().trim()}`;
   return createHash("sha256").update(raw).digest("hex").slice(0, 12);
 }
 
@@ -52,20 +79,49 @@ export function listDefects(dataDir: string): DefectRecord[] {
   }
 }
 
+/** Real defects only: sample and fixture records are left out. Use this for counts and digests. */
+export function listProductionDefects(dataDir: string): DefectRecord[] {
+  return listDefects(dataDir).filter((d) => !d.sample);
+}
+
 export function saveDefects(dataDir: string, records: DefectRecord[]): void {
   const file = storeFile(dataDir);
   writeFileSync(file, JSON.stringify(records, null, 2), "utf8");
 }
 
-export function upsertDefect(
-  dataDir: string,
-  input: Omit<DefectRecord, "id" | "fingerprint" | "testedDate" | "status"> & { testedDate?: string; status?: DefectStatus },
-): DefectRecord {
+type UpsertInput = Omit<DefectRecord, "id" | "fingerprint" | "testedDate" | "status"> & {
+  testedDate?: string;
+  status?: DefectStatus;
+  /** Either flag marks the record as sample data. */
+  sample?: boolean;
+  fixture?: boolean;
+};
+
+function addHistory(d: DefectRecord, event: DefectHistoryEntry["event"], note?: string, at = new Date().toISOString()): void {
+  (d.history ??= []).push({ at, event, ...(note ? { note } : {}) });
+}
+
+export function upsertDefect(dataDir: string, input: UpsertInput): DefectRecord {
   const all = listDefects(dataDir);
-  const fp = computeDefectFingerprint({ appName: input.appName, branch: input.branch, title: input.title, fileRef: input.fileRef });
+  const isSample = input.sample === true || input.fixture === true;
+  const fp = computeDefectFingerprint({ appName: input.appName, branch: input.branch, title: input.title, fileRef: input.fileRef, sample: isSample });
+  const now = new Date().toISOString();
   const existing = all.find((d) => d.fingerprint === fp);
   if (existing) {
-    Object.assign(existing, input, { fingerprint: fp });
+    // Same defect again: keep one record, count the return, raise severity one step.
+    // Acknowledged and history are kept. The incoming severity and status do not lower anything.
+    const { sample: _s, fixture: _f, severity: _sev, status: _st, ...rest } = input;
+    Object.assign(existing, rest, { fingerprint: fp });
+    existing.recurrenceCount = (existing.recurrenceCount ?? 1) + 1;
+    existing.firstSeen ??= existing.testedDate;
+    existing.lastSeen = now;
+    existing.severity = raiseSeverity(existing.severity);
+    if (existing.status === "resolved" || existing.status === "fixed") {
+      existing.status = "open";
+      delete existing.resolvedAt;
+      addHistory(existing, "reopened", "Returned after it was marked fixed or resolved.", now);
+    }
+    addHistory(existing, "recurred", `Seen ${existing.recurrenceCount} times; severity is now ${existing.severity}.`, now);
     saveDefects(dataDir, all);
     return existing;
   }
@@ -75,7 +131,7 @@ export function upsertDefect(
     appName: input.appName || "SPIL AURA",
     branch: input.branch || "development",
     commitSha: input.commitSha || "",
-    testedDate: input.testedDate || new Date().toISOString().slice(0, 10),
+    testedDate: input.testedDate || now.slice(0, 10),
     testedBy: input.testedBy || "QA Engineer",
     assignedTo: input.assignedTo || "",
     agentSource: input.agentSource || "qa",
@@ -88,21 +144,75 @@ export function upsertDefect(
     codeSuggestion: input.codeSuggestion || "",
     fileRef: input.fileRef || "",
     evidencePaths: Array.isArray(input.evidencePaths) ? input.evidencePaths : [],
+    recurrenceCount: 1,
+    firstSeen: now,
+    lastSeen: now,
+    acknowledged: false,
+    ...(isSample ? { sample: true } : {}),
+    history: [{ at: now, event: "created" }],
   };
   all.unshift(rec);
   saveDefects(dataDir, all);
   return rec;
 }
 
-export function updateDefectStatus(dataDir: string, id: string, patch: Partial<Pick<DefectRecord, "status" | "assignedTo" | "sentTeamsAt">>): DefectRecord | null {
+export function updateDefectStatus(
+  dataDir: string,
+  id: string,
+  patch: Partial<Pick<DefectRecord, "status" | "assignedTo" | "sentTeamsAt">> & { acknowledged?: boolean; resolved?: boolean },
+): DefectRecord | null {
   const all = listDefects(dataDir);
   const found = all.find((d) => d.id === id);
   if (!found) return null;
-  if (patch.status) found.status = patch.status;
+  const now = new Date().toISOString();
+  if (patch.status && patch.status !== found.status) {
+    found.status = patch.status;
+    addHistory(found, "status", patch.status, now);
+  }
   if (patch.assignedTo !== undefined) found.assignedTo = patch.assignedTo;
   if (patch.sentTeamsAt !== undefined) found.sentTeamsAt = patch.sentTeamsAt;
+  // Acknowledged is its own flag. It never changes status.
+  if (patch.acknowledged !== undefined && patch.acknowledged !== !!found.acknowledged) {
+    found.acknowledged = patch.acknowledged;
+    if (patch.acknowledged) found.acknowledgedAt = now;
+    else delete found.acknowledgedAt;
+    addHistory(found, patch.acknowledged ? "acknowledged" : "unacknowledged", undefined, now);
+  }
+  if (patch.resolved === true && found.status !== "resolved") {
+    found.status = "resolved";
+    found.resolvedAt = now;
+    addHistory(found, "resolved", undefined, now);
+  }
   saveDefects(dataDir, all);
   return found;
+}
+
+/**
+ * Plain text digest for one day: new, recurring and acknowledged defects.
+ * Sample records are left out. `date` is YYYY-MM-DD (UTC, like the stored timestamps).
+ */
+export function buildDailyDigest(records: DefectRecord[], date: string): string {
+  const real = records.filter((d) => !d.sample);
+  const day = (iso?: string): string => (iso || "").slice(0, 10);
+  const fresh = real.filter((d) => day(d.firstSeen || d.testedDate) === date);
+  const recurring = real.filter((d) => (d.recurrenceCount ?? 1) > 1 && day(d.lastSeen) === date);
+  const acked = real.filter((d) => d.acknowledged && d.status !== "resolved" && d.status !== "false_positive");
+  const line = (d: DefectRecord): string =>
+    `- ${d.id} [${d.severity}] ${d.title} (${d.appName}, ${d.branch})` +
+    ((d.recurrenceCount ?? 1) > 1 ? ` - seen ${d.recurrenceCount} times` : "");
+  const section = (title: string, list: DefectRecord[]): string[] => [
+    `${title} (${list.length})`,
+    ...(list.length ? list.map(line) : ["- none"]),
+    "",
+  ];
+  return [
+    `Defect digest for ${date}`,
+    "",
+    ...section("New", fresh),
+    ...section("Recurring", recurring),
+    ...section("Acknowledged and still open", acked),
+    "Sample data is not counted.",
+  ].join("\n");
 }
 
 function esc(s: string): string {
@@ -168,7 +278,7 @@ export function generateDefectReportHtml(defects: DefectRecord[], meta: { appNam
 <body>
   <header>
     <div>
-      <div class="motto">SPIL REO · REVIEW · EVALUATE · OPTIMIZE</div>
+      <div class="motto">SPIL REO · A Multi-Agent Quality Engineering &amp; Software Assurance Platform.</div>
       <h1>Quality &amp; Defect Assurance Report</h1>
     </div>
     <div class="meta">App: ${esc(meta.appName || "All")} · Branch: ${esc(meta.branch || "All")} · Date: ${esc(date)}</div>

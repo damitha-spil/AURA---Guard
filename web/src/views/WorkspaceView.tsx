@@ -1,21 +1,24 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
+import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowUp,
   Bot,
   Check,
   ChevronDown,
-  ChevronsUpDown,
   Copy,
+  FileText,
   FlaskConical,
   GitPullRequest,
   PanelRight,
+  Paperclip,
   Plus,
   Search,
   Shield,
   Square,
   Trash2,
   TrendingUp,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -28,14 +31,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { BrandAvatar } from "@/components/app/brand";
+import { AssistantAvatar, BrandAvatar } from "@/components/app/brand";
+
+const ReoBot3D = React.lazy(() => import("@/components/app/reo-bot-3d"));
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -43,7 +46,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { SidebarGroup, SidebarGroupLabel } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { familyOf } from "@/components/app/model-picker";
+import { ChatModelPicker } from "@/components/app/chat-model-picker";
 import { cn } from "@/lib/utils";
 import { useAppearance } from "@/lib/appearance";
 import { BASIC_COMMANDS, SLASH_MENU, isRunnerCommand, slashName } from "@/lib/slash";
@@ -100,6 +103,32 @@ interface AgentLite {
   id: string;
   name: string;
   role: string;
+}
+
+interface AttachedFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  text?: string;
+}
+
+/** Cap attached files per message so chat requests stay within the engine's question budget. */
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_CHARS = 12_000;
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isTextResource(file: File): boolean {
+  if (file.type.startsWith("text/")) return true;
+  if (/json|xml|javascript|typescript|yaml|toml|csv|svg/i.test(file.type)) return true;
+  return /\.(txt|md|markdown|json|ya?ml|toml|xml|csv|tsv|log|ts|tsx|js|jsx|mjs|cjs|py|java|rs|go|cs|css|scss|html|sql|sh|ps1|bat|env|ini|conf)$/i.test(
+    file.name,
+  );
 }
 
 const PRESETS = [
@@ -207,7 +236,21 @@ export function WorkspaceView({
   const [brain, setBrain] = React.useState<BrainSummary | null>(null);
   const [agents, setAgents] = React.useState<AgentLite[]>([]);
   const [deleteTarget, setDeleteTarget] = React.useState<ChatSummary | null>(null);
-  const [modelOpen, setModelOpen] = React.useState(false);
+  const [presetGaze, setPresetGaze] = React.useState(0);
+  const [attachments, setAttachments] = React.useState<AttachedFile[]>([]);
+  const [dragOver, setDragOver] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [justReplied, setJustReplied] = React.useState(false);
+  const prevBusyRef = React.useRef(false);
+  React.useEffect(() => {
+    if (prevBusyRef.current && !busy && messages.length > 0) {
+      setJustReplied(true);
+      const t = window.setTimeout(() => setJustReplied(false), 1800);
+      prevBusyRef.current = busy;
+      return () => window.clearTimeout(t);
+    }
+    prevBusyRef.current = busy;
+  }, [busy, messages.length]);
   const abortRef = React.useRef<AbortController | null>(null);
   const endRef = React.useRef<HTMLDivElement | null>(null);
   const isXl = useIsXl();
@@ -443,10 +486,58 @@ export function WorkspaceView({
     return GROUP_ORDER.filter((g) => map.has(g)).map((g) => [g, map.get(g)!] as const);
   }, [chats, chatSearch]);
 
+  async function attachFiles(files: FileList | File[]) {
+    const incoming = Array.from(files);
+    if (incoming.length === 0) return;
+    const room = Math.max(0, MAX_ATTACHMENTS - attachments.length);
+    if (room === 0) {
+      toast.error(`You can attach up to ${MAX_ATTACHMENTS} files per message.`);
+      return;
+    }
+    const slice = incoming.slice(0, room);
+    if (incoming.length > room) {
+      toast(`Only the first ${room} file${room === 1 ? "" : "s"} were attached (max ${MAX_ATTACHMENTS}).`);
+    }
+    const read = await Promise.all(
+      slice.map(async (file): Promise<AttachedFile> => {
+        let text: string | undefined;
+        if (isTextResource(file)) {
+          try {
+            const raw = await file.text();
+            text = raw.length > MAX_ATTACHMENT_CHARS ? `${raw.slice(0, MAX_ATTACHMENT_CHARS)}\n... [truncated]` : raw;
+          } catch {
+            text = undefined;
+          }
+        }
+        return {
+          id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name: file.name,
+          size: file.size,
+          type: file.type || "application/octet-stream",
+          text,
+        };
+      }),
+    );
+    setAttachments((prev) => [...prev, ...read]);
+  }
+
   function submit() {
-    const val = input;
+    const val = input.trim();
+    if (!val && attachments.length === 0) return;
+    const attachedBlock =
+      attachments.length > 0
+        ? attachments
+            .map((a) =>
+              a.text
+                ? `[Attached resource: ${a.name} (${formatBytes(a.size)})]\n\`\`\`\n${a.text}\n\`\`\``
+                : `[Attached resource: ${a.name} (${formatBytes(a.size)}, ${a.type})]`,
+            )
+            .join("\n\n")
+        : "";
+    const combined = attachedBlock && val ? `${attachedBlock}\n\n${val}` : attachedBlock || val;
     setInput("");
-    runPrompt(val);
+    setAttachments([]);
+    runPrompt(combined);
   }
 
   async function copy(text: string) {
@@ -472,68 +563,134 @@ export function WorkspaceView({
     inputRef.current?.focus();
   }
 
-  const availableBackends = brain ? brain.backends.filter((b) => b.available) : [];
-  const activeModelId = brain?.picked ? brain.models.current[brain.picked] : undefined;
-  const activeModelLabel = brain?.models.catalogue.find((m) => m.id === activeModelId)?.label || activeModelId;
-
-  const modelPicker =
-    availableBackends.length === 0 ? null : (
-      <Popover open={modelOpen} onOpenChange={setModelOpen}>
-        <PopoverTrigger asChild>
-          <Button type="button" variant="ghost" size="sm" disabled={busy} className="max-w-64 min-w-0 gap-1" aria-label="Active model">
-            <span className="min-w-0 truncate">{activeModelLabel || "Select model"}</span>
-            <ChevronsUpDown className="opacity-50" />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-80 p-0" align="start">
-          <Command>
-            <CommandInput placeholder="Search models..." />
-            <CommandList className="max-h-72">
-              <CommandEmpty>No model found.</CommandEmpty>
-              {availableBackends.flatMap((b) => {
-                const choices = brain!.models.catalogue.filter((m) => m.backends.includes(b.id));
-                const fams = new Map<string, typeof choices>();
-                for (const m of choices) fams.set(familyOf(m.label), [...(fams.get(familyOf(m.label)) || []), m]);
-                return [...fams.entries()].map(([fam, list]) => (
-                  <CommandGroup key={`${b.id}-${fam}`} heading={availableBackends.length > 1 ? `${b.label} · ${fam}` : fam}>
-                    {list.map((m) => (
-                      <CommandItem
-                        key={`${b.id}::${m.id}`}
-                        value={`${b.label} ${m.label} ${m.id} ${m.note || ""}`}
-                        onSelect={() => {
-                          setModelOpen(false);
-                          switchModel(b.id, m.id);
-                        }}
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate">{m.label}</span>
-                          {m.note && <span className="text-muted-foreground block truncate text-xs">{m.note}</span>}
-                        </span>
-                        {brain!.picked === b.id && brain!.models.current[b.id] === m.id && <Check className="size-4" />}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                ));
-              })}
-            </CommandList>
-          </Command>
-        </PopoverContent>
-      </Popover>
-    );
+  const modelPicker = brain ? (
+    <ChatModelPicker
+      backends={brain.backends}
+      catalogue={brain.models.catalogue}
+      pickedBackend={brain.picked}
+      currentModels={brain.models.current}
+      disabled={busy}
+      onSelect={switchModel}
+    />
+  ) : null;
 
   // In an empty chat the composer sits mid-page, where a menu above it would be cut off.
   const menuSide = messages.length === 0 ? "top-full mt-2" : "bottom-full mb-2";
 
+  const botMood = busy
+    ? ("thinking" as const)
+    : justReplied
+      ? ("happy" as const)
+      : input.trim().length > 0
+        ? ("typing" as const)
+        : ("idle" as const);
+
   const composer = (
-    <div className="mx-auto w-full max-w-(--chat-width,48rem)">
+    <div className="group/composer relative mx-auto w-full max-w-(--chat-width,48rem)">
+      {messages.length > 0 && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-14 right-5 z-0 flex items-start gap-1.5"
+        >
+          <AnimatePresence>
+            {busy && (
+              <motion.div
+                key="thinking-cloud"
+                initial={{ opacity: 0, scale: 0.75, y: 6 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.75, y: 4 }}
+                transition={{ type: "spring", stiffness: 380, damping: 24 }}
+                className="relative -mt-4 flex items-center gap-1 rounded-2xl border bg-card/95 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur-xs"
+              >
+                <span>Thinking</span>
+                <span className="inline-flex gap-0.5" aria-hidden="true">
+                  <motion.span
+                    animate={{ opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
+                    transition={{ duration: 1.1, repeat: Infinity, delay: 0 }}
+                  >
+                    ·
+                  </motion.span>
+                  <motion.span
+                    animate={{ opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
+                    transition={{ duration: 1.1, repeat: Infinity, delay: 0.2 }}
+                  >
+                    ·
+                  </motion.span>
+                  <motion.span
+                    animate={{ opacity: [0.3, 1, 0.3], y: [0, -2, 0] }}
+                    transition={{ duration: 1.1, repeat: Infinity, delay: 0.4 }}
+                  >
+                    ·
+                  </motion.span>
+                </span>
+                <span className="bg-card/95 border-border absolute -right-1.5 bottom-0.5 size-2 rounded-full border" />
+                <span className="bg-card/95 border-border absolute -right-3 -bottom-1 size-1.5 rounded-full border" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <motion.div
+            animate={
+              botMood === "thinking"
+                ? { y: [-8, -14, -8], rotate: [-2, 2.5, -2], scale: 1.05 }
+                : botMood === "happy"
+                  ? { y: [-6, -12, -4], rotate: [0, -4, 3, 0], scale: 1.06 }
+                  : botMood === "typing"
+                    ? { y: 2, rotate: 0, scale: 1 }
+                    : { y: 18, rotate: 0, scale: 0.94 }
+            }
+            transition={
+              botMood === "thinking"
+                ? { y: { duration: 2.2, repeat: Infinity, ease: "easeInOut" }, rotate: { duration: 2.4, repeat: Infinity, ease: "easeInOut" }, scale: { type: "spring", stiffness: 320, damping: 22 } }
+                : { type: "spring", stiffness: 320, damping: 22 }
+            }
+          >
+            <React.Suspense fallback={null}>
+              <ReoBot3D
+                active={active && messages.length > 0}
+                typing={input.trim().length > 0}
+                floating={busy}
+                mood={botMood}
+                compact
+                className="h-20 w-24 sm:h-20 sm:w-24"
+              />
+            </React.Suspense>
+          </motion.div>
+        </div>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) {
+            e.preventDefault();
+            setDragOver(true);
+          }
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (e.dataTransfer.files.length > 0) attachFiles(e.dataTransfer.files);
+        }}
         data-glass-surface="card"
-        className="bg-card relative rounded-3xl border p-3 shadow-xs"
+        className={cn(
+          "bg-card relative z-10 rounded-3xl border p-3 shadow-xs transition-colors",
+          dragOver && "border-primary bg-primary/5",
+        )}
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          aria-label="Upload files or resources"
+          onChange={(e) => {
+            if (e.target.files) attachFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
         {mentionAgents.length > 0 && (
           <div data-glass-surface="popover" className={cn("bg-popover absolute right-3 left-3 z-10 rounded-2xl border p-1 shadow-md", menuSide)}>
             {mentionAgents.map((a) => (
@@ -565,6 +722,28 @@ export function WorkspaceView({
             ))}
           </div>
         )}
+        {attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+            {attachments.map((a) => (
+              <span
+                key={a.id}
+                className="bg-muted/80 inline-flex max-w-56 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+              >
+                <FileText className="text-muted-foreground size-3.5 shrink-0" />
+                <span className="truncate font-medium">{a.name}</span>
+                <span className="text-muted-foreground shrink-0 text-[10px]">{formatBytes(a.size)}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${a.name}`}
+                  onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                  className="text-muted-foreground hover:text-foreground shrink-0 rounded-full"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <Textarea
           ref={inputRef}
           value={input}
@@ -587,6 +766,18 @@ export function WorkspaceView({
         />
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="rounded-full"
+              aria-label="Attach files or resources"
+              title="Attach files or resources"
+              disabled={busy}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip className="size-4" />
+            </Button>
             {modelPicker}
             <Button type="button" size="sm" variant={showWork ? "secondary" : "outline"} aria-pressed={showWork} onClick={() => setShowWork((v) => !v)} className="rounded-full text-xs">
               Show work
@@ -603,7 +794,7 @@ export function WorkspaceView({
               <Square />
             </Button>
           ) : (
-            <Button type="submit" size="icon" className="rounded-full" aria-label="Send" disabled={!input.trim()}>
+            <Button type="submit" size="icon" className="rounded-full" aria-label="Send" disabled={!input.trim() && attachments.length === 0}>
               <ArrowUp />
             </Button>
           )}
@@ -706,17 +897,25 @@ export function WorkspaceView({
 
       {empty ? (
         <ScrollArea className="min-h-0 flex-1">
-          <div className="mx-auto flex min-h-full w-full max-w-(--chat-width,48rem) flex-col justify-center gap-8 px-4 py-12">
-            <div className="flex flex-col items-center gap-4">
-              <BrandAvatar className="size-16" />
+          <div className="mx-auto flex min-h-full w-full max-w-(--chat-width,48rem) flex-col justify-center gap-6 px-4 py-8">
+            <div className="flex flex-col items-center gap-2">
+              <React.Suspense fallback={<BrandAvatar className="size-16" />}>
+                <ReoBot3D
+                  active={active && empty}
+                  typing={input.trim().length > 0}
+                  gazeX={presetGaze}
+                />
+              </React.Suspense>
               <h2 className="text-center text-3xl font-semibold tracking-tight">What should we check today?</h2>
             </div>
             {composer}
             <div className="grid gap-3 sm:grid-cols-2">
-              {PRESETS.map((p) => (
+              {PRESETS.map((p, idx) => (
                 <button
                   key={p.prompt}
                   type="button"
+                  onMouseEnter={() => setPresetGaze(idx % 2 === 0 ? -0.45 : 0.45)}
+                  onMouseLeave={() => setPresetGaze(0)}
                   onClick={() => runPrompt(p.prompt)}
                   className="hover:bg-muted focus-visible:ring-ring/50 flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors focus-visible:ring-[3px] focus-visible:outline-none"
                 >
@@ -749,7 +948,7 @@ export function WorkspaceView({
                 }
                 return (
                   <div key={i} className="group flex gap-3">
-                    <BrandAvatar />
+                    <AssistantAvatar />
                     <div className="flex min-w-0 flex-1 flex-col gap-2">
                       {showWork && m.work && (
                         <Collapsible>

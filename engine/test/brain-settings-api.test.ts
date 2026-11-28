@@ -11,9 +11,11 @@ import { handleBrainRoute } from "../src/server/brain.ts";
 import type { BrainRouteOptions } from "../src/server/brain.ts";
 import { createGuardServer, COOKIE_NAME } from "../src/server/server.ts";
 import type { SecretBackend } from "../src/brain/keystore.ts";
+import { OPENAI_COMPAT } from "../src/brain/providers.ts";
 import type { GuardConfig } from "../src/types.ts";
 import { seed } from "./chat-helpers.ts";
 
+const OTHERS: string[] = OPENAI_COMPAT.map((p) => p.id);
 const fakeKey = (): string => "sk-ant-" + "fake" + randomBytes(18).toString("hex");
 const usage = { input_tokens: 1, output_tokens: 1 };
 
@@ -50,7 +52,14 @@ async function start(over: Partial<BrainRouteOptions> = {}) {
   mkdirSync(dataDir, { recursive: true });
   const cfg = { dataDir, vaultDir: join(root, "vault"), repos: [], busyProcesses: [], root } as GuardConfig;
   const store = memoryStore();
-  const options: BrainRouteOptions = { env: {}, secrets: store, launcher: null, ...over };
+  // Every provider gets its own memory store, so no test reads or writes a real OS key store.
+  const others = new Map<string, ReturnType<typeof memoryStore>>();
+  const secretsFor = (id: string) => {
+    let s = others.get(id);
+    if (!s) others.set(id, (s = memoryStore()));
+    return s;
+  };
+  const options: BrainRouteOptions = { env: {}, secrets: store, secretsFor, launcher: null, opencodeLauncher: null, ...over };
   const server: Server = createServer((req, res) => {
     void handleBrainRoute({ req, res, path: new URL(req.url ?? "/", "http://x").pathname, method: req.method ?? "GET", cfg, options }).then((hit) => {
       if (!hit) { res.writeHead(404); res.end(); }
@@ -60,7 +69,7 @@ async function start(over: Partial<BrainRouteOptions> = {}) {
   const port = (server.address() as AddressInfo).port;
   const json = { "Content-Type": "application/json" };
   return {
-    cfg, root, dataDir, store, port,
+    cfg, root, dataDir, store, secretsFor, port,
     get: (path: string) => http(port, { path }),
     send: (method: string, path: string, obj?: unknown) => http(port, { path, method, headers: json, body: obj === undefined ? undefined : JSON.stringify(obj) }),
     stop: () => new Promise<void>((r) => { server.close(() => { rmSync(root, { recursive: true, force: true }); r(); }); server.closeAllConnections(); }),
@@ -85,13 +94,15 @@ test("GET /api/brain: shape, no-store, nothing secret", async () => {
     assert.equal(r.status, 200);
     assert.equal(r.headers["cache-control"], "no-store");
     const j = JSON.parse(r.body);
-    assert.deepEqual(Object.keys(j).sort(), ["apiKey", "backends", "models", "picked", "planCli", "reason", "wanted", "wantedSource"]);
+    assert.deepEqual(Object.keys(j).sort(), ["apiKey", "apiKeys", "backends", "models", "picked", "planCli", "reason", "wanted", "wantedSource"]);
     assert.equal(j.wanted, "auto");
     assert.equal(j.picked, "anthropic-api");
     assert.deepEqual(j.apiKey, { source: "stored", storage: "dpapi", canStore: true });
     assert.deepEqual(j.planCli, { found: false, help: j.planCli.help });
-    assert.deepEqual(j.backends.map((b: { id: string; available: boolean }) => [b.id, b.available]), [["anthropic-api", true], ["claude-cli", false], ["antigravity-cli", false]]);
-    assert.deepEqual(j.models.current, { "anthropic-api": "claude-sonnet-5-5", "claude-cli": "sonnet", "antigravity-cli": "gemini-4-neon-medium" });
+    assert.deepEqual(j.backends.map((b: { id: string; available: boolean }) => [b.id, b.available]), [["anthropic-api", true], ["claude-cli", false], ["antigravity-cli", false], ["opencode-cli", false], ...OTHERS.map((id) => [id, false])]);
+    assert.deepEqual(j.models.current, { "anthropic-api": "claude-sonnet-5-5", "claude-cli": "sonnet", "antigravity-cli": "gemini-4-neon-medium", "opencode-cli": "", ...Object.fromEntries(OTHERS.map((id) => [id, ""])) });
+    assert.deepEqual(j.apiKeys.map((k: { id: string; source: string | null }) => [k.id, k.source]), [["anthropic-api", "stored"], ...OTHERS.map((id) => [id, null])]);
+    for (const k of j.apiKeys) assert.deepEqual(Object.keys(k).sort(), ["env", "id", "label", "source"]);
     assert.equal(j.models.catalogue.length, 28);
     const all = everything(r);
     for (const part of [key, key.slice(0, 12), key.slice(-12), key.slice(8, 24), Buffer.from(key).toString("base64").slice(0, 16)]) assert.ok(!all.includes(part), part);
@@ -156,6 +167,43 @@ test("PUT/DELETE /api/brain/key: stored, never echoed, bad keys 400, env wins me
     assert.equal(JSON.parse((await e.get("/api/brain")).body).apiKey.source, "env");
   } finally {
     await e.stop();
+  }
+});
+
+test("per-provider key routes: each key has its own slot, is never echoed, and unknown ids are 404", async () => {
+  const asked: { url: string; auth: string }[] = [];
+  const fetchFn = (async (url: unknown, init: { headers: Record<string, string> }) => {
+    asked.push({ url: String(url), auth: init.headers["authorization"] ?? "" });
+    return new Response(JSON.stringify({ data: [{ id: "vendor/some-model" }, { id: "../bad" }, { id: "-flag" }] }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const s = await start({ fetch: fetchFn });
+  try {
+    const key = "fake-other-" + randomBytes(18).toString("hex");
+    const put = await s.send("PUT", "/api/brain/key/openrouter-api", { key });
+    assert.deepEqual(JSON.parse(put.body), { ok: true, source: "stored", stored: true });
+    assert.ok(!everything(put).includes(key));
+    assert.equal(s.secretsFor("openrouter-api").value, key);
+    assert.equal(s.secretsFor("openai-api").value, null);
+    assert.equal(s.store.value, null, "the Anthropic slot is untouched");
+    noKeyOnDisk(s.dataDir, key);
+    const view = await s.get("/api/brain");
+    assert.ok(!everything(view).includes(key));
+    const j = JSON.parse(view.body);
+    assert.equal(j.apiKeys.find((k: { id: string }) => k.id === "openrouter-api").source, "stored");
+    assert.deepEqual(j.models.catalogue.filter((m: { backends: string[] }) => m.backends.includes("openrouter-api")).map((m: { id: string }) => m.id), ["vendor/some-model"]);
+    assert.deepEqual(asked, [{ url: "https://openrouter.ai/api/v1/models", auth: `Bearer ${key}` }], "the key only goes to its own provider");
+    assert.equal(j.picked, null, "auto never picks one of these, even with a saved key");
+    await s.send("PUT", "/api/brain", { models: { "openrouter-api": "vendor/some-model" } });
+    assert.equal(JSON.parse((await s.get("/api/brain")).body).picked, null, "nor with a key and a model");
+    for (const id of ["nope", "claude-cli", "opencode-cli", "..%2f..%2fx", "openrouter-api/x"]) {
+      assert.equal((await s.send("PUT", `/api/brain/key/${id}`, { key })).status, 404, id);
+    }
+    assert.equal((await s.send("PUT", "/api/brain/key/openrouter-api", { key: "short" })).status, 400);
+    assert.equal((await s.get("/api/brain/key/openrouter-api")).status, 405);
+    assert.deepEqual(JSON.parse((await s.send("DELETE", "/api/brain/key/openrouter-api")).body), { ok: true, source: null, stored: false });
+    assert.equal(s.secretsFor("openrouter-api").value, null);
+  } finally {
+    await s.stop();
   }
 });
 

@@ -216,7 +216,7 @@ console.log("OK");
 `,
   );
   const cfg = { dataDir: root, vaultDir: root, repos: [], busyProcesses: [], root } as GuardConfig;
-  const env = { ...process.env, RECORD: record };
+  const env: Record<string, string | undefined> = { ...process.env, RECORD: record };
   delete env.ANTHROPIC_API_KEY;
   delete env.AURA_GUARD_BRAIN;
   delete env.AURA_GUARD_AGY_MODEL;

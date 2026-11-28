@@ -9,6 +9,8 @@ import { isLogged, readLoggedShas } from "../logcheck/logcheck.ts";
 import { listQaRuns } from "../qa/harness_api.ts";
 import type { ReleaseGate } from "../qa/harness_api.ts";
 import { maskDeep } from "../qa/safe-out.ts";
+import { classifyChange, evaluateEvidence, evidenceMarkdown } from "../qa/evidence_scope.ts";
+import type { EvidenceStatus } from "../qa/evidence_scope.ts";
 import { readDiff } from "../review/diff.ts";
 import type { DiffResult } from "../review/diff.ts";
 import { gitTry, pathExistsAt } from "../review/git.ts";
@@ -45,6 +47,8 @@ export interface PrReadinessReport {
     latestQaGate: ReleaseGate | null;
   };
   developerSuggestions: DeveloperSuggestion[];
+  /** No saved evidence is tied to a commit, so nothing is credited here. */
+  evidenceScope: EvidenceStatus;
   prSummaryMarkdown: string;
 }
 
@@ -113,10 +117,11 @@ export function buildPrReadinessReport(
   const uiChange = diff.files.some((f) => /\.(tsx|jsx|css|html)$/i.test(f.path));
   const serviceChange = diff.files.some((f) => /\.(rs|cs|sql)$/i.test(f.path) || /(mcp|erp|api|server)/i.test(f.path));
 
-  const required: string[] = ["Environment named (local or Cobalt test DB only; no prod/ERP writes)"];
-  if (uiChange) required.push("Real-app screenshots at 800, 1100, and 1440 px + walkthrough video");
-  if (serviceChange) required.push("Real request, result, and readback against test environment");
-  if (!uiChange && !serviceChange) required.push("Applicable test/check output + reason no app path changed");
+  const evidenceScope = evaluateEvidence(
+    classifyChange(diff.files.map((f) => f.path)), [],
+    diff.files.length ? [] : ["No changed files could be read for this repository."],
+  );
+  const required = evidenceScope.requirements.map((x) => x.label);
 
   const qaRuns = listQaRuns(cfg);
   const latest = qaRuns.runs[0] ?? null;
@@ -192,8 +197,8 @@ export function buildPrReadinessReport(
     `- **Latest QA run:** ${latest ? `\`${latest.id}\` (${latest.scorecard.releaseGate.toUpperCase()})` : "none recorded"}`,
     `- **AI log:** ${readmeExists ? (headLogged ? "HEAD logged" : "HEAD missing from ai-log") : "no ai-log folder"}`,
     "",
-    "### Required Evidence",
-    ...required.map((r) => `- [ ] ${r}`),
+    ...evidenceMarkdown(evidenceScope, "###"),
+    "Saved proof is checked per QA run with `qa evidence <run-id>`; none is credited to this commit here.",
     "",
     "### Developer Suggestions",
     ...(suggestions.length
@@ -222,6 +227,7 @@ export function buildPrReadinessReport(
       latestQaGate: latest?.scorecard.releaseGate ?? null,
     },
     developerSuggestions: suggestions,
+    evidenceScope,
     prSummaryMarkdown: mdLines.join("\n"),
   });
 }

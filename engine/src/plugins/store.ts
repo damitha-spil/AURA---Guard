@@ -130,7 +130,7 @@ export function buildTeamsDefectPayload(opts: {
     sections: [
       {
         activityTitle: `SPIL REO · Defect Report for ${opts.recipientName}`,
-        activitySubtitle: "REVIEW · EVALUATE · OPTIMIZE — Powered by SPIL Labs",
+        activitySubtitle: "A Multi-Agent Quality Engineering & Software Assurance Platform. — Powered by SPIL Labs",
         text: opts.note || "Please review the defects and code suggestions below.",
         facts: opts.defects.slice(0, 10).map((d) => ({
           name: `[${d.severity.toUpperCase()}] ${d.id} (${d.appName} / ${d.branch})`,

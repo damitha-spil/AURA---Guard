@@ -7,7 +7,7 @@
 
 import type { Browser, Locator, Page } from "playwright-core";
 import {
-  isCommitKey, isEnterKey, isLocalUrl, isSearchTarget, matchForbiddenSelector, matchForbiddenText,
+  isCommitKey, isEnterKey, isLocalUrl, isSearchTarget, matchForbiddenSelector, matchForbiddenText, OWN_WINDOW_TITLE,
 } from "./safety.ts";
 import type { ForbiddenList } from "./safety.ts";
 
@@ -381,7 +381,9 @@ export async function attachAura(url: string): Promise<Attached> {
   const { chromium } = await import("playwright-core");
   const browser = await chromium.connectOverCDP(url, { timeout: 10_000 });
   const pages = browser.contexts().flatMap((c) => c.pages());
-  const page = pickAuraPage(pages);
+  // REO's own window is never a test target, whatever address it has.
+  const titles = await Promise.all(pages.map((p) => p.title().catch(() => null)));
+  const page = pickAuraPage(pages.filter((_, i) => titles[i] !== null && !OWN_WINDOW_TITLE.test(titles[i]!)));
   if (!page) {
     await browser.close().catch(() => undefined);
     throw new CdpUnreachable(`Connected to ${url} but found no Aura window. Is Aura's main window open?`);

@@ -106,11 +106,11 @@ test("a broken settings.json is ignored, not fatal", () => {
 // ---- catalogue ----
 
 test("model ids: plain ids pass, anything else is refused", () => {
-  for (const ok of ["claude-sonnet-5-5", "sonnet", "claude-3-7:beta", "a.b_c-d"]) assert.equal(validateModelId(ok).ok, true, ok);
-  for (const bad of ['"; rm -rf', "has space", "x".repeat(81), "", "-flag", "--model", "a;b", "a\nb", "a$(b)", 5, null]) {
+  for (const ok of ["claude-sonnet-5-5", "sonnet", "claude-3-7:beta", "a.b_c-d", "openai/gpt-oss-120b", "openrouter/vendor/model:free"]) assert.equal(validateModelId(ok).ok, true, ok);
+  for (const bad of ['"; rm -rf', "has space", "x".repeat(121), "", "-flag", "--model", "-a/b", "/etc/passwd", "../up", "a/../b", "a..b", "a//b", "a/", ".hidden", "a\\b", "a b/c", "a;b", "a\nb", "a$(b)", 5, null]) {
     assert.equal(validateModelId(bad as unknown).ok, false, String(bad));
   }
-  assert.equal(validateModelId("x".repeat(80)).ok, true);
+  assert.equal(validateModelId("x".repeat(120)).ok, true);
 });
 
 test("catalogue: roles/models.json has the expected models; a broken file falls back", () => {

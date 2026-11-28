@@ -80,6 +80,8 @@ export interface Review {
   backend: string | null;
   skipped: SkippedFile[];
   stats: ReviewStats;
+  /** Every changed path, skipped files included; used to say which proof the change needs. */
+  changedPaths: string[];
 }
 
 /** The patch with the new-file line number in front of each added and unchanged line. */
@@ -210,6 +212,7 @@ export async function reviewChange(
     repo: repo.id, repoPath: repo.path, base: diff.base, head: diff.head,
     baseSha: diff.baseSha, headSha: diff.headSha, findings: [], tier0, triage: triage(tier0, shownCap(cfg)),
     model: { used: false }, backend: null, skipped: diff.skipped, stats,
+    changedPaths: [...new Set([...diff.files.map((f) => f.path), ...diff.skipped.map((f) => f.path)])],
   };
   if (!deps.complete || diff.files.length === 0) return review;
 

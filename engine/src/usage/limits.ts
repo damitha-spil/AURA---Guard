@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createKeyStore } from "../brain/keystore.ts";
 import type { SecretBackend } from "../brain/keystore.ts";
 import { OPENAI_COMPAT } from "../brain/providers.ts";
-import { machineDataDir } from "../brain/settings.ts";
+import { loadSettings, machineDataDir } from "../brain/settings.ts";
 import type { GuardConfig } from "../types.ts";
 import { providerLabel } from "./report.ts";
 import { readUsage } from "./record.ts";
@@ -159,7 +159,7 @@ export async function limitsReport(cfg: GuardConfig, o: LimitsOptions = {}) {
       : s ? `The last report (${s.capturedAt}) is out of date: its limit windows have reset.`
       : NO_DATA[id] ?? "No limit data yet. It appears if the provider sends rate-limit headers on a REO call.";
     let extra: StoredWindow[] = [];
-    if (id === "openrouter-api" && openRouterKey) {
+    if (id === "openrouter-api" && openRouterKey && loadSettings(cfg.dataDir).settings.providers?.[id]?.enabled !== false) {
       const r = await openRouterWindow(openRouterKey, o.fetch ?? fetch);
       extra = r.windows;
       if (!live.length) note = r.note;

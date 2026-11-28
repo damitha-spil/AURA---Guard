@@ -14,7 +14,8 @@ import { openAiCompatBackend } from "./openai-compat.ts";
 import { opencodeCliBackend } from "./opencode.ts";
 import { OPENAI_COMPAT } from "./providers.ts";
 import type { SecretBackend } from "./keystore.ts";
-import { effectiveBrain, machineDataDir } from "./settings.ts";
+import { effectiveBrain, loadSettings, machineDataDir } from "./settings.ts";
+import { binaryPathProblem, HOME_DIR_ENV, homeDirProblem } from "./provider-config.ts";
 import { maskAll } from "./client.ts";
 import type { CompleteFn, CompleteRequest, CompleteResult } from "./client.ts";
 
@@ -52,11 +53,25 @@ export function buildBackends(cfg: GuardConfig, opts: SelectOptions = {}): Backe
   const rest = { ...opts };
   delete rest.secrets;
   delete rest.secretsFor;
-  return [
+  const settings = loadSettings(machineDataDir(cfg)).settings.providers ?? {};
+  /** The saved program path and settings folder of a CLI. A path that no longer passes the checks is not started. */
+  const cli = (id: BackendId): BackendOptions => {
+    const entry = settings[id] ?? {};
+    const out: BackendOptions = { ...rest, model: eff.models[id].id };
+    if (entry.binaryPath && opts.launcher === undefined && opts.opencodeLauncher === undefined) {
+      const launcher = binaryPathProblem(id, entry.binaryPath) ? null : { command: entry.binaryPath, prefixArgs: [] };
+      if (id === "opencode-cli") out.opencodeLauncher = launcher;
+      else out.launcher = launcher;
+    }
+    const variable = HOME_DIR_ENV[id];
+    if (variable && entry.homeDir && !homeDirProblem(id, entry.homeDir)) out.env = { ...(opts.env ?? process.env), [variable]: entry.homeDir };
+    return out;
+  };
+  const all: Backend[] = [
     anthropicApiBackend({ ...rest, model: eff.models["anthropic-api"].id, storedKey }),
-    claudeCliBackend({ ...rest, model: eff.models["claude-cli"].id }),
-    antigravityCliBackend({ ...rest, model: eff.models["antigravity-cli"].id }),
-    opencodeCliBackend({ ...rest, model: eff.models["opencode-cli"].id }),
+    claudeCliBackend(cli("claude-cli")),
+    antigravityCliBackend(cli("antigravity-cli")),
+    opencodeCliBackend(cli("opencode-cli")),
     ...OPENAI_COMPAT.map((p) => {
       const secret = opts.secretsFor?.(p.id);
       const store = createKeyStore({ dataDir: machineDataDir(cfg), slot: providerSlot(p), ...(opts.env ? { env: opts.env } : {}), ...(secret ? { backend: secret } : {}) });
@@ -66,7 +81,13 @@ export function buildBackends(cfg: GuardConfig, opts: SelectOptions = {}): Backe
       });
     }),
   ];
+  // A turned-off provider is never probed, picked or called.
+  return all.map((b) => (settings[b.id]?.enabled === false
+    ? { id: b.id, kind: b.kind, available: async () => ({ ok: false, detail: TURNED_OFF }), complete: async () => { throw new NoBackendError(`${b.id}: ${TURNED_OFF}`); } }
+    : b));
 }
+
+export const TURNED_OFF = "Turned off in Providers";
 
 /** The wanted backend (see effectiveBrain): env QSB_BRAIN / AURA_GUARD_BRAIN, settings.json, config, else "auto". */
 export function wantedBackend(cfg: GuardConfig, env: Record<string, string | undefined> = process.env): string {

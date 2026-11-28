@@ -7,6 +7,7 @@ import { DEFAULT_MODEL } from "./client.ts";
 import { DEFAULT_ANTIGRAVITY_CLI_MODEL, DEFAULT_CLAUDE_CLI_MODEL } from "./backends.ts";
 import { MODEL_BACKENDS, MODEL_ID_HELP, MODEL_ID_RE } from "./models.ts";
 import type { ModelBackend } from "./models.ts";
+import { MAX_DISPLAY_NAME, MAX_HEALTH_SECONDS, MAX_PATH_CHARS, MIN_HEALTH_SECONDS } from "./provider-config.ts";
 
 export type BackendChoice = "auto" | ModelBackend;
 export const BACKEND_CHOICES: readonly BackendChoice[] = ["auto", ...MODEL_BACKENDS];
@@ -21,6 +22,14 @@ export const settingsSchema = z.object({
       Object.fromEntries(MODEL_BACKENDS.map((b) => [b, modelId.optional()])) as Record<ModelBackend, z.ZodOptional<typeof modelId>>,
     ).prefault({} as Record<ModelBackend, undefined>),
   }).default({ models: {} }),
+  /** Per backend id. Paths are checked again each time they are used (provider-config.ts). */
+  providers: z.record(z.string(), z.object({
+    enabled: z.boolean().optional(),
+    displayName: z.string().max(MAX_DISPLAY_NAME).optional(),
+    binaryPath: z.string().max(MAX_PATH_CHARS).optional(),
+    homeDir: z.string().max(MAX_PATH_CHARS).optional(),
+  })).optional(),
+  healthCheckSeconds: z.number().int().refine((n) => n === 0 || (n >= MIN_HEALTH_SECONDS && n <= MAX_HEALTH_SECONDS)).optional(),
 });
 export type GuardSettings = z.infer<typeof settingsSchema>;
 
@@ -69,12 +78,15 @@ export type PatchResult = { ok: true; settings: GuardSettings } | { ok: false; e
 export function updateSettings(dataDir: string, patch: SettingsPatch): PatchResult {
   const cur = loadSettings(dataDir).settings;
   const next: GuardSettings = {
-    version: 1,
+    ...cur,
     brain: { ...(cur.brain.backend ? { backend: cur.brain.backend } : {}), models: { ...cur.brain.models } },
   };
   if (patch.backend !== undefined) {
     if (typeof patch.backend !== "string" || !(BACKEND_CHOICES as readonly string[]).includes(patch.backend)) {
       return { ok: false, error: `The backend must be one of: ${BACKEND_CHOICES.join(", ")}.` };
+    }
+    if (cur.providers?.[patch.backend]?.enabled === false) {
+      return { ok: false, error: "That provider is turned off. Turn it on in Providers first." };
     }
     next.brain.backend = patch.backend as BackendChoice;
   }

@@ -57,7 +57,8 @@ function CommandDialog({
         )}
         showCloseButton={showCloseButton}
       >
-        {children}
+        {/* cmdk's input and list throw without this root. */}
+        <Command>{children}</Command>
       </DialogContent>
     </Dialog>
   )

@@ -1,11 +1,12 @@
 // Writes review reports as Markdown under data/reviews/<repo>/. Shadow mode: nothing is posted anywhere.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GuardConfig } from "../types.ts";
 import type { Review } from "./reviewer.ts";
 import type { RefactorResult } from "./refactor.ts";
 import type { Finding } from "./tier0.ts";
 import { countByRule } from "./rank.ts";
+import { classifyChange, evaluateEvidence, evidenceMarkdown } from "../qa/evidence_scope.ts";
 
 /** Policy findings listed per rule in the appendix; the rest are only counted. */
 export const APPENDIX_POLICY_PER_RULE = 25;
@@ -40,9 +41,50 @@ const copy = {
   notChecked: "The patch was not checked against the file.",
 };
 
+/** Review rounds allowed for one change (same repo and base) before the report stops adding comments. Keeps a review from looping. */
+export const MAX_REVIEW_ROUNDS = 3;
+/** Longest finding text in a report line. Longer text is cut at a word. */
+export const MAX_REPORT_TEXT_CHARS = 240;
+
+/**
+ * Plain-language rule for report text: short, direct sentences; say what is wrong and what to do;
+ * no filler and no unexplained jargon. In code this means one line per finding, whitespace collapsed,
+ * and no line longer than MAX_REPORT_TEXT_CHARS.
+ */
+export const PLAIN_REPORT_RULE = "Write for a busy reader: one short sentence for the problem, one for the fix. No filler, no jargon.";
+
+export function plainText(s: string, max = MAX_REPORT_TEXT_CHARS): string {
+  const t = s.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max - 1);
+  const at = cut.lastIndexOf(" ");
+  return (at > max / 2 ? cut.slice(0, at) : cut).trimEnd() + "…";
+}
+
+/** Owner fixes blockers and risks (the change cannot ship without them); the reviewer judges suggestions. */
+export function splitFindings(list: Finding[]): { owner: Finding[]; reviewer: Finding[] } {
+  return {
+    owner: list.filter((f) => f.severity === "blocker" || f.severity === "risk"),
+    reviewer: list.filter((f) => f.severity === "suggestion"),
+  };
+}
+
+/** Which round this report is: earlier reports for the same repo and base commit, plus this one. */
+export function reviewRound(dir: string, titlePrefix: string, headStem: string): number {
+  if (!existsSync(dir)) return 1;
+  let others = 0;
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith(".md") || f === `${headStem}.md` || f.includes("-refactor-")) continue;
+    try {
+      if (readFileSync(join(dir, f), "utf8").split("\n", 1)[0]?.startsWith(`# ${titlePrefix}`)) others++;
+    } catch { /* unreadable file: not counted */ }
+  }
+  return others + 1;
+}
+
 function findingBlock(f: Finding, patchFile?: string): string[] {
-  const out = [`- **${f.severity}** \`${f.file}:${f.line}\` (${f.rule}): ${f.message}`];
-  if (f.why) out.push(`  - ${copy.why}: ${f.why}`);
+  const out = [`- **${f.severity}** \`${f.file}:${f.line}\` (${f.rule}): ${plainText(f.message)}`];
+  if (f.why) out.push(`  - ${copy.why}: ${plainText(f.why)}`);
   if (f.evidence) out.push(`  - ${copy.evidence}: ${f.evidence.replace(/\n/g, " ")}`);
   if (patchFile) out.push(`  - ${copy.suggestion}: \`${patchFile}\` (${copy.notChecked})`);
   return out;
@@ -60,14 +102,18 @@ export function countsLine(list: Finding[]): string {
 
 export interface WrittenReport { reportPath: string; patchPaths: string[] }
 
-export function writeReviewReport(cfg: GuardConfig, r: Review, now: Date = new Date()): WrittenReport {
+export function writeReviewReport(cfg: GuardConfig, r: Review, now: Date = new Date(), maxRounds: number = MAX_REVIEW_ROUNDS): WrittenReport {
   const dir = join(reviewsDir(cfg), r.repo);
   mkdirSync(dir, { recursive: true });
   const stem = `${today(now)}-${r.headSha.slice(0, 8)}`;
   const reportPath = join(dir, `${stem}.md`);
   const patchPaths: string[] = [];
+  // Earlier reports for the same repo and base are earlier rounds. Past the cap only blockers are listed.
+  const round = reviewRound(dir, `Review of ${r.repo}: ${r.baseSha.slice(0, 8)} to `, stem);
+  const capped = round > maxRounds;
   const lines: string[] = [
     `# ${copy.title(r.repo, r.baseSha.slice(0, 8), r.headSha.slice(0, 8))}`, "", copy.shadow, "",
+    `Review round ${round} of ${maxRounds}.${capped ? " The round limit is reached: only blockers are listed. Decide with the owner before another round." : ""}`, "",
     `## ${copy.summary}`, "",
     `- Files reviewed: ${r.stats.files} (+${r.stats.addedLines} -${r.stats.removedLines} lines)`,
     `- ${copy.fixedChecks}: ${counts(r.tier0)}`,
@@ -89,9 +135,14 @@ export function writeReviewReport(cfg: GuardConfig, r: Review, now: Date = new D
     }
     return findingBlock(f, patchFile);
   };
-  lines.push("", `## ${copy.comments(t.shown.length)}`, "");
-  if (t.shown.length === 0) lines.push(copy.nothing);
-  for (const f of t.shown) lines.push(...block(f));
+  const shown = capped ? t.shown.filter((f) => f.severity === "blocker") : t.shown;
+  const split = splitFindings(shown);
+  lines.push("", `## ${copy.comments(shown.length)}`, "");
+  if (shown.length === 0) lines.push(copy.nothing);
+  if (split.owner.length) lines.push("### For the owner to fix", "");
+  for (const f of split.owner) lines.push(...block(f));
+  if (split.reviewer.length) lines.push("", "### For the reviewer to judge", "");
+  for (const f of split.reviewer) lines.push(...block(f));
   if (t.moreDefects.length > 0) lines.push("", copy.lowerPriority(t.moreDefects.length));
   if (r.model.used && r.model.error) lines.push("", copy.modelFailed(r.model.error));
   if (!r.model.used) lines.push("", copy.noModel);
@@ -118,6 +169,7 @@ export function writeReviewReport(cfg: GuardConfig, r: Review, now: Date = new D
     lines.push("", `## ${copy.skipped}`, "");
     for (const s of r.skipped.slice(0, 40)) lines.push(`- \`${s.path}\`: ${s.reason}`);
   }
+  lines.push("", ...evidenceMarkdown(evaluateEvidence(classifyChange(r.changedPaths), [])), "This code review is not proof. Check saved proof per QA run with `qa evidence <run-id>`.");
   writeFileSync(reportPath, lines.join("\n") + "\n");
   return { reportPath, patchPaths };
 }

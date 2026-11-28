@@ -7,6 +7,7 @@ import {
   History,
   Bug,
   FlaskConical,
+  FolderGit2,
   FolderOpen,
   Home,
   Library,
@@ -19,6 +20,7 @@ import {
   Settings,
   Keyboard,
   Sun,
+  Workflow,
 } from "lucide-react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { Badge } from "@/components/ui/badge";
@@ -79,10 +81,12 @@ const WorkspaceView = React.lazy(() => import("@/views/WorkspaceView").then((m) 
 const QaLabView = React.lazy(() => import("@/views/QaLabView").then((m) => ({ default: m.QaLabView })));
 const DefectsView = React.lazy(() => import("@/views/DefectsView").then((m) => ({ default: m.DefectsView })));
 const AgentsView = React.lazy(() => import("@/views/AgentsView").then((m) => ({ default: m.AgentsView })));
+const HarnessView = React.lazy(() => import("@/views/HarnessView").then((m) => ({ default: m.HarnessView })));
 const PluginsView = React.lazy(() => import("@/views/PluginsView").then((m) => ({ default: m.PluginsView })));
 const KnowledgeView = React.lazy(() => import("@/views/KnowledgeView").then((m) => ({ default: m.KnowledgeView })));
 const UsageView = React.lazy(() => import("@/views/UsageView").then((m) => ({ default: m.UsageView })));
 const PullsView = React.lazy(() => import("@/views/PullsView").then((m) => ({ default: m.PullsView })));
+const ReposView = React.lazy(() => import("@/views/ReposView").then((m) => ({ default: m.ReposView })));
 const SettingsView = React.lazy(() => import("@/views/SettingsView").then((m) => ({ default: m.SettingsView })));
 
 const NAV_ITEMS = [
@@ -94,7 +98,9 @@ const NAV_ITEMS = [
   { id: "defects", label: "Defects", icon: Bug },
   { id: "usage", label: "Usage", icon: Gauge },
   { id: "pulls", label: "Pull requests", icon: GitPullRequest },
+  { id: "repos", label: "Repositories", icon: FolderGit2 },
   { id: "agents", label: "Agents", icon: Bot },
+  { id: "harness", label: "QA Harness", icon: Workflow },
   { id: "plugins", label: "Plugins", icon: Plug },
   { id: "knowledge", label: "Knowledge", icon: Library },
   { id: "settings", label: "Settings", icon: Settings },
@@ -133,6 +139,8 @@ export function App() {
     setRadius(r);
     writeRadius(r);
   }, []);
+  // Set when a repository page opens the pull request list; the sidebar clears it again.
+  const [pullsSource, setPullsSource] = React.useState("");
   const [headSlot, setHeadSlot] = React.useState<HTMLElement | null>(null);
   const [listSlot, setListSlot] = React.useState<HTMLElement | null>(null);
   const [engineOk, setEngineOk] = React.useState<boolean | null>(null);
@@ -220,6 +228,7 @@ export function App() {
   }
 
   const goTo = React.useCallback((v: ViewId) => {
+    setPullsSource("");
     if (v === "workspace") setWorkspaceSeen(true);
     setView(v);
   }, []);
@@ -252,7 +261,12 @@ export function App() {
                   <BrandAvatar />
                   <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-medium">SPIL REO</span>
-                    <span className="text-muted-foreground truncate text-xs">Review · Evaluate · Optimize</span>
+                    <span
+                      className="text-muted-foreground truncate text-xs"
+                      title="A Multi-Agent Quality Engineering & Software Assurance Platform."
+                    >
+                      Multi-Agent QE &amp; Assurance
+                    </span>
                   </div>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -403,7 +417,16 @@ export function App() {
                   />
                 )}
                 {view === "usage" && <UsageView />}
-                {view === "pulls" && <PullsView />}
+                {view === "pulls" && <PullsView initialSource={pullsSource} />}
+                {view === "repos" && (
+                  <ReposView
+                    onOpenPulls={(repoId) => {
+                      setPullsSource(repoId);
+                      setView("pulls");
+                    }}
+                  />
+                )}
+                {view === "harness" && <HarnessView />}
                 {view === "plugins" && <PluginsView />}
                 {view === "knowledge" && <KnowledgeView />}
                 {view === "settings" && <SettingsView scheme={scheme} onSchemeChange={applyScheme} colorTheme={colorTheme} onColorTheme={applyTheme} radius={radius} onRadius={applyRadius} />}

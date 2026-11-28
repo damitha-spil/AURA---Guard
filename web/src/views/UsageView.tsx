@@ -168,10 +168,18 @@ function Breakdown({ data, tab, selected, colourOf }: { data: Usage; tab: "cost"
   } else {
     // "days" has no provider, so one provider's days come from the daily series.
     const priced = data.providers.find((p) => p.id === selected)?.cost != null;
-    lines = data.daily.flatMap((d) => {
+    // The 24-hour series is hourly, so its hours are added up into local days.
+    const days = new Map<string, Line>();
+    for (const d of data.daily) {
       const v = d.byProvider[selected];
-      return v ? [{ key: d.date, name: dayLabel(d.date), colour: colourOf(selected), cost: priced ? v.cost : null, tokens: v.tokens }] : [];
-    });
+      if (!v) continue;
+      const day = d.date.includes("T") ? new Date(d.date).toLocaleDateString("en-CA") : d.date;
+      const line = days.get(day) ?? { key: day, name: dayLabel(day), colour: colourOf(selected), cost: priced ? 0 : null, tokens: 0 };
+      if (line.cost !== null) line.cost += v.cost;
+      line.tokens += v.tokens;
+      days.set(day, line);
+    }
+    lines = [...days.values()];
   }
   const whole = lines.reduce((sum, l) => sum + (l[tab] ?? 0), 0);
   // Unknown values stay at the end in both directions.
@@ -305,7 +313,9 @@ function Spend({ data, tab, selected }: { data: Usage; tab: "cost" | "tokens"; s
           ))}
         </div>
         <div className="grid min-w-0 content-start gap-2">
-          <h2 className="text-sm font-semibold">{tab === "cost" ? "Daily cost" : "Daily processed tokens"}</h2>
+          <h2 className="text-sm font-semibold">
+            {data.range === "24h" ? "Hourly" : "Daily"} {tab === "cost" ? "cost" : "processed tokens"}
+          </h2>
           <DailyChart data={data} tab={tab} shown={shown} />
           {missingCost.length > 0 && (
             <p className="text-muted-foreground text-xs">Not charted, cost unknown: {missingCost.map((p) => p.label).join(", ")}.</p>

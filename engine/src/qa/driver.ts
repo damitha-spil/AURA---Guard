@@ -7,11 +7,11 @@ import { join } from "node:path";
 import type { Page } from "playwright-core";
 import type { GuardConfig } from "../types.ts";
 import type { CuaClient, CuaTreeNode, CuaWindowInfo } from "./cua_client.ts";
-import { flattenTree, nodeToElementInfo } from "./cua_harness.ts";
+import { flattenTree, judgeTargetWindow, nodeToElementInfo } from "./cua_harness.ts";
 import { DESCRIBE_ELEMENT, ForbiddenActionError, STEP_WAIT_MS } from "./harness.ts";
 import type { ElementInfo } from "./harness.ts";
 import type { ConsoleEvent, FormButtonInfo, LayoutMetrics, NetworkEvent } from "./oracles.ts";
-import { isCommitKey, isEnterKey, isSearchTarget, judgeActionByTier } from "./safety.ts";
+import { isCommitKey, isEnterKey, isSafeKey, isSearchTarget, judgeActionByTier } from "./safety.ts";
 import type { ForbiddenList } from "./safety.ts";
 
 /** Fallback window height when neither CDP nor Cua specifies one. */
@@ -71,6 +71,10 @@ export function createHybridDriver(opts: {
   shotDir: string;
 }): AuraDriver {
   const { cuaClient, window: win, page, forbidden, shotDir } = opts;
+  if (win) {
+    const refused = judgeTargetWindow(win, opts.cfg);
+    if (refused) throw new ForbiddenActionError("target window", refused);
+  }
   const telemetryMode: TelemetryMode = cuaClient && win && page ? "hybrid" : cuaClient && win ? "cua-only" : "cdp-only";
 
   let currentWidth = 1100;
@@ -249,6 +253,9 @@ export function createHybridDriver(opts: {
     }
     if (isEnterKey(key) && !isSearchTarget(target ?? "")) {
       throw new ForbiddenActionError("press", `Enter is only allowed inside a search field (got "${target || "unknown"}")`);
+    }
+    if (!isEnterKey(key) && !isSafeKey(key)) {
+      throw new ForbiddenActionError("press", `key "${key}" is not a navigation key; keys such as Space can press the focused button`);
     }
     if (cuaClient && win) {
       await cuaClient.pressKey(win.pid, win.windowId, key);

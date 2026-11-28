@@ -16,7 +16,8 @@ export const isModelBackend = (id: unknown): id is ModelBackend => (MODEL_BACKEN
  * shell). Only plain id characters, and never a leading "-" so it cannot look like a CLI flag.
  * (The brief's pattern was ^[A-Za-z0-9._:-]{1,80}$; the first character is stricter on purpose.)
  */
-export const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/; // "/" for provider/model ids
+// "/" is for provider/model ids; "..", "//" and a trailing "/" are refused so an id never reads as a path walk.
+export const MODEL_ID_RE = /^(?!.*(?:\.\.|\/\/|\/$))[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/;
 
 export const MODEL_ID_HELP =
   "A model name may use letters, digits and . _ : / - only (120 characters at most, starting with a letter or digit).";

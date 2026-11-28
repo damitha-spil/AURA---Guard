@@ -13,8 +13,12 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { GUARD_ROOT } from "../config.ts";
 
 export type SafetyTier = 0 | 1 | 2;
+
+/** REO's window title. REO never controls a window or page that shows REO. */
+export const OWN_WINDOW_TITLE = /\bSPIL[\s_-]*REO\b/i;
 
 export interface ForbiddenList {
   /** Words and phrases an element name/text must not contain. `word*` matches a prefix. */
@@ -82,7 +86,9 @@ export function extendForbidden(base: ForbiddenList, extra: Partial<ForbiddenLis
 
 /** Load qa/forbidden-actions.json and the optional qa/forbidden-actions.local.json. */
 export function loadForbidden(root: string): ForbiddenList {
-  const base = { ...EMPTY, ...readList(join(root, "qa", "forbidden-actions.json")) } as ForbiddenList;
+  // A root without the list gets the shipped one: an empty list would allow everything.
+  const mine = join(root, "qa", "forbidden-actions.json");
+  const base = { ...EMPTY, ...readList(existsSync(mine) ? mine : join(GUARD_ROOT, "qa", "forbidden-actions.json")) } as ForbiddenList;
   return extendForbidden(base, readList(join(root, "qa", "forbidden-actions.local.json")));
 }
 
@@ -224,6 +230,12 @@ export function normalizeKey(key: string): string {
 export function isCommitKey(key: string, list: ForbiddenList): boolean {
   const k = normalizeKey(key);
   return list.keys.map(normalizeKey).includes(k);
+}
+
+/** The only keys a driver may send besides Enter in a search box: they move around and change nothing. */
+const SAFE_KEYS = new Set(["tab", "shift+tab", "escape", "arrowup", "arrowdown", "arrowleft", "arrowright", "up", "down", "left", "right", "pageup", "pagedown", "home", "end"]);
+export function isSafeKey(key: string): boolean {
+  return SAFE_KEYS.has(normalizeKey(key));
 }
 
 /** Enter submits forms. It is only allowed in something that is clearly a search box. */

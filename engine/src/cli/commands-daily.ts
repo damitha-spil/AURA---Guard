@@ -22,6 +22,42 @@ const StepSchema = z.object({
 const FileSchema = z.object({ steps: z.array(StepSchema).min(1) });
 type Step = z.infer<typeof StepSchema>;
 
+/**
+ * What may run with nobody watching. Fixed in code, because roles/daily.json is a file anyone can
+ * edit: a step not listed here needs a person to confirm it. Each entry is the command words and the
+ * flags it may carry. These read repositories and write only REO's own data and proposed notes.
+ */
+const UNATTENDED: { words: string[]; args?: number; flags?: string[] }[] = [
+  { words: ["index"] },
+  { words: ["check"] },
+  { words: ["health"] },
+  { words: ["stale"] },
+  { words: ["logcheck"] },
+  { words: ["prs", "sync"] },
+  { words: ["prs", "mine"], flags: ["--min-score", "--max"] },
+  { words: ["mine"], flags: ["--min-score", "--max"] },
+  { words: ["rules", "propose"] },
+  { words: ["qa", "backend"] },
+  { words: ["qa", "pr-readiness"], args: 1 },
+  { words: ["qa", "status"] },
+];
+
+/** Why a step may not run unattended, or null when it may. */
+export function unattendedRefusal(argv: string[], needsModel: boolean): string | null {
+  if (needsModel) return "needs confirmation: it calls a model";
+  const rule = UNATTENDED.find((r) => r.words.every((w, i) => argv[i] === w));
+  if (!rule) return `needs confirmation: "${argv.slice(0, 2).join(" ")}" is not on the read-only list`;
+  let args = 0;
+  for (let i = rule.words.length; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a.startsWith("-")) {
+      if (!rule.flags?.includes(a) || !/^\d+(\.\d+)?$/.test(argv[i + 1] ?? "")) return `needs confirmation: option ${a} is not on the read-only list`;
+      i++;
+    } else if (++args > (rule.args ?? 0)) return "needs confirmation: extra arguments are not on the read-only list";
+  }
+  return null;
+}
+
 // Cap what one step may print into memory and into the report.
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const REPORT_LINES_PER_STEP = 30;
@@ -52,7 +88,7 @@ function localToday(): string {
 function runStep(mainTs: string, cwd: string, step: Step): Promise<{ code: number; text: string }> {
   return new Promise((resolve) => {
     // Always a child process with an argument list; never a shell string.
-    execFile(
+    const child = execFile(
       process.execPath,
       ["--experimental-strip-types", "--no-warnings", mainTs, ...step.argv],
       { cwd, timeout: step.timeoutMin * 60_000, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true },
@@ -62,6 +98,8 @@ function runStep(mainTs: string, cwd: string, step: Step): Promise<{ code: numbe
         resolve({ code, text });
       },
     );
+    // No input is ever given, so a step that asks a question ends instead of waiting.
+    child.stdin?.end();
   });
 }
 
@@ -77,6 +115,8 @@ export const dailyCommands: Record<string, (ctx: CommandContext) => Promise<numb
     }
     const skip = new Set(typeof flags.skip === "string" ? flags.skip.split(",").map((s) => s.trim()) : []);
     const noModel = flags["no-model"] === true;
+    // No terminal means nobody can answer, so it counts as unattended.
+    const unattended = flags["unattended"] === true || !process.stdin.isTTY;
     const date = localToday();
     const mainTs = join(cfg.root, "engine", "src", "cli", "main.ts");
 
@@ -85,8 +125,10 @@ export const dailyCommands: Record<string, (ctx: CommandContext) => Promise<numb
     for (const step of steps) {
       const t0 = Date.now();
       let r: StepResult;
+      const refused = unattended ? unattendedRefusal(step.argv, step.needsModel) : null;
       if (skip.has(step.id)) r = { id: step.id, status: "skipped", seconds: 0, note: "skipped by --skip", lines: [] };
       else if (step.needsRepo && cfg.repos.length === 0) r = { id: step.id, status: "skipped", seconds: 0, note: "needs a git source", lines: [] };
+      else if (refused) r = { id: step.id, status: "skipped", seconds: 0, note: `unattended run, ${refused}`, lines: [] };
       else if (step.needsModel && noModel) r = { id: step.id, status: "skipped", seconds: 0, note: "needs the model (--no-model)", lines: [] };
       else {
         const { code, text } = await runStep(mainTs, cfg.root, step);

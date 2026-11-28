@@ -13,6 +13,11 @@ export const CUA_CALL_TIMEOUT_MS = 15_000;
 /** Safety limit: max wait when probing if cua-driver is installed. */
 export const CUA_PROBE_TIMEOUT_MS = 3_000;
 
+/** The only tools REO calls. A new or renamed driver tool is refused until it is added here. */
+export const ALLOWED_CUA_TOOLS = new Set([
+  "list_windows", "get_window_state", "click", "type_text", "press_key", "scroll", "set_window_frame",
+]);
+
 /** Tools that are never exposed or invoked by AURA Guard (focus theft, full-screen privacy, process kill). */
 export const BLOCKED_CUA_TOOLS = new Set([
   "kill_app",
@@ -26,6 +31,8 @@ export interface CuaWindowInfo {
   windowId: string;
   title: string;
   processName: string;
+  /** Runs as administrator. "unknown": the check failed. Absent: this backend cannot tell. */
+  elevated?: boolean | "unknown";
 }
 
 export interface CuaBounds {
@@ -169,7 +176,7 @@ export class CuaClient {
   }
 
   private async invoke(tool: string, args: Record<string, unknown>) {
-    if (BLOCKED_CUA_TOOLS.has(tool)) throw new CuaToolBlockedError(tool);
+    if (BLOCKED_CUA_TOOLS.has(tool) || !ALLOWED_CUA_TOOLS.has(tool)) throw new CuaToolBlockedError(tool);
     return await this.transport.callTool(tool, args);
   }
 
@@ -184,6 +191,9 @@ export class CuaClient {
         windowId: String(o["window_id"] ?? o["windowId"] ?? o["id"] ?? ""),
         title: String(o["title"] ?? ""),
         processName: String(o["process_name"] ?? o["processName"] ?? o["app"] ?? "").toLowerCase(),
+        ...(o["elevated"] !== undefined || o["is_elevated"] !== undefined
+          ? { elevated: typeof (o["elevated"] ?? o["is_elevated"]) === "boolean" ? ((o["elevated"] ?? o["is_elevated"]) as boolean) : ("unknown" as const) }
+          : {}),
       };
     });
   }

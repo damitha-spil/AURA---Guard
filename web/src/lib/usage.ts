@@ -65,8 +65,15 @@ export function resetsIn(resetsAt: string, now: number): string | null {
   return `resets in ${d ? `${d}d ${h}h` : h ? `${h}h ${mins % 60}m` : `${mins}m`}`;
 }
 
-/** "2026-01-31" to "Jan 31". Read as a calendar date, so the time zone cannot move it. */
+/**
+ * "2026-01-31" to "Jan 31", read as a calendar date so the time zone cannot move it.
+ * The 24-hour range sends full timestamps (one per hour), which become a local time.
+ */
 export function dayLabel(date: string): string {
+  if (date.includes("T")) {
+    const hour = new Date(date);
+    return Number.isNaN(hour.getTime()) ? date : hour.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
   const t = Date.parse(`${date.slice(0, 10)}T00:00:00Z`);
   return Number.isNaN(t) ? date : new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }

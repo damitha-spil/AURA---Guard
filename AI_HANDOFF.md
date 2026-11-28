@@ -6,6 +6,129 @@
 
 ---
 
+## Phase 3 items 10-12: repeated steps, follow-ups, report views (2026-11-28)
+
+Clean-room from the plan text; the SPIL AURA repo was not opened. Implement-only session: **no tests, build or typecheck were run.** Item 13 (helper agents) is a design section only in `docs/plans/qa-qe-phases.md`; no runtime.
+
+- **10 Repeated steps** (new `engine/src/steps/store.ts`): `data/steps/steps.json`. `stepsFromRun` (only a run whose `run.status` is `passed`) makes `/read repo/path` steps for changed files. `ALLOWED_ACTIONS` = `/ls /read /find /system /time`; `checkStep` refuses anything else (and multi-line args). `replayStepList` runs through `runToolLine` only; no model call (`modelCalls: 0`). Routes: `GET /api/steps`, `POST /api/steps` ({runId, name?}), `POST /api/steps/:id/replay` (dry run unless body `{"run": true}`).
+- **11 Follow-ups and tasks** (new `engine/src/followups/store.ts`): `data/followups/followups.json` and `tasks.json`. Text containing a detected secret is refused (400), so none is stored; `maskedFollowup` gives the masked copy for model use (not wired to any model call). Routes: `GET/POST /api/followups`, `PATCH /api/followups/:id`, plus `GET/POST /api/tasks?session=`, `PATCH /api/tasks/:id`.
+- **12 Report views** (new `engine/src/reports/views.ts`): `ReportModel`, `renderReport`, `parseView` (default simple). `?view=simple|technical` adds a `report` field to `GET /api/qa/run`, `GET /api/defects/digest` and `POST /api/repos/:id/review` (also in the stream result event). Existing response fields are unchanged.
+- **Other files changed:** `engine/src/server/server.ts`, `engine/src/repos/routes.ts`, `docs/plans/qa-qe-phases.md` (statuses, item 13 design).
+- **Not verified (nothing was run):** type correctness, all routes, existing tests (a test checking exact JSON of those three routes may now see the extra `report` field), `stepsFromRun` path form against `/read`, and the web UI (not touched; does not show any of this).
+- **Next:** `npx tsc -p engine --noEmit`, `npm test`, add tests for replay refusal, secret refusal and both views.
+
+---
+
+## Phase 2 items 5-9: repeat bugs, review rounds, note hygiene, lessons, sample guard (2026-11-28)
+
+Clean-room from the plan text (`docs/plans/qa-qe-phases.md`); the SPIL AURA repo was not opened. Implement-only session: **no tests, build or typecheck were run.**
+
+- **5 Repeat bugs** (`engine/src/defects/store.ts`): a returning fingerprint keeps one record, adds 1 to `recurrenceCount`, raises severity one step (cap critical; incoming severity/status never lower it) and reopens a `fixed`/`resolved` record. New fields: `recurrenceCount`, `firstSeen`, `lastSeen`, `acknowledged`, `acknowledgedAt`, `resolvedAt`, `history[]` (append only). `acknowledged` is separate from `status`. New status `resolved`. `updateDefectStatus` takes `acknowledged` and `resolved`. `buildDailyDigest(records, date)` gives plain text: new, recurring, acknowledged and still open. Routes in `server/server.ts`: `GET /api/defects/digest?date=YYYY-MM-DD`; `PATCH /api/defects/:id` accepts `acknowledged` and `resolved`. Old records without the new fields are treated as count 1.
+- **6 Review rounds** (`engine/src/review/report.ts`): `MAX_REVIEW_ROUNDS = 3` (`writeReviewReport` 4th arg overrides). Round = earlier reports in the same repo folder with the same base sha, plus this one. Past the cap only blockers are listed. Comments are split "For the owner to fix" (blocker, risk) and "For the reviewer to judge" (suggestion) via `splitFindings`. `PLAIN_REPORT_RULE` and `plainText()` keep finding text on one line, cut at 240 characters. The model prompt in `reviewer.ts` was not changed.
+- **7 Note hygiene** (new `engine/src/vault/hygiene.ts`, route `GET /api/notes/hygiene`, read-only): look-alikes when shared words / words of the smaller note >= `DUPLICATE_OVERLAP_THRESHOLD` (0.8), notes under 8 distinct words skipped, max 200 pairs; outdated when `reviewed` (else `created`) is more than 60 days old. Deprecated notes skipped. The vault has no "updated" field, so age uses those two dates.
+- **8 Lessons** (new `engine/src/vault/lessons.ts`): `suggestLessons(vaultDir, repoPath)` / `proposeLessonNotes(vaultDir, turns)` pick owner turns with rule wording (never, always, must, don't, ...), mask them, and write with `newNote()` so they are `status: proposed` `choice` notes. Dedupe by `lesson-hash` comment, max 10 per run, 14-day window. Not wired to any route or command; never approves.
+- **9 Sample guard**: `upsertDefect` input takes `sample` or `fixture`; such records get `sample: true` and a separate fingerprint space (never merge with real ones). `listProductionDefects` drops them; used by the digest and `/api/reo/system` `defectsCount`. `GET /api/defects` still lists everything (sample flag visible); `POST /api/defects` accepts `sample`/`fixture`. Only the defect store has this; QA run records, notes and other stores are not flagged.
+- **Not verified (nothing was run):** type correctness, any behaviour above, existing tests (a test that checks `upsertDefect` overwriting severity, or exact report text, may now fail), the web UI (does not show recurrence, acknowledged, resolved or the digest; `resolved` is a new status value the UI may not know). `report.ts` round counting reads the first line of existing `.md` reports.
+- **Next:** run `npx tsc -p engine --noEmit` and `npm test`, add tests for recurrence, digest, hygiene, lessons and the round cap.
+
+---
+
+## Proof scope, system health, unattended daily run, desktop-test blocks (2026-11-28)
+
+Clean-room from written descriptions; the SPIL AURA repo was not opened.
+
+- **Proof scope:** `qa/evidence_scope.ts` (`classifyChange`, `evaluateEvidence`; app / service / docs-tool / unknown; complete / incomplete / blocked). `qa/evidence.ts` `runEvidence` adds `evidenceScope` to the packet and `evidence` to `GET /api/qa/run`. `prs/manager.ts` (`evidenceScope`, `required` now from the scope), `repos/review.ts` (`evidence`), `review/report.ts`, `commands-review.ts`, `Review.changedPaths`. UI `components/app/proof-panel.tsx` in the repo review and QA run detail. Optional `.artifacts/qa/<runId>/proof.json`: `environment`, `interaction{source,steps}`, `screenshots[{source,width,path}]`, `video{source}`, `serviceReadback{source:"real-service",request,result,readback}`, `checkOutput{command,output}`, `noAppPathReason`. PR readiness and code review credit no proof (nothing is tied to a commit). The packet's "Environment" line is now labelled policy, not verified.
+- **Health:** `health/health.ts` (`runHealth`, 12 s per check, parallel, fixed text only, index opened read-only), `GET /api/health`, `aura-guard health [--json]` (`cli/commands-health.ts`), Settings > System health.
+- **Daily:** new steps `health`, `qa-backend`, `qa-pr-readiness` in `roles/daily.json`. `--unattended` or no terminal: only the commands in `UNATTENDED` (`commands-daily.ts`) run; model steps (diary) and anything else are skipped with a reason. Child stdin is closed. `bin/schedule-daily.ps1` passes `--unattended`. No task installed. The chat `/daily` has no terminal, so it also skips the diary.
+- **Desktop safety (behaviour change):** `cuaDriver.allowedApps` is now required and matched on the exact program name (before: optional, substring, window title counted). More shells, terminals, IDEs and script hosts; REO's own window/process; elevated or unverifiable windows refused. Cua tool allowlist; only navigation keys plus Enter in a real search field. Crawler: NaN `maxActions` removed the cap (fixed), re-judges before each click. `win-uia-crawler.ps1`: requires window handle and program name, rechecks program/elevation/title, exact unique control name (before: substring, any window of the PID). A root without `qa/forbidden-actions.json` now gets the shipped list (before: empty). `attachAura` skips pages titled SPIL REO. `qa-hybrid-dsl.test.ts` now sets `allowedApps`.
+- **Cannot be enforced:** a shell inside an allowed app (embedded terminal, browser tab, renamed program; the lists go by name); allowing a browser allows all its non-REO windows; the cua-driver backend reports no elevation unless it sends `elevated`; Playwright/CDP has no process or elevation check; Enter and navigation keys go to whatever has focus; a window can change between the check and the click; the user's own `cuaDriver.command` / `CUA_DRIVER_CMD` chooses the driver binary; running the PowerShell script by hand has a shorter deny list and no allowlist.
+- **Proof limits:** REO cannot tell whether an attached app used mock data, watch the video, or verify anything a person writes in proof.json. Path rules can misplace a file (unplaced = service).
+- **Checks:** `npm run typecheck` pass. `npm run web:build` pass (the final build printed a chunk-size warning; it appeared after the concurrent 3D bot work below, cause not checked). `bin/schedule-daily.ps1` was edited but not run: the permission check denied even the print-only dry run. `npm test`: 391 tests, 390 pass, 0 fail, 1 skipped (55 files; 11 new in `evidence-health-safety.test.ts`). `git diff --check` clean apart from CRLF notices. cargo check not run (no Rust change).
+- **Live:** own engine on a free port with a temp root (copied roles/qa, new config and data), throwing model call, faked launcher, headless Edge: Add repository picker passed (start places, missing-folder error, list, look inside, Backspace, taken id, add, temp config written, "Already added"); proof panels in review and run detail; health section; 0 model calls, 0 page errors, only the expected 404/409; user config hash unchanged. `daily --unattended` in a temp copy (prs/mine steps skipped by flag): diary refused; index refused by the resource guard, health and stale failed as expected there. `health` against the real config: ok/warn only (index behind for one repo; desktop tests off, no allowed app). UIA script on a probe Edge window: 10 windows listed, none unknown; handle/shell/program refusals worked; one real click on "Orders" reached the page; partial name "Order" refused. Not run: cua-driver, an elevated window, the Tauri window, a real scheduled task.
+- **Concurrent edits:** while this ran, something else changed `web/package.json`, `web/package-lock.json`, `web/vite.config.ts`, `web/src/views/WorkspaceView.tsx` and added `web/src/components/app/reo-bot-3d.tsx`. Not touched by this work.
+- **Next:** owner adds `cuaDriver.allowedApps` to the local config before desktop tests; restart the engine to load this code.
+
+---
+
+## Hermes-Inspired Autonomous QA Harness (2026-11-28)
+
+- **What changed:**
+  - `engine/src/agents/profiles.ts`: Configurable per-agent profiles (`systemPrompt`, `modelOverride`, `maxToolCalls`, `maxTimeSeconds`, `enabled`) with named safety bounds (`MAX_TOOL_CALLS_LIMIT = 50`, `MAX_TIME_SECONDS_LIMIT = 600`, `MAX_SYSTEM_PROMPT_CHARS = 4000`) persisted in `agent-profiles.json`.
+  - `engine/src/memory/qa-memory.ts`: 3-layer persistent QA memory (`project`, `execution`, `procedural`) separating `hypothesis` entries from `verified` facts (`verifyMemory` promotion, `recallMemory` token scoring with verified boost).
+  - `engine/src/automation/harness.ts`: Pre-seeded & customizable QA automation triggers (`schedule`, `on_commit`, `on_pull_request`, `on_test_failure`, `on_security_alert`, `on_release_candidate`), execution checkpoints (`baseline` / `completed`), and deterministic Quality Gate (`PASS` / `NEEDS_REVIEW` / `BLOCK_RELEASE`).
+  - `engine/src/agents/runner.ts` & `engine/src/server/server.ts`: Missions now honor enabled agent profiles, recall memory, record baseline/completed checkpoints, log defect findings as `hypothesis` execution memory, emit `verdict` events, and expose `/api/reo/agents/:id`, `/api/reo/memory*`, `/api/reo/automation*`, and `/api/reo/checkpoints`.
+  - `web/src/views/HarnessView.tsx` & `web/src/App.tsx`: Added the **QA Harness** page (Memory Explorer, Automation & Triggers, Checkpoints) to the sidebar.
+  - `engine/test/hermes-harness.test.ts`: Unit tests for profiles, 3-layer memory, automation triggers, checkpoints, and quality gate verdicts.
+- **Checks:** `npx.cmd tsc -p engine --noEmit`, `node --experimental-strip-types --test engine/test/hermes-harness.test.ts`, `npm run web:build`, and `git diff --check` (see below).
+- **Not verified:** live UI interactions on the new QA Harness page or full `npm test` run.
+
+---
+
+## Workspace 3-Column Provider/Model Picker & File Attachments (2026-11-28)
+
+- **What changed (`web/` only):**
+  - `web/src/components/app/chat-model-picker.tsx`: Created `ChatModelPicker` with a pill trigger (`ProviderIcon` + active model label) and a 3-column popover (left provider icon rail + Favorites `★` persisted in `localStorage`, middle searchable model list with star pins and `Ctrl+1..9` badges, right Thinking Level selector `Low` / `Medium` / `High` / `Extra` matching model variants).
+  - `web/src/views/WorkspaceView.tsx`: Replaced the old `Command` model picker with `ChatModelPicker`, and added file/resource uploading via a `Paperclip` button and drag-and-drop (`MAX_ATTACHMENTS = 5`, `MAX_ATTACHMENT_CHARS = 12_000`), removable attachment chips above the textarea, and `[Attached resource: ...]` prompt prepending on submit.
+- **Checks:** `npm run web:build` and `git diff --check` (see below).
+- **Not verified:** live UI layout, drag-and-drop file selection, and Favorites/Thinking Level switching in a running app.
+
+---
+
+## Providers Settings & 3-Step Official Sign-In Wizard (2026-11-28)
+
+- **What changed:**
+  - `engine/src/server/providers.ts`: Added `POST /api/providers/:id/signin` (`SIGNIN_ARGS` for `antigravity-cli`, `claude-cli`, `opencode-cli`) which resolves the CLI binary path and spawns `<cli> auth login` detached with an argument list (`child.unref()`), forgetting the cached provider status.
+  - `web/src/components/app/add-provider-dialog.tsx`: Created `ProviderIcon`, `officialSignInLabel`, and the 3-step `AddProviderDialog` wizard (`Provider` → `Identity` → `Config`) supporting one-click official CLI sign-in (`Continue with Google` / `Continue with Claude` / `Sign in with OpenCode`) as well as manual CLI/API key setup.
+  - `web/src/components/app/providers-settings.tsx`: Integrated `AddProviderDialog` and `ProviderIcon`, added an **Account** row for CLI subscription sign-in / account switching, enriched subscription status labels, and added a filterable **Models** list per provider.
+- **Checks:** `npm run web:build`, `npx.cmd tsc -p engine --noEmit`, `node --experimental-strip-types --test engine/test/providers-api.test.ts`, and `git diff --check` (see below).
+- **Not verified:** live OAuth/CLI browser sign-in flow and visual layout of the dialog/settings in the running desktop window.
+
+---
+
+## Brand Subtitle Update (2026-11-28)
+
+- **What changed:** Replaced `"Review · Evaluate · Optimize"` / `"REVIEW · EVALUATE · OPTIMIZE"` with `"A Multi-Agent Quality Engineering & Software Assurance Platform."` in `engine/src/brand.ts` (`PRODUCT_MOTTO`), `engine/src/server/server.ts` (`PAIR_PAGE`), `engine/src/defects/store.ts` (`generateDefectReportHtml`), and `engine/src/plugins/store.ts` (`buildTeamsDefectPayload`). In `web/src/App.tsx`, shortened the sidebar header subtitle to a single-line `"Multi-Agent QE & Assurance"` with the full description in `title`.
+- **Checks:** `npm run web:build`, `npx.cmd tsc -p engine --noEmit`, and `git diff --check` (see below).
+- **Not verified:** live visual check of the wrapped sidebar subtitle in expanded and icon-collapsed states.
+
+---
+
+## Interactive 3D Animated Bot in Workspace Empty State (2026-11-28)
+
+- **What changed (`web/` only):**
+  - Added `three` and `@types/three` in `web/package.json` and isolated `three` into its own lazy-loaded Vite chunk in `web/vite.config.ts` (`manualChunks`).
+  - Rewrote `web/src/components/app/reo-bot-3d.tsx` (`ReoBot3D`, default + named export) as a vibrant polished golden-yellow floating 3D robot using `NeutralToneMapping`, high-contrast 3-point + warm amber bounce lighting, reduced IBL washout (`envMapIntensity: 0.42`), deep pitch-navy screen with subtle blue OLED radial glow + glowing white eyes (`CanvasTexture`), plus `mood` acting styles (`idle`, `typing`, `thinking` with animated 3-dot gaze + head tilt + arm wiggle, and `happy` crescent smiles).
+  - Integrated `ReoBot3D` via `React.lazy` + `React.Suspense` into `web/src/views/WorkspaceView.tsx` empty-state hero (pointer-tracking-only, with `presetGaze` on preset button hover) and mounted a mini peeking/flying `ReoBot3D` above the docked composer in active chats (`messages.length > 0`) animated with `motion/react` spring physics (`AnimatePresence` + `motion.div`), including a small `"Thinking..."` thought-cloud bubble while `busy` is true and a brief `"happy"` hop when a reply completes.
+- **Checks:** `npm run web:build`, `npx.cmd tsc -p engine --noEmit`, and `git diff --check` pass cleanly (see below).
+- **Not verified:** live visual appearance and pointer tracking in a running browser or Tauri WebView2 window.
+- **Next:** start the app (`npm run ui` or `npm run desktop`) and visually verify the 3D bot on the Workspace empty state in both dark and light themes.
+
+---
+
+## Verification pass: tests, security coverage, smoke, PR links (2026-11-28)
+
+- **Checks:** `npm run typecheck` and `npm run web:build` pass. `npm test`: 380 tests, 379 pass, 0 fail, 1 skipped (local question file). `git diff --check` clean apart from CRLF notices. cargo check not run (no Rust change).
+- **Fixed in code:** Ctrl+K palette crashed the app (`CommandDialog` in `ui/command.tsx` lacked `<Command>`); Agents page called missing `/api/qa/skills` (now `/api/skills`); removed `ChartStyle` from `ui/chart.tsx` (CSP always blocked it); `index.css` now covers the blocked dialog scroll-lock and Select scrollbar styles; `MODEL_ID_RE` also refuses `..`, `//` and a trailing `/`.
+- **PR links:** wry 0.57.4 ignores `window.open` when no new-window handler is set (`main.rs` sets none). New `POST /api/open-external` (`repos/routes.ts` `externalUrl`, `browserCommand`): https on dev.azure.com, *.visualstudio.com or github.com, rundll32/open/xdg-open with an argument list. `pull-list.tsx` uses it.
+- **Tests:** updated `brain-settings-api` (apiKeys, new backends, memory stores for every provider, per-provider key routes), `brain-settings` (120 characters, path cases), `brain-cli` (env type). New: `brain-providers`, `open-external`, `web-safety`.
+- **Smoke:** own server on a free port, temp copy of data/vault/roles, model calls throwing, browser launch faked; headless Edge over all pages and settings sections. Greeting reply worked with no model call.
+- **Open:** Defects Export PDF popup is unstyled (the blob inherits `style-src 'self'`) and, from the wry source, does nothing in the desktop window; the saved HTML path is still reported. Fixing it needs an owner decision (CSP hash or opening the saved file). Sonner, ScrollArea, Select and scroll-lock styles still log CSP violations. Not verified: Tauri window, real browser launch, real provider or model calls.
+
+---
+
+## Engine: chat fix, native tools, old UI removed, usage, pull requests, repos, providers (2026-11-28)
+
+- **Chat:** fixed replies for greetings/model questions (`chat/identity.ts`); without an index questions go to the selected model with a no-index prompt and a note (`chat/open-answer.ts`). `guard.config.local.json` created; index built with `npm run guard -- index --force` (the guard saw the idle `cargo tauri dev` session; no rustc was running): spil-aura 291 commits, 163 files; erp-mcp 30 commits, 43 files; both repos unchanged.
+- **Native tools** (`tools/native/`): /web /fetch /browse /ls /read /find /system /processes /time and `webSearch: true`. Real runs: system, processes and browser render worked; keyless web search failed here (DuckDuckGo bot check, Bing unrelated results).
+- **Old `ui/` deleted** with the five `engine/test/ui-*.test.ts` files and `ui-stub-server.ts`. Server tests moved to `server-stream.test.ts`. The server serves only `web/dist` and shows a self-reloading page when it is missing. The old safe-renderer and inbox-card tests were removed; `web/` has no equivalent tests.
+- **New APIs:** `/api/usage`, `/api/usage/limits` (`usage/`, `roles/ai-pricing.json`), `/api/pulls`, `/api/repos...`, `/api/source-control` (`repos/`, `prs/pulls.ts`), `/api/providers` (`server/providers.ts`). AGENTS.md lists the allowed read-only git commands. Real PR list worked for both repos with the saved Git sign-in.
+- **Tests:** `node --experimental-strip-types --test` on the brain, chat, server, review, API and new test files: 174 of 176 pass. The 2 failures (`brain-settings-api` expects no `apiKeys`; `brain-settings` expects an 80-character model id limit) and the `brain-cli.test.ts` type errors come from the earlier uncommitted provider work. `npx tsc -p engine --noEmit` passes. Full `npm test` was not run.
+- **Not verified:** nothing checked in the running app (restart it to load this code). API rate-limit headers, OpenRouter limits and GitHub PRs were only tested with fakes.
+- **Next:** owner decision on any repo or PR write actions (none are implemented); run full `npm test`.
+
+---
+
+
 **web/ CSP note (2026-11-27):** `style-src 'self'` blocks runtime `<style>` tags. Do not rely on shadcn `--color-*` chart vars; pass `var(--chart-N)` directly. Black bars fixed this way; ScrollArea scrollbar hiding and Sonner CSS moved into index.css. Build passes; not verified in the app. Other injected styles (e.g. dialog scroll lock) are unchecked.
 
 ---
@@ -857,3 +980,14 @@
 - Checks and screenshots: see the final report; screenshots are in `.artifacts/redesign-v3/`.
 
 **2026-11-27:** Added docs/qa-tool-summary.md (docs only). Private notes are local in ignored data/. Full engine test run still not completed.
+
+## web/ UI round (2026-11-28)
+
+- New app icon used in chat, greeting, sidebar and Home (`web/src/components/app/brand.tsx`); icon links, `tauri.conf.json` `bundle.icon`, shortcut `IconLocation`.
+- Chat: tool slash lines go to `/ask`, command-runner lines to `/api/command` (`web/src/lib/slash.ts`), slash menu, Web search chip.
+- New: Appearance settings (`lib/appearance.ts`, `public/theme-init.js`), Usage, Pull requests, Repositories + diff viewer, Settings > Providers (replaces AI backend and Danger zone), Source control, Diffs & pull requests.
+- Checks: `npm run web:build` passes. Headless Edge on `web/dist` with the app CSP and mocked API data: pages render, no JS errors; screenshots reviewed for part of the screens only. Not run against the real engine or in the Tauri window; no Rust build.
+- CSP: the headless run reports blocked runtime `<style>` tags from bundled libraries (also on first load).
+- Unverified: `window.open` in the Tauri window (Open in browser); `/api/providers` was not in the engine yet when checked. `ui/` and `engine/` not edited.
+
+- Add repository picker: `web/src/components/app/add-repo.tsx` replaces the old dialog; new `GET /api/repos/browse` (`engine/src/repos/browse.ts`, test `engine/test/repos-browse.test.ts`, one route line in `repos/routes.ts`). Browse and repos-api tests 10/10, engine typecheck clean, `npm run web:build` passes. Picker checked in headless Edge with mocked data only.

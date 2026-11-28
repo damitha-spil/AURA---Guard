@@ -13,6 +13,8 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { CountUp } from "@/components/app/motion";
 import { DataTable, SortHeader } from "@/components/app/data-table";
+import { ProofPanel } from "@/components/app/proof-panel";
+import type { Evidence } from "@/lib/repos";
 import { EmptyState, Page, PageHeader, StatCard, Tile } from "@/components/app/page";
 import { apiGet } from "@/lib/api";
 import { useMediaQuery } from "@/lib/hooks";
@@ -68,6 +70,7 @@ interface RunDetail {
   scorecard: Scorecard;
   spans: Span[];
   screenshots: { journey: string; step: string; path: string }[];
+  evidence?: Evidence;
 }
 
 function gateVariant(g: string) {
@@ -133,6 +136,7 @@ function RunDetailPanel({ id, onClose }: { id: string; onClose?: () => void }) {
                 </Tile>
               </div>
               {detail.scorecard.gateReason && <p className="text-muted-foreground text-xs">{detail.scorecard.gateReason}</p>}
+              {detail.evidence && <ProofPanel evidence={detail.evidence} note="The release gate above does not mean the proof is complete." />}
 
               <div>
                 <h3 className="mb-2 text-sm font-medium">Steps</h3>

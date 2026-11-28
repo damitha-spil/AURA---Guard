@@ -9,8 +9,14 @@ Do not commit or push unless the owner asks.
 ## What Guard may and may not do
 
 - Guard **reads** other repositories (Aura, ERP-MCP and others). It only runs
-  read-only git commands there (`log`, `show`, `ls-files`, `rev-parse`). It never
-  checks out, fetches, resets or writes in them.
+  read-only git commands there: `log`, `show`, `ls-files`, `rev-parse`,
+  `rev-list`, `cat-file`, `ls-tree`, `diff`, `status`, `for-each-ref`, `config` (reading
+  only: `--get`, `--null --get-regexp`) and `remote get-url`; the review code also
+  uses `merge-base` and `blame`. It never clones, fetches, pulls, checks out,
+  resets, commits, merges, pushes, changes branches or worktrees, or writes in them,
+  and it never comments or votes on a pull request. Repos the user loads in the app
+  go through `engine/src/repos/safe-git.ts`, which runs with `--no-optional-locks`
+  and with hooks, fsmonitor, external diff, textconv and filters switched off.
 - Guard **suggests**. It never commits, merges or writes to an ERP.
 - Every outgoing paid-model call goes through `engine/src/mask/`. A call with a
   detected secret is not sent.

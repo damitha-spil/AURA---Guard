@@ -3,7 +3,8 @@
 //   1. Built-in Windows UIA Crawler (bin/win-uia-crawler.ps1 via .NET UIAutomationClient - zero installs)
 //   2. Cua Driver MCP (trycua/cua) when installed
 //   3. Python pywinauto / uiautomation detection
-// Enforces judgeTargetWindow (denylist + allowedApps) and judgeActionByTier BEFORE every click/type.
+// Enforces judgeTargetWindow (denylist + allowedApps) and judgeActionByTier BEFORE every click; the window
+// is judged again just before each one. The crawler never types.
 
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -11,7 +12,7 @@ import { join } from "node:path";
 import type { GuardConfig } from "../types.ts";
 import { probeCuaDriver } from "./cua_client.ts";
 import type { CuaBounds, CuaWindowInfo } from "./cua_client.ts";
-import { selectTargetWindow } from "./cua_harness.ts";
+import { judgeTargetWindow, selectTargetWindow } from "./cua_harness.ts";
 import type { JourneyDsl } from "./dsl.ts";
 import { ForbiddenActionError } from "./harness.ts";
 import { draftJourneyFromRecording } from "./recorder.ts";
@@ -38,9 +39,10 @@ export interface CrawledNode {
 export interface DesktopCrawlerTransport {
   readonly backendName: string;
   listWindows(): Promise<CuaWindowInfo[]>;
-  inspectTree(pid: number): Promise<CrawledNode[]>;
-  click(pid: number, name: string): Promise<void>;
-  type(pid: number, name: string, text: string): Promise<void>;
+  /** `win` pins the exact window and program that were judged. */
+  inspectTree(pid: number, win?: CuaWindowInfo): Promise<CrawledNode[]>;
+  click(pid: number, name: string, win?: CuaWindowInfo): Promise<void>;
+  type(pid: number, name: string, text: string, win?: CuaWindowInfo): Promise<void>;
 }
 
 export interface CrawlerAvailability {
@@ -72,6 +74,10 @@ export async function probeDesktopCrawlers(cfg: GuardConfig): Promise<CrawlerAva
 
 export function createWindowsUiaTransport(cfg: GuardConfig): DesktopCrawlerTransport {
   const script = join(cfg.root, "bin", "win-uia-crawler.ps1");
+  const pin = (win: CuaWindowInfo | undefined): string[] => {
+    if (!win) throw new Error("The judged window is required.");
+    return ["-WindowHandle", win.windowId, "-ExpectedProcess", win.processName];
+  };
   async function runPs(args: string[]): Promise<unknown> {
     const r = await execFileAsync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, ...args]);
     if (!r.ok) throw new Error(r.stderr.trim() || "win-uia-crawler failed");
@@ -91,11 +97,13 @@ export function createWindowsUiaTransport(cfg: GuardConfig): DesktopCrawlerTrans
           windowId: String(o["windowId"] ?? ""),
           title: String(o["title"] ?? ""),
           processName: String(o["processName"] ?? "").toLowerCase(),
+          // This backend can check, so anything but a clear no is refused.
+          elevated: o["elevated"] === false ? false : o["elevated"] === true ? true : ("unknown" as const),
         };
       });
     },
-    async inspectTree(pid: number) {
-      const raw = (await runPs(["-Action", "inspect-tree", "-TargetPid", String(pid)])) as { nodes?: Record<string, unknown>[] };
+    async inspectTree(pid: number, win?: CuaWindowInfo) {
+      const raw = (await runPs(["-Action", "inspect-tree", "-TargetPid", String(pid), ...pin(win)])) as { nodes?: Record<string, unknown>[] };
       return (raw.nodes ?? []).map((n) => ({
         token: String(n["token"] ?? ""),
         role: String(n["role"] ?? ""),
@@ -107,11 +115,11 @@ export function createWindowsUiaTransport(cfg: GuardConfig): DesktopCrawlerTrans
         safetyTier: 0 as SafetyTier,
       }));
     },
-    async click(pid: number, name: string) {
-      await runPs(["-Action", "click", "-TargetPid", String(pid), "-TargetName", name]);
+    async click(pid: number, name: string, win?: CuaWindowInfo) {
+      await runPs(["-Action", "click", "-TargetPid", String(pid), "-TargetName", name, ...pin(win)]);
     },
-    async type(pid: number, name: string, text: string) {
-      await runPs(["-Action", "type", "-TargetPid", String(pid), "-TargetName", name, "-Text", text]);
+    async type(pid: number, name: string, text: string, win?: CuaWindowInfo) {
+      await runPs(["-Action", "type", "-TargetPid", String(pid), "-TargetName", name, "-Text", text, ...pin(win)]);
     },
   };
 }
@@ -138,8 +146,10 @@ export async function crawlDesktopApp(
   const win = selectTargetWindow(windows, cfg, opts.matchTitle);
 
   const tier = opts.tier ?? 0;
-  const maxActions = Math.max(1, Math.min(MAX_CRAWL_ACTIONS, opts.maxActions ?? 5));
-  const rawNodes = await transport.inspectTree(win.pid);
+  // A value that is not a number must not remove the cap.
+  const wanted = Number.isFinite(opts.maxActions) ? (opts.maxActions as number) : 5;
+  const maxActions = Math.max(1, Math.min(MAX_CRAWL_ACTIONS, wanted));
+  const rawNodes = await transport.inspectTree(win.pid, win);
 
   const controls: CrawledNode[] = [];
   const blockedControls: string[] = [];
@@ -148,8 +158,8 @@ export async function crawlDesktopApp(
     const role = n.role.toLowerCase();
     const isInteractive = CLICKABLE_ROLES.has(role) || role.includes("button") || role.includes("edit") || role.includes("tab");
     if (!isInteractive || !n.name.trim()) continue;
-    const t0 = judgeActionByTier({ role, name: n.name, text: n.name, control: true }, n.name, forbidden, { tier: 0, ...(opts.screenContext ? { screenContext: opts.screenContext } : {}) });
-    const t1 = t0.allowed ? t0 : judgeActionByTier({ role, name: n.name, text: n.name, control: true }, n.name, forbidden, { tier: 1, ...(opts.screenContext ? { screenContext: opts.screenContext } : {}) });
+    const t0 = judgeActionByTier({ role, name: n.name, text: n.name, control: true, ...(n.automationId ? { id: n.automationId } : {}) }, n.name, forbidden, { tier: 0, ...(opts.screenContext ? { screenContext: opts.screenContext } : {}) });
+    const t1 = t0.allowed ? t0 : judgeActionByTier({ role, name: n.name, text: n.name, control: true, ...(n.automationId ? { id: n.automationId } : {}) }, n.name, forbidden, { tier: 1, ...(opts.screenContext ? { screenContext: opts.screenContext } : {}) });
     const safetyTier: SafetyTier = t0.allowed ? 0 : t1.allowed ? 1 : 2;
     if (safetyTier > tier) blockedControls.push(n.name);
     controls.push({ ...n, safetyTier });
@@ -161,9 +171,13 @@ export async function crawlDesktopApp(
       if (clicked.length >= maxActions) break;
       if (c.safetyTier > tier || !c.enabled || c.offscreen) continue;
       if (!CLICKABLE_ROLES.has(c.role.toLowerCase()) && !c.role.toLowerCase().includes("button")) continue;
-      const check = judgeActionByTier({ role: c.role, name: c.name, text: c.name, control: true }, c.name, forbidden, { tier, ...(opts.screenContext ? { screenContext: opts.screenContext } : {}) });
+      const check = judgeActionByTier({ role: c.role, name: c.name, text: c.name, control: true, ...(c.automationId ? { id: c.automationId } : {}) }, c.name, forbidden, { tier, ...(opts.screenContext ? { screenContext: opts.screenContext } : {}) });
       if (!check.allowed) throw new ForbiddenActionError("click", check.reason ?? "blocked by safety tier");
-      await transport.click(win.pid, c.name);
+      // The window can change between steps (closed, id reused, restarted as administrator).
+      const now = (await transport.listWindows()).find((w) => w.pid === win.pid && w.windowId === win.windowId);
+      const refused = now ? judgeTargetWindow(now, cfg) : "the window is gone";
+      if (!now || refused) throw new ForbiddenActionError("click", refused ?? "the window is gone");
+      await transport.click(now.pid, c.name, now);
       clicked.push(c.name);
     }
   }

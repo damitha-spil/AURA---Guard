@@ -1,5 +1,5 @@
 {
-  "$comment": "Steps of `aura-guard daily`, in order. Product default: a company can edit this file. needsModel steps are skipped with --no-model. needsRepo: skipped when the project has no git source. optional steps are skipped quietly when the command does not exist or its service is unreachable.",
+  "$comment": "Steps of `aura-guard daily`, in order. Product default: a company can edit this file. needsModel steps are skipped with --no-model. needsRepo: skipped when the project has no git source. optional steps are skipped quietly when the command does not exist or its service is unreachable. In an unattended run (--unattended, or no terminal) only the read-only commands listed in commands-daily.ts run; model steps and anything else are recorded as skipped.",
   "steps": [
     { "id": "index", "argv": ["index"], "timeoutMin": 20 },
     { "id": "check", "argv": ["check"], "timeoutMin": 2 },
@@ -8,6 +8,9 @@
     { "id": "mine-prs", "argv": ["prs", "mine", "--min-score", "0.7", "--max", "15"], "timeoutMin": 5, "optional": true, "needsRepo": true },
     { "id": "rules-propose", "argv": ["rules", "propose"], "timeoutMin": 5, "optional": true },
     { "id": "logcheck", "argv": ["logcheck"], "timeoutMin": 5, "optional": true, "needsRepo": true },
+    { "id": "health", "argv": ["health"], "timeoutMin": 3 },
+    { "id": "qa-backend", "argv": ["qa", "backend"], "timeoutMin": 3 },
+    { "id": "qa-pr-readiness", "argv": ["qa", "pr-readiness"], "timeoutMin": 5, "needsRepo": true },
     { "id": "stale", "argv": ["stale"], "timeoutMin": 2 },
     { "id": "diary", "argv": ["diary"], "timeoutMin": 10, "needsModel": true }
   ]

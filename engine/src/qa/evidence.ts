@@ -2,16 +2,124 @@
 // Collects 800/1100/1440 px screenshots, walkthrough video note, deterministic oracle summary,
 // rubric/trajectory scores, and release gate verdict ready to paste into an Azure DevOps PR.
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { GuardConfig } from "../types.ts";
 import { getQaRun, safeQaScreenshotPath } from "./harness_api.ts";
-import type { ReleaseGate } from "./harness_api.ts";
+import type { QaRunDetail, ReleaseGate } from "./harness_api.ts";
+import { appScope, classifyChange, evaluateEvidence, evidenceMarkdown } from "./evidence_scope.ts";
+import type { EvidenceStatus, Proof, ProofSource } from "./evidence_scope.ts";
 import { evaluateTrajectory, evaluateWithRubric } from "./judge.ts";
 import type { JudgeEvaluation, TrajectoryEvaluation } from "./judge.ts";
 import { maskDeep } from "./safe-out.ts";
 
+/** The widths a UI change must be shown at. */
+export const PROOF_WIDTHS = [800, 1100, 1440] as const;
+/** A proof note bigger than this is not read. */
+const MAX_PROOF_BYTES = 64 * 1024;
+const NOT_REAL = /(preview|mock|sample|storybook|fixture)/i;
+const PNG_MAGIC = "89504e470d0a1a0a";
+const SOURCES: ProofSource[] = ["real-app", "real-service", "command-output", "attested", "preview", "mock", "sample", "test-count"];
+
+const text = (v: unknown, max = 400): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+const record = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+const sourceOf = (v: unknown): ProofSource => SOURCES.find((s) => s === v) ?? "unknown";
+
+/** A real, non-empty file inside the run folder (a link that leads out does not count). */
+function fileInRun(runDir: string, rel: string): string | null {
+  try {
+    const full = realpathSync(resolve(runDir, rel));
+    const inside = relative(realpathSync(runDir), full);
+    if (!inside || isAbsolute(inside) || inside === ".." || inside.startsWith(".." + sep)) return null;
+    const st = statSync(full);
+    return st.isFile() && st.size > 0 ? full : null;
+  } catch {
+    return null;
+  }
+}
+
+function isPng(file: string): boolean {
+  const fd = openSync(file, "r");
+  try {
+    const b = Buffer.alloc(8);
+    return readSync(fd, b, 0, 8, 0) === 8 && b.toString("hex") === PNG_MAGIC;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * The proof status of one saved QA run. Proof comes from the run itself and from an optional
+ * proof.json that a person puts in .artifacts/qa/<runId>/. REO cannot check what a person recorded
+ * there, so those items say "recorded by a person".
+ */
+export function runEvidence(cfg: GuardConfig, detail: QaRunDetail): EvidenceStatus {
+  const r = detail.result;
+  const runDir = resolve(join(cfg.root, ".artifacts", "qa", r.id));
+  const paths = (r.context?.changedFiles ?? []).map((f) => f.path);
+  const scope = paths.length ? classifyChange(paths) : r.evidence?.uiChange ? appScope() : classifyChange([]);
+
+  const blockers: string[] = [];
+  const journeys = r.run?.runs ?? [];
+  if (r.run?.status === "blocked") blockers.push("The journey run was blocked.");
+  for (const x of journeys) if (x.status === "blocked") blockers.push(`Journey ${x.journeyId} was blocked${x.blocker ? `: ${x.blocker}` : "."}`);
+
+  let note: Record<string, unknown> = {};
+  const noteFile = fileInRun(runDir, "proof.json");
+  if (noteFile) {
+    try {
+      if (statSync(noteFile).size > MAX_PROOF_BYTES) throw new Error("too large");
+      note = record(JSON.parse(readFileSync(noteFile, "utf8")));
+    } catch {
+      blockers.push("proof.json could not be read.");
+    }
+  }
+
+  const proofs: Proof[] = [];
+  const add = (requirement: Proof["requirement"], source: ProofSource, detailText: string): void => {
+    proofs.push({ requirement, source, detail: detailText });
+  };
+  const by = "recorded by a person; REO did not verify it";
+
+  const env = text(note["environment"], 80);
+  if (env) add("environment", "attested", `${env}, ${by}`);
+
+  const failed = r.run?.status === "failed" || (r.run?.defects?.length ?? 0) > 0 || journeys.some((x) => x.status !== "passed");
+  if (journeys.length > 0 && !failed) add("app-interaction", "real-app", `${journeys.length} journey(s) passed against the attached app; REO cannot tell whether that app used mock data`);
+  const flow = record(note["interaction"]);
+  // A person's note never overrides a run that failed.
+  if (text(flow["steps"]) && !failed) add("app-interaction", sourceOf(flow["source"]), `${text(flow["steps"], 200)}, ${by}`);
+
+  const widths = new Set<number>();
+  const shots = Array.isArray(note["screenshots"]) ? note["screenshots"].slice(0, 30) : [];
+  for (const s of shots) {
+    const o = record(s);
+    const rel = text(o["path"]);
+    const source = NOT_REAL.test(rel) ? "preview" : sourceOf(o["source"]);
+    const file = fileInRun(runDir, rel);
+    if (source !== "real-app") add("app-screenshots", source, rel);
+    else if (file && isPng(file)) widths.add(Number(o["width"]));
+  }
+  if (PROOF_WIDTHS.every((w) => widths.has(w))) add("app-screenshots", "real-app", `PNG files for ${PROOF_WIDTHS.join(", ")} px, ${by}`);
+
+  if (fileInRun(runDir, "walkthrough.mp4")) {
+    const video = record(note["video"]);
+    // A video counts when this run drove the app, or a person says what it shows.
+    if (video["source"] !== undefined) add("app-video", sourceOf(video["source"]), `walkthrough.mp4, ${by}`);
+    else if (journeys.length > 0) add("app-video", "real-app", "walkthrough.mp4 in the run folder; REO did not watch it");
+  }
+
+  const rb = record(note["serviceReadback"]);
+  if (text(rb["request"]) && text(rb["result"]) && text(rb["readback"])) add("service-readback", sourceOf(rb["source"]), `request, result and readback in proof.json, ${by}`);
+  const check = record(note["checkOutput"]);
+  if (text(check["command"]) && text(check["output"])) add("check-output", "command-output", `${text(check["command"], 120)}, ${by}`);
+  if (text(note["noAppPathReason"])) add("no-app-path-reason", "attested", `${text(note["noAppPathReason"], 200)}, ${by}`);
+
+  return maskDeep(evaluateEvidence(scope, proofs, blockers));
+}
+
 export interface PrEvidencePacket {
+  evidenceScope: EvidenceStatus;
   version: 1;
   runId: string;
   generatedAt: string;
@@ -78,6 +186,7 @@ export async function buildPrEvidencePacket(cfg: GuardConfig, runId: string): Pr
 
   const packet: PrEvidencePacket = maskDeep({
     version: 1,
+    evidenceScope: runEvidence(cfg, detail),
     runId: r.id,
     generatedAt: new Date().toISOString(),
     targetLabel: r.target?.label ?? "Unknown target",
@@ -109,12 +218,13 @@ export async function buildPrEvidencePacket(cfg: GuardConfig, runId: string): Pr
     "",
     `- **Target:** ${packet.targetLabel}`,
     `- **Release Gate:** **${packet.releaseGate.toUpperCase()}** — ${packet.gateReason}`,
-    `- **Environment:** Test DB only · ERP writes blocked · Background delivery`,
-    `- **Widths verified:** ${packet.widthsCovered.length ? packet.widthsCovered.map((w) => `${w} px`).join(", ") : "None recorded"}`,
+    `- **Policy (this packet does not verify it):** test database only, ERP writes blocked, background delivery`,
+    `- **Widths in this run's results:** ${packet.widthsCovered.length ? packet.widthsCovered.map((w) => `${w} px`).join(", ") : "None recorded"}`,
     `- **Rubric score:** ${packet.evaluation.overallScore}/5 (${packet.evaluation.verdict.toUpperCase()})`,
     `- **Trajectory:** ${packet.trajectory.summary}`,
     `- **Video:** ${packet.videoNote}`,
     "",
+    ...evidenceMarkdown(packet.evidenceScope),
     "## Rubric Breakdown",
     ...packet.evaluation.rubrics.map((rb) => `- **${rb.label}:** ${rb.score}/5 — ${rb.evidence}`),
     "",

@@ -7,14 +7,15 @@
   registers a per-user task (no admin needed, runs only while you are signed in).
   The repo path comes from this script's own location; nothing is hard-coded.
   The daily routine only refreshes Guard's own index and adds proposed notes to
-  its vault; it never writes to other repos. Index waits while builds are running
+  its vault; it never writes to other repos. The task runs with --unattended, so
+  steps that call a model or need confirmation are recorded as skipped. Index waits while builds are running
   (see "Resource guard" in ARCHITECTURE.md).
 
 .PARAMETER Time
   Local time of day, HH:mm. Default 18:00.
 
 .PARAMETER NoModel
-  Skip steps that call the model (the diary).
+  Skip steps that call the model. The task skips them anyway (unattended).
 
 .PARAMETER Remove
   Remove the task.
@@ -35,7 +36,7 @@ $TaskName = "SPIL AURA QA Bot daily"
 $Root = Split-Path -Parent $PSScriptRoot
 $Node = (Get-Command node -ErrorAction Stop).Source
 $Launcher = Join-Path $Root "bin\aura-guard.mjs"
-$Args = "`"$Launcher`" daily" + $(if ($NoModel) { " --no-model" } else { "" })
+$Args = "`"$Launcher`" daily --unattended" + $(if ($NoModel) { " --no-model" } else { "" })
 
 if ($Remove) {
   Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false

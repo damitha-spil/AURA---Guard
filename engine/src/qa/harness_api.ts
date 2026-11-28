@@ -10,7 +10,7 @@ import { loadJourneys } from "./journeys.ts";
 import { loadForbidden } from "./safety.ts";
 import { loadTemplates } from "./templates.ts";
 import { BLOCKED_CUA_TOOLS, probeCuaDriver } from "./cua_client.ts";
-import { BUILTIN_DENY_PROCESSES } from "./cua_harness.ts";
+import { BUILTIN_DENY_PROCESSES, SHELL_PROCESS_NAMES } from "./cua_harness.ts";
 
 /** Cap on QA run files scanned per request so a large history stays fast. */
 export const MAX_QA_RUNS = 100;
@@ -491,7 +491,7 @@ export async function cuaDriverStatus(cfg: GuardConfig): Promise<{
     ...probe,
     deliveryMode: "background",
     blockedTools: [...BLOCKED_CUA_TOOLS],
-    deniedProcesses: [...BUILTIN_DENY_PROCESSES, ...(cfg.cuaDriver?.denyApps ?? [])],
+    deniedProcesses: [...new Set([...BUILTIN_DENY_PROCESSES, ...SHELL_PROCESS_NAMES, ...(cfg.cuaDriver?.denyApps ?? [])])],
     allowedApps: cfg.cuaDriver?.allowedApps ?? [],
   };
 }

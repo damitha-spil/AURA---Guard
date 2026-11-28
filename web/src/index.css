@@ -447,3 +447,57 @@ html[data-reduce-motion] *::after {
   background-color: var(--muted);
   background-image: repeating-linear-gradient(135deg, color-mix(in oklab, var(--muted-foreground) 35%, transparent) 0 1px, transparent 1px 6px);
 }
+
+/* Diff colours. Lines keep their + and - marks, so colour is never the only signal. */
+[data-diff-colors] {
+  --diff-add: oklch(0.55 0.15 150);
+  --diff-del: oklch(0.56 0.2 27);
+}
+.dark [data-diff-colors] {
+  --diff-add: oklch(0.76 0.16 150);
+  --diff-del: oklch(0.72 0.17 25);
+}
+[data-diff-colors="orange-blue"] {
+  --diff-add: oklch(0.52 0.17 255);
+  --diff-del: oklch(0.58 0.15 55);
+}
+.dark [data-diff-colors="orange-blue"] {
+  --diff-add: oklch(0.74 0.13 250);
+  --diff-del: oklch(0.77 0.15 65);
+}
+.diff-add-line { background-color: color-mix(in oklab, var(--diff-add) 18%, transparent); }
+.diff-del-line { background-color: color-mix(in oklab, var(--diff-del) 18%, transparent); }
+.diff-add-text { color: var(--diff-add); }
+.diff-del-text { color: var(--diff-del); }
+/* Unwrapped lines scroll sideways with their tint; wrapped lines fit the width. */
+.diff-lines { width: max-content; min-width: 100%; }
+html[data-wrap] .diff-lines { width: auto; }
+
+/* The CSP also blocks the scroll-lock <style> that Radix dialogs and sheets inject. */
+body[data-scroll-locked] {
+  overflow: hidden;
+}
+
+/* Same for the <style> Radix Select injects to hide its list scrollbar. */
+[data-radix-select-viewport] {
+  scrollbar-width: none;
+}
+[data-radix-select-viewport]::-webkit-scrollbar {
+  display: none;
+}
+
+/* Subtle ambient studio glow behind the 3D bot in Workspace empty state. */
+.reo-bot-stage::before {
+  content: "";
+  position: absolute;
+  inset: 16% 20% 18%;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 50% 46%,
+    oklch(0.78 0.16 75 / 0.14),
+    oklch(0.65 0.12 75 / 0.05) 54%,
+    transparent 76%
+  );
+  filter: blur(18px);
+}

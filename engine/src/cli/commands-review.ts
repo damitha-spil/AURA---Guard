@@ -13,6 +13,7 @@ import { reviewChange } from "../review/reviewer.ts";
 import type { ReviewDeps } from "../review/reviewer.ts";
 import { suggestRefactor } from "../review/refactor.ts";
 import { countsLine, writeRefactorReport, writeReviewReport } from "../review/report.ts";
+import { classifyChange, evaluateEvidence, SCOPE_LABEL } from "../qa/evidence_scope.ts";
 import { DEFAULT_MODEL_CAP, runReplay } from "../review/replay.ts";
 import type { CommandContext } from "./main.ts";
 
@@ -22,6 +23,7 @@ const copy = {
   usageReplay: "replay [repo] [--limit N] [--model [--model-cap N]]",
   needArgs: (cmd: string, usage: string) => `Usage: aura-guard ${cmd}. Expected: ${usage}`,
   noRepo: "No repo is configured. Add one to guard.config.local.json.",
+  proof: (scope: string, status: string, needed: string) => `Proof ${status}: ${scope}. Needed: ${needed || "unknown"}. This review is not proof.`,
   noIndexNote: "No index found: history and notes are not used. Run `index` first for the full review.",
   emptyChange: "Nothing to review: the change has no reviewable files.",
   reviewDone: (path: string) => `Review report: ${path}`,
@@ -116,6 +118,8 @@ async function review(ctx: CommandContext): Promise<number> {
     ctx.out(copy.fixed(countsLine(r.tier0)));
     ctx.out(r.model.used ? (r.model.error ? copy.modelFailed(r.model.error) : copy.model(countsLine(r.findings))) : copy.modelOff);
     if (r.backend) ctx.out(copy.backend(r.backend));
+    const proof = evaluateEvidence(classifyChange(r.changedPaths), []);
+    ctx.out(copy.proof(proof.kinds.map((k) => SCOPE_LABEL[k]).join(" + "), proof.status, proof.items.map((i) => i.label).join("; ")));
     ctx.out(copy.shadow);
     return 0;
   } catch (e) {

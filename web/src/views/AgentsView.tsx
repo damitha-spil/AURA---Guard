@@ -152,7 +152,7 @@ export function AgentsView({ onRunMission }: { onRunMission: (prompt: string) =>
   React.useEffect(() => {
     Promise.all([
       apiGet<{ agents: SubAgent[]; tools: ToolEntry[] }>("/api/reo/agents"),
-      apiGet<{ skills: SkillEntry[] }>("/api/qa/skills"),
+      apiGet<{ skills: SkillEntry[] }>("/api/skills"),
     ]).then(([a, s]) => {
       if (a.ok) {
         setAgents(a.data.agents || []);

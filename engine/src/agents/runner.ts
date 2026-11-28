@@ -12,6 +12,10 @@ import { runSecurityProbes } from "../qa/security_probes.ts";
 import { analyzeRefinementAndKbDrift } from "../qe/refine.ts";
 import { analyzeCommitTrajectory } from "../qe/trajectory.ts";
 import { listSkills } from "../roles/skills.ts";
+import { getEffectiveAgents } from "./profiles.ts";
+import { addMemory, recallMemory } from "../memory/qa-memory.ts";
+import { evaluateQualityGate, recordCheckpoint } from "../automation/harness.ts";
+import type { QualityVerdict } from "../automation/harness.ts";
 import { routeIntentToAgents } from "./registry.ts";
 import type { AgentId } from "./registry.ts";
 
@@ -26,16 +30,36 @@ export type MissionEvent =
   | { type: "mission"; id: string; prompt: string; agents: AgentId[]; status: "started" | "done" }
   | { type: "plan"; steps: MissionStep[] }
   | { type: "tool"; stepId: string; agent: AgentId; tool: string; status: "running" | "done" | "error"; detail: string; output?: unknown }
-  | { type: "defect"; defect: DefectRecord };
+  | { type: "defect"; defect: DefectRecord }
+  | { type: "verdict"; verdict: QualityVerdict; recalledMemory: number; checkpointId: string };
 
 export async function runAgenticMission(
   cfg: GuardConfig,
   prompt: string,
   onEvent: (ev: MissionEvent) => void,
-): Promise<{ id: string; agents: AgentId[]; steps: MissionStep[]; defects: DefectRecord[] }> {
+): Promise<{
+  id: string;
+  agents: AgentId[];
+  steps: MissionStep[];
+  defects: DefectRecord[];
+  verdict: QualityVerdict;
+  recalledMemory: number;
+  checkpointId: string;
+}> {
   const id = `mission-${Date.now().toString(36)}`;
   const route = routeIntentToAgents(prompt);
-  const agents: AgentId[] = route.agents.length ? route.agents : ["qa", "review"];
+  const profiles = getEffectiveAgents(cfg.dataDir);
+  const enabledSet = new Set(profiles.filter((p) => p.enabled).map((p) => p.id));
+  const routed = route.agents.filter((a) => enabledSet.has(a));
+  const agents: AgentId[] = routed.length ? routed : ["qa", "review"];
+  const recalled = recallMemory(cfg.dataDir, prompt, 5);
+  recordCheckpoint(cfg.dataDir, {
+    missionId: id,
+    stage: "baseline",
+    summary: `Started: ${prompt.slice(0, 140)}`,
+    agents,
+    defectCount: 0,
+  });
   onEvent({ type: "mission", id, prompt, agents, status: "started" });
 
   const steps: MissionStep[] = [];
@@ -171,6 +195,26 @@ export async function runAgenticMission(
     }
   }
 
+  const verdict = evaluateQualityGate(defects);
+  const cp = recordCheckpoint(cfg.dataDir, {
+    missionId: id,
+    stage: "completed",
+    summary: `${steps.length} step(s), ${defects.length} defect(s), ${recalled.length} recalled memory item(s)`,
+    agents,
+    defectCount: defects.length,
+    verdict,
+  });
+  if (defects.length > 0) {
+    addMemory(cfg.dataDir, {
+      layer: "execution",
+      confidence: "hypothesis",
+      title: `Mission ${id}: ${defects[0]!.title}`,
+      content: defects.map((d) => `[${d.severity}] ${d.title}`).join("\n"),
+      tags: ["mission", verdict.toLowerCase()],
+      source: id,
+    });
+  }
+  onEvent({ type: "verdict", verdict, recalledMemory: recalled.length, checkpointId: cp.id });
   onEvent({ type: "mission", id, prompt, agents, status: "done" });
-  return { id, agents, steps, defects };
+  return { id, agents, steps, defects, verdict, recalledMemory: recalled.length, checkpointId: cp.id };
 }

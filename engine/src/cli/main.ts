@@ -26,6 +26,7 @@ import { mineSessions } from "../sessions/mine.ts";
 import { BRAIN_SETTINGS_SUBS, runBrainSettings } from "./commands-brain.ts";
 import { captureCommands } from "./commands-capture.ts";
 import { dailyCommands } from "./commands-daily.ts";
+import { healthCommands } from "./commands-health.ts";
 import { learnCommands } from "./commands-learn.ts";
 import { prCommands } from "./commands-prs.ts";
 import { qaCommands } from "./commands-qa.ts";
@@ -130,7 +131,7 @@ EXTRA_COMMANDS.mine = ({ rest, flags, out, cfg }) => {
 };
 
 // Command sets from the feature modules. Each one exports a name -> handler map.
-Object.assign(EXTRA_COMMANDS, uiCommands, qaCommands, prCommands, reviewCommands, dailyCommands, learnCommands, captureCommands);
+Object.assign(EXTRA_COMMANDS, uiCommands, qaCommands, prCommands, reviewCommands, dailyCommands, learnCommands, captureCommands, healthCommands);
 
 EXTRA_COMMANDS.advise = ({ rest, out, cfg }) => {
   const query = rest.join(" ").trim();

@@ -17,7 +17,7 @@ import type { KeyStore } from "../brain/keystore.ts";
 import { createBrain, describeBackends, providerSlot } from "../brain/select.ts";
 import type { SelectOptions } from "../brain/select.ts";
 import type { CompleteFn } from "../brain/client.ts";
-import { effectiveBrain, machineDataDir, updateSettings } from "../brain/settings.ts";
+import { effectiveBrain, loadSettings, machineDataDir, updateSettings } from "../brain/settings.ts";
 import type { EffectiveBrain } from "../brain/settings.ts";
 import { sendJson } from "./http.ts";
 
@@ -112,7 +112,10 @@ export async function brainView(cfg: GuardConfig, o: BrainRouteOptions = {}) {
   const status = await keys.status();
   const storage = await keys.storage();
   const catalogue = [...loadCatalogue(cfg.root)];
-  const liveAgy = await discoverAgyModels({
+  // Turned-off providers are not asked for anything.
+  const saved = loadSettings(machineDataDir(cfg)).settings.providers ?? {};
+  const off = (id: string): boolean => saved[id]?.enabled === false;
+  const liveAgy = off("antigravity-cli") ? [] : await discoverAgyModels({
     ...(o.env ? { env: o.env } : {}),
     ...(o.home ? { home: o.home } : {}),
     ...(o.launcher !== undefined ? { launcher: o.launcher } : {}),
@@ -122,7 +125,7 @@ export async function brainView(cfg: GuardConfig, o: BrainRouteOptions = {}) {
       catalogue.push({ id, label, note: "Available on your Antigravity CLI subscription.", backends: ["antigravity-cli"] });
     }
   }
-  const opencodeIds = await discoverOpencodeModels({
+  const opencodeIds = off("opencode-cli") ? [] : await discoverOpencodeModels({
     ...(o.env ? { env: o.env } : {}),
     ...(o.home ? { home: o.home } : {}),
     ...(o.launcher !== undefined ? { launcher: o.launcher } : {}),
@@ -132,7 +135,7 @@ export async function brainView(cfg: GuardConfig, o: BrainRouteOptions = {}) {
     const store = keyStoreFor(cfg, o, p);
     const st = await store.status();
     // The list is asked for only when this provider already has a key.
-    const key = st.source ? await store.resolve().catch(() => null) : null;
+    const key = st.source && !off(p.id) ? await store.resolve().catch(() => null) : null;
     const ids = key ? await discoverApiModels(p, key.key, o.fetch) : [];
     return { row: { id: p.id as string, label: p.label as string, env: p.env as string, source: st.source }, ids };
   }));
@@ -158,7 +161,7 @@ export async function brainView(cfg: GuardConfig, o: BrainRouteOptions = {}) {
       { id: "anthropic-api", label: LABELS["anthropic-api"]!, env: "ANTHROPIC_API_KEY", source: status.source },
       ...providers.map((x) => x.row),
     ],
-    planCli: await planCli(o),
+    planCli: off("claude-cli") ? { found: false, help: "The Claude plan is turned off in Providers." } : await planCli(o),
     ...(eff.problem ? { problem: eff.problem } : {}),
   };
 }

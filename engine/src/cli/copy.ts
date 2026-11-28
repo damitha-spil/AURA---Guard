@@ -55,8 +55,10 @@ export const copy = {
                               Up to 3 refactors with patches that were test-applied in a scratch copy
   replay [repo] [--limit N] [--model]
                               Score the reviewer on past bug fixes
-  daily [--no-model] [--skip a,b]
-                              End-of-day routine: index, mine, logcheck, stale, diary
+  health [--json]             Local checks: providers, repos, index, desktop driver, key store, web build
+  daily [--no-model] [--skip a,b] [--unattended]
+                              End-of-day routine: index, mine, logcheck, QA checks, stale, diary.
+                              Unattended (or no terminal): only read-only steps run
   quiz list | quiz run [--no-model] [--judge] [--max N]
                               Score Guard against the 50 draft questions (gate: 90%)
   rules propose|list|show|approve|dismiss|export

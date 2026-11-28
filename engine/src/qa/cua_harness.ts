@@ -1,7 +1,8 @@
 // Safety-guarded Cua Driver QA harness for AURA Guard.
 // Enforces:
 // 1. Background-only execution (delivery_mode: "background" always; never steals focus).
-// 2. Process & window allowlist/denylist (never touches shells, SQL tools, Guard itself, or SPIL Glass ERP unless configured).
+// 2. Only apps named in cuaDriver.allowedApps (exact program name). Shells, terminals, SQL and admin tools,
+//    ERP clients, REO's own window and elevated windows are always refused; local settings only add blocks.
 // 3. Pre-action qa/safety.ts validation on every element_token before click/type/press.
 // 4. Saves window-scoped screenshots into .artifacts/qa/<runId>/ for Replay & Failure Inspector.
 
@@ -12,7 +13,7 @@ import { CuaClient } from "./cua_client.ts";
 import type { CuaTreeNode, CuaWindowInfo, CuaWindowState } from "./cua_client.ts";
 import { ForbiddenActionError, judgeElement } from "./harness.ts";
 import type { ElementInfo, StepRecord } from "./harness.ts";
-import { isCommitKey, isEnterKey, isSearchTarget } from "./safety.ts";
+import { isCommitKey, isEnterKey, isSafeKey, isSearchTarget, OWN_WINDOW_TITLE } from "./safety.ts";
 import type { ForbiddenList } from "./safety.ts";
 
 /** Built-in process denylist: shells, admin consoles, Guard itself, and ERP clients. */
@@ -29,6 +30,26 @@ export const BUILTIN_DENY_PROCESSES = [
   "spilglass.exe",
   "spil.exe",
 ];
+
+/**
+ * More programs that are always refused, matched on the whole program name without ".exe" (so
+ * "sh" does not match "refresh"). Editors with a built-in terminal and script hosts count as shells.
+ */
+export const SHELL_PROCESS_NAMES = [
+  "cmd", "powershell", "powershell_ise", "pwsh", "wt", "windowsterminal", "openconsole", "conhost",
+  "bash", "sh", "zsh", "fish", "dash", "nu", "wsl", "wslhost", "ubuntu", "debian", "git-bash", "git-cmd",
+  "mintty", "alacritty", "wezterm", "wezterm-gui", "kitty", "hyper", "tabby", "warp", "conemu", "conemu64",
+  "conemuc", "conemuc64", "cmder", "putty", "kitty_portable", "mobaxterm", "ssh", "telnet",
+  "wscript", "cscript", "mshta", "mmc", "explorer", "code", "code - insiders", "cursor", "windsurf", "devenv",
+  "regedit", "taskmgr", "ssms", "terminal", "iterm2", "gnome-terminal", "gnome-terminal-server", "konsole", "xterm",
+];
+
+/** REO's own program names. Its window title is checked too: a browser window showing REO is REO. */
+const OWN_PROCESS = /spil[\s_-]*reo|aura-guard/i;
+
+/** "C:\\x\\Foo.EXE" -> "foo". */
+export const processStem = (name: string): string =>
+  (name.trim().split(/[\\/]/).pop() ?? "").toLowerCase().replace(/\.exe$/, "");
 
 /** Safety limit: max nodes walked per UIA tree lookup to prevent runaway recursion. */
 export const MAX_TREE_NODES = 2_000;
@@ -56,16 +77,33 @@ export function nodeToElementInfo(node: CuaTreeNode): ElementInfo {
   };
 }
 
-/** Validates whether a target window is permitted for background QA. Returns error reason or null. */
-export function judgeTargetWindow(win: CuaWindowInfo, cfg: GuardConfig): string | null {
+/** The blocks no setting can lift. Returns the reason, or null. Fails closed on missing facts. */
+export function judgeProtectedWindow(win: CuaWindowInfo, extraDeny: string[] = []): string | null {
   const proc = win.processName.toLowerCase();
-  const extraDeny = (cfg.cuaDriver?.denyApps ?? []).map((s) => s.toLowerCase());
-  if ([...BUILTIN_DENY_PROCESSES, ...extraDeny].some((d) => proc.includes(d))) {
+  const stem = processStem(proc);
+  if (!stem || stem === "unknown") return "the window's program could not be identified";
+  if (!Number.isInteger(win.pid) || win.pid <= 0) return "the window's process id is not valid";
+  if (win.pid === process.pid || win.pid === process.ppid || OWN_PROCESS.test(proc) || OWN_WINDOW_TITLE.test(win.title)) {
+    return "REO never controls its own window or process";
+  }
+  const extra = extraDeny.map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (SHELL_PROCESS_NAMES.includes(stem) || [...BUILTIN_DENY_PROCESSES, ...extra].some((d) => proc.includes(d))) {
     return `process "${win.processName}" is on the protected denylist`;
   }
-  const allow = (cfg.cuaDriver?.allowedApps ?? []).map((s) => s.toLowerCase());
-  if (allow.length > 0 && !allow.some((a) => proc.includes(a) || win.title.toLowerCase().includes(a))) {
-    return `window "${win.title}" (${win.processName}) is not in cuaDriver.allowedApps`;
+  if (win.elevated === true) return `process "${win.processName}" runs as administrator`;
+  if (win.elevated === "unknown") return `it could not be checked whether "${win.processName}" runs as administrator`;
+  return null;
+}
+
+/** Validates whether a target window is permitted for background QA. Returns error reason or null. */
+export function judgeTargetWindow(win: CuaWindowInfo, cfg: GuardConfig): string | null {
+  const blocked = judgeProtectedWindow(win, cfg.cuaDriver?.denyApps ?? []);
+  if (blocked) return blocked;
+  const allow = (cfg.cuaDriver?.allowedApps ?? []).map(processStem).filter(Boolean);
+  if (allow.length === 0) return "no app is allowed yet: add its program name to cuaDriver.allowedApps";
+  // The program name only, exactly. A window title is text any program can set.
+  if (!allow.includes(processStem(win.processName))) {
+    return `process "${win.processName}" is not in cuaDriver.allowedApps`;
   }
   return null;
 }
@@ -79,7 +117,8 @@ export function selectTargetWindow(windows: CuaWindowInfo[], cfg: GuardConfig, m
       return w;
     }
   }
-  throw new Error("No permitted background window matched for Cua Driver QA.");
+  const none = (cfg.cuaDriver?.allowedApps ?? []).some((a) => a.trim()) ? "" : " No app is allowed yet: add its program name to cuaDriver.allowedApps.";
+  throw new Error(`No permitted background window matched for Cua Driver QA.${none}`);
 }
 
 export interface CuaStepContext {
@@ -101,6 +140,8 @@ export function createCuaStepContext(opts: {
   record: (s: StepRecord) => void;
 }): CuaStepContext {
   const { client, window, forbidden, shotDir, record } = opts;
+  const refused = judgeProtectedWindow(window);
+  if (refused) throw new ForbiddenActionError("target window", refused);
   let lastState: CuaWindowState | null = null;
   let stepN = 0;
 
@@ -143,6 +184,13 @@ export function createCuaStepContext(opts: {
       if (!isSearchTarget(targetText)) {
         throw new ForbiddenActionError("press_key", `Enter is only allowed inside a search field (got "${targetText || "unknown"}")`);
       }
+      // The named field must really be a text field on this window.
+      const field = await findToken(targetText);
+      if (!/text|edit|search|combo/i.test(field.role)) {
+        throw new ForbiddenActionError("press_key", `Enter is only allowed inside a search field ("${targetText}" is a ${field.role || "control of unknown kind"})`);
+      }
+    } else if (!isSafeKey(key)) {
+      throw new ForbiddenActionError("press_key", `key "${key}" is not a navigation key; keys such as Space can press the focused button`);
     }
     await client.pressKey(window.pid, window.windowId, key);
   }

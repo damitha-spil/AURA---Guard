@@ -26,6 +26,8 @@ function makeTempCfg(): { dir: string; cfg: GuardConfig } {
       vaultDir: join(dir, "vault"),
       repos: [],
       busyProcesses: [],
+      // Desktop drivers act only on apps named here.
+      cuaDriver: { allowedApps: ["personal-agent.exe"] },
     },
   };
 }

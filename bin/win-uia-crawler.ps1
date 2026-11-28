@@ -4,6 +4,8 @@ param(
   [string]$TargetName = "",
   [string]$Text = "",
   [string]$OutPath = "",
+  [string]$WindowHandle = "",
+  [string]$ExpectedProcess = "",
   [int]$MaxNodes = 1200
 )
 
@@ -18,9 +20,39 @@ function Get-ProcName([int]$procId) {
   catch { return "unknown.exe" }
 }
 
-function Find-WindowByPid([int]$procId) {
-  $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $procId)
-  return $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $cond)
+# Elevation: $true, $false, or "unknown" when Windows will not say. REO refuses anything but $false.
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class ReoElevation {
+  [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+  [DllImport("advapi32.dll", SetLastError=true)] static extern bool GetTokenInformation(IntPtr token, int cls, out int info, int len, out int ret);
+  // 1 elevated, 0 not, -1 not known.
+  public static int Check(int pid) {
+    IntPtr p = OpenProcess(0x1000, false, pid);
+    if (p == IntPtr.Zero) return -1;
+    try {
+      IntPtr t;
+      if (!OpenProcessToken(p, 0x0008, out t)) return -1;
+      try {
+        int info; int ret;
+        if (!GetTokenInformation(t, 20, out info, 4, out ret)) return -1;
+        return info != 0 ? 1 : 0;
+      } finally { CloseHandle(t); }
+    } finally { CloseHandle(p); }
+  }
+}
+"@
+
+function Get-Elevation([int]$procId) {
+  try {
+    $r = [ReoElevation]::Check($procId)
+    if ($r -eq 0) { return $false }
+    if ($r -eq 1) { return $true }
+  } catch {}
+  return "unknown"
 }
 
 if ($Action -eq "list-windows") {
@@ -35,6 +67,7 @@ if ($Action -eq "list-windows") {
         windowId = [string]$c.NativeWindowHandle
         title = [string]$c.Name
         processName = Get-ProcName $c.ProcessId
+        elevated = Get-Elevation $c.ProcessId
       }
     } catch {}
   }
@@ -42,11 +75,25 @@ if ($Action -eq "list-windows") {
   exit 0
 }
 
-$win = Find-WindowByPid $TargetPid
+# Every other action names the window and program REO judged. Check again here, and fail closed.
+if (-not $WindowHandle -or -not $ExpectedProcess) { Write-Error "WindowHandle and ExpectedProcess are required."; exit 1 }
+$actual = Get-ProcName $TargetPid
+if ($actual -ne $ExpectedProcess.ToLower()) { Write-Error "The program behind PID $TargetPid changed."; exit 1 }
+$blockedNames = @("cmd","powershell","powershell_ise","pwsh","wt","windowsterminal","openconsole","conhost","bash","sh","wsl","mintty","wscript","cscript","mshta","mmc","explorer","regedit","taskmgr","ssms","code","devenv","cursor","spil-reo-desktop")
+if ($blockedNames -contains ($actual -replace '\.exe$', '')) { Write-Error "REO never controls shells, terminals, admin tools or itself."; exit 1 }
+if ((Get-Elevation $TargetPid) -ne $false) { Write-Error "The target runs as administrator, or this could not be checked."; exit 1 }
+
+# The exact window, not just any window of the process.
+$win = $null
+$ofPid = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ProcessIdProperty, $TargetPid)
+foreach ($w in $root.FindAll([System.Windows.Automation.TreeScope]::Children, $ofPid)) {
+  if ([string]$w.Current.NativeWindowHandle -eq $WindowHandle) { $win = $w; break }
+}
 if (-not $win) {
-  Write-Error "Window for PID $TargetPid not found."
+  Write-Error "The judged window of PID $TargetPid was not found."
   exit 1
 }
+if ([string]$win.Current.Name -match '\bSPIL[\s_-]*REO\b') { Write-Error "REO never controls its own window."; exit 1 }
 
 $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
 
@@ -92,21 +139,20 @@ if ($Action -eq "inspect-tree") {
   exit 0
 }
 
+# Exactly one enabled control with this name. A partial or ambiguous match could act on another
+# control than the one REO judged (asking for "Orders" must never reach "Delete Orders").
 function Find-ControlByName($rootEl, [string]$query) {
   $q = $query.ToLower()
   $queue = New-Object System.Collections.Queue
   $queue.Enqueue($rootEl)
   $seen = 0
+  $hits = @()
   while ($queue.Count -gt 0 -and $seen -lt $MaxNodes) {
     $cur = $queue.Dequeue()
     $seen++
     try {
       $c = $cur.Current
-      $nm = ([string]$c.Name).ToLower()
-      $aid = ([string]$c.AutomationId).ToLower()
-      if ($c.IsEnabled -and ($nm -eq $q -or $aid -eq $q -or $nm.Contains($q))) {
-        return $cur
-      }
+      if ($c.IsEnabled -and ([string]$c.Name).ToLower() -eq $q) { $hits += $cur }
       $child = $walker.GetFirstChild($cur)
       while ($child -ne $null) {
         $queue.Enqueue($child)
@@ -114,12 +160,14 @@ function Find-ControlByName($rootEl, [string]$query) {
       }
     } catch {}
   }
+  # Anything left unread could hold a second match.
+  if ($queue.Count -eq 0 -and $hits.Count -eq 1) { return $hits[0] }
   return $null
 }
 
 if ($Action -eq "click") {
   $target = Find-ControlByName $win $TargetName
-  if (-not $target) { Write-Error "Control '$TargetName' not found."; exit 1 }
+  if (-not $target) { Write-Error "Control '$TargetName' was not found exactly once."; exit 1 }
   $pat = $null
   if ($target.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pat)) {
     $pat.Invoke()
@@ -139,7 +187,7 @@ if ($Action -eq "click") {
 
 if ($Action -eq "type") {
   $target = Find-ControlByName $win $TargetName
-  if (-not $target) { Write-Error "Input '$TargetName' not found."; exit 1 }
+  if (-not $target) { Write-Error "Input '$TargetName' was not found exactly once."; exit 1 }
   $pat = $null
   if ($target.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pat)) {
     $pat.SetValue($Text)
