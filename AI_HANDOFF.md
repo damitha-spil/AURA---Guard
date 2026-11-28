@@ -50,6 +50,15 @@ Clean-room from written descriptions; the SPIL AURA repo was not opened.
 
 ---
 
+## Documentation Organization & Architecture Refresh (2026-11-28)
+
+- **What changed:**
+  - Created `docs/README.md` indexing all root Markdown documents, `docs/` technical guides, ADRs, and phase plans.
+  - Updated `README.md`, `ARCHITECTURE.md`, and `STATUS.md` to reflect SPIL REO as built (`web/` React 19 + shadcn/ui + Three.js frontend, Tauri 2 shell, multi-provider CLI subscription sign-in, 3-column model picker, file attachments, and the Hermes-inspired QA Harness with configurable profiles, 3-layer QA memory, triggers, checkpoints, and Quality Gate).
+- **Checks:** `git diff --check` (see below).
+
+---
+
 ## Hermes-Inspired Autonomous QA Harness (2026-11-28)
 
 - **What changed:**

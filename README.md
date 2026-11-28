@@ -1,8 +1,6 @@
-# SPIL AURA QA Bot
+# SPIL REO
 
-SPIL AURA QA Bot is SPIL's internal engineering assistant. It learns what Aura is,
-how the owner builds it, and how features are added day to day. Later it acts
-as a code reviewer, a QA planner and a source of support knowledge.
+**SPIL REO** (*A Multi-Agent Quality Engineering & Software Assurance Platform.*) is SPIL's internal engineering intelligence and autonomous QA assistant. It learns what Aura is, how the owner builds it, and how features evolve day to day, serving as an autonomous QA orchestrator, code reviewer, QE analyzer, security auditor, and support knowledge drafter.
 
 It is **not** part of the Aura product that fabricators install. It reads
 Aura's repositories and suggests; people decide and commit.
@@ -13,7 +11,9 @@ It is built for one project: SPIL Aura.
 
 | File | What it holds |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | The design: parts, data, rules, safety |
+| [docs/README.md](docs/README.md) | Central index of all repository docs, ADRs, and guides |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | The design: parts, memory, masking, multi-provider brain, QA Harness, web/Tauri UI |
+| [SPIL_REO_BLUEPRINT.md](SPIL_REO_BLUEPRINT.md) | Multi-agent REO orchestrator, defect store, and platform blueprint |
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | What to build, in what order, and how we prove each step |
 | [THINKING.md](THINKING.md) | The brainstorm: ideas we kept, changed or dropped, and why |
 | [AI_HANDOFF.md](AI_HANDOFF.md) | Current state for the next person or assistant |
@@ -51,10 +51,11 @@ npm run desktop:build           # builds a standalone Windows installer/executab
 
 | Layer | Technology | Role |
 |---|---|---|
-| Desktop Shell | **Tauri 2** (Rust + WebView2) | Native window, process lifecycle, hidden Node sidecar |
-| Core Engine | **Node.js 26 + TypeScript** (`--experimental-strip-types`) | Zero-build QA, QE, DevSecOps, MCP server, HTTP/SSE server |
-| Knowledge & Memory | **SQLite (`node:sqlite` FTS5)** + Obsidian Vault + `graphify` (Python) | Full-text search, AST code graph, blast radius |
-| Control Room UI | **Vanilla JS + HTML + CSS** (CSP-strict, zero-build) | 4-zone IDE workstation, live telemetry, triage |
+| Desktop Shell | **Tauri 2** (`src-tauri/`, Rust + WebView2) | Native window, process lifecycle, hidden Node sidecar |
+| Web App (`web/`) | **React 19 + Vite + Tailwind CSS v4 + shadcn/ui + Three.js + motion** | CSP-strict UI, 3-column model picker, file attachments, 3D bot, QA Harness & Settings |
+| Core Engine (`engine/`) | **Node.js 24+ TypeScript** (`--experimental-strip-types`) | Multi-provider brain (CLI subscriptions + encrypted API keys), HTTP/NDJSON + MCP server |
+| Knowledge & Memory | **SQLite (`node:sqlite` FTS5)** + Obsidian Vault + **3-Layer QA Memory** | Full-text search, AST code graph, project/execution/procedural memory |
+| Autonomous QA Harness | **Profiles + Triggers + Checkpoints + Quality Gate** | Per-agent budgets, event/cron hooks, baseline/completed checkpoints, `PASS`/`NEEDS_REVIEW`/`BLOCK_RELEASE` |
 | UI & Desktop Drivers | **Windows UIA** (`win-uia-crawler.ps1`), `cua-driver`, **Playwright CDP** | Background/live desktop & web automation |
 
 ## Developer activity capture (VS Code)
@@ -65,7 +66,7 @@ entries. See [docs/vscode-extension.md](docs/vscode-extension.md) and
 
 ## Names
 
-The platform name is **SPIL REO** (*Review · Evaluate · Optimize — Autonomous Engineering Intelligence, Powered by SPIL Labs*). The CLI command is still `aura-guard`, and the
+The platform name is **SPIL REO** (*A Multi-Agent Quality Engineering & Software Assurance Platform.*). The CLI command is still `aura-guard`, and the
 plugin and extension ids still start with `aura-guard`, so existing setups keep working.
 
 ## Use it from Claude Code (plugin)

@@ -1,6 +1,6 @@
-# SPIL AURA QA Bot architecture
+# SPIL REO Architecture
 
-Status: draft, 2026-11-20. Open decisions are marked **OPEN**.
+Status: updated 2026-11-28. Open decisions are marked **OPEN**. See [docs/README.md](docs/README.md) for the full documentation index.
 
 ## 1. Purpose
 
@@ -34,32 +34,33 @@ Status: draft, 2026-11-20. Open decisions are marked **OPEN**.
 
 ```
 ┌──────────────────────── 6. INTERFACES ────────────────────────┐
-│ MCP server · CLI · control screen · Azure DevOps PR hook      │
-│ ACP (editor protocol, e.g. Zed / Crow ADE) - planned          │
+│ Tauri 2 Desktop + React 19 / shadcn/ui Web App (web/)         │
+│ Workspace · QA Harness · QA Lab · Defects · Agents · Settings │
+│ MCP server (stdio) · CLI (aura-guard) · Azure DevOps / GitHub │
 └───────────────────────────────┬───────────────────────────────┘
-┌───────────────────────── 5. ROLES ────────────────────────────┐
-│ Scribe · Code Reviewer · QA Planner · Support writer          │
-│ each = one config file: trigger, tools, limits, output shape  │
+┌─────────────── 5. AUTONOMOUS QA HARNESS & AGENTS ─────────────┐
+│ Orchestrator + 7 Specialist Agents (qa, qe, review, security, │
+│ api, knowledge, report) with configurable profiles & budgets  │
+│ Automation Triggers · Execution Checkpoints · Quality Gate    │
 └───────────────────────────────┬───────────────────────────────┘
-┌────────────── 4. ROUTER, MASKING AND RESOURCE GUARD ──────────┐
-│ Tier 0: fixed checks (AST, schema, diff rules) - free, exact  │
-│ Tier 1: small local model + embeddings - sort, triage, mask   │
-│ Tier 2: paid model - judgment, review, explanation            │
-│ Masking proxy on every Tier 2 call · pauses during builds     │
+┌────────────── 4. MULTI-PROVIDER BRAIN & MASKING ──────────────┐
+│ Official CLI Subscriptions (Antigravity, Claude, OpenCode)    │
+│ + Encrypted OS Key Store API Providers · 100% Masking Proxy   │
+│ Tier 0 fixed checks · Resource Guard (pauses during builds)   │
 └───────────────────────────────┬───────────────────────────────┘
 ┌─────────────── 3. SEARCH AND PATTERN LEARNING ────────────────┐
-│ words (FTS5) + meaning (sqlite-vec) + code graph + co-change  │
+│ words (FTS5) + code graph + co-change + trajectory/drift      │
 │ choice records → rule proposals → stale-note detection        │
 └───────────────────────────────┬───────────────────────────────┘
 ┌──────────────────────── 2. MEMORY ────────────────────────────┐
-│ Truth: git-versioned Obsidian vault with strict frontmatter   │
-│ Index: one SQLite file, rebuilt from vault + git at any time  │
+│ Truth: git-versioned Obsidian vault (`vault/`)                │
+│ 3-Layer QA Memory (`project`, `execution`, `procedural`)      │
+│ Index: disposable SQLite (`data/guard.db`) rebuilt anytime    │
 └───────────────────────────────▲───────────────────────────────┘
 ┌──────────────────────── 1. INGEST ────────────────────────────┐
-│ git history and diffs · Azure DevOps PRs and comments ·       │
+│ git history and diffs · Azure DevOps & GitHub PRs ·           │
 │ AI_HANDOFF.md · AGENTS.md · skills · Claude Code sessions ·   │
-│ CI and test logs · aura-evidence packets · owner's notes      │
-│ incremental, by content hash                                  │
+│ CI and test logs · evidence packets · owner's notes           │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -251,16 +252,24 @@ There is one vault (`vault/`), one index (`data/guard.db`) and one set of chats 
 (An earlier multi-department design was tried and removed on 2026-11-20: the owner decided the bot only
 needs to focus on SPIL Aura.)
 
-## 13. Repository layout (planned)
+## 13. Repository layout (as built)
 
 ```
-engine/       ingest, index, search, router, masking, MCP, CLI
-vault/        Obsidian vault 
-roles/        role config files
+engine/       ingest, index, search, brain/providers, masking, QA/QE, automation harness, HTTP + MCP
+web/          React 19 + Vite + Tailwind CSS v4 + shadcn/ui + Three.js frontend (built to web/dist)
+src-tauri/    Tauri 2 (Rust + WebView2) native desktop shell
+vault/        Obsidian vault (source of truth)
+roles/        role, model, and pricing config files
 evals/        quiz, PR replay set, masking test set
-ui/           control screen
-docs/         ADRs
+docs/         ADRs, plans, and feature guides (indexed in docs/README.md)
 ```
+
+## 16. Web UI, Multi-Provider Sign-In & QA Harness (built 2026-11-28)
+
+- **Web App (`web/src/`):** CSP-strict (`style-src 'self'; script-src 'self'`) React 19 UI served by `engine/src/server/server.ts` and hosted inside Tauri 2 (`src-tauri/`).
+- **Workspace (`WorkspaceView.tsx`, `ChatModelPicker`, `ReoBot3D`):** 3-column provider/model/thinking-level selector with starred favorites, drag-and-drop / paperclip file & resource attachments, `AssistantAvatar` pixel mascot, and pointer-tracking / acting 3D companion (`reo-bot-3d.tsx`).
+- **Providers (`ProvidersSettings`, `AddProviderDialog`, `engine/src/server/providers.ts`):** 3-step Add Provider wizard, one-click official CLI subscription sign-in (`POST /api/providers/:id/signin`), encrypted OS credential storage for API keys, and per-provider model lists.
+- **Autonomous QA Harness (`HarnessView.tsx`, `profiles.ts`, `qa-memory.ts`, `harness.ts`):** Configurable per-agent budgets and prompts (`/api/reo/agents/:id`), 3-layer QA memory separating `hypothesis` findings from `verified` facts (`/api/reo/memory*`), scheduled & event triggers (`/api/reo/automation*`), execution checkpoints (`/api/reo/checkpoints`), and deterministic Quality Gate verdicts (`PASS`, `NEEDS_REVIEW`, `BLOCK_RELEASE`).
 
 ## 14. Open decisions
 

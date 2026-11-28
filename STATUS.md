@@ -1,9 +1,9 @@
-# SPIL AURA QA Bot: current status (for brainstorming)
+# SPIL REO (SPIL AURA QA Bot): current status
 
-Snapshot: 2026-11-20, end of day. Written to be pasted whole into another AI
+Snapshot: 2026-11-28. Written to be pasted whole into another AI
 so it has the full picture. It holds no secrets, server addresses or personal
-details. Detailed docs in the repo: ARCHITECTURE.md, IMPLEMENTATION_PLAN.md,
-THINKING.md, AI_HANDOFF.md, CHANGES.md, docs/adr/001-foundations.md.
+details. Detailed docs in the repo: [docs/README.md](docs/README.md), ARCHITECTURE.md, IMPLEMENTATION_PLAN.md,
+SPIL_REO_BLUEPRINT.md, THINKING.md, AI_HANDOFF.md, CHANGES.md, docs/adr/001-foundations.md.
 
 ---
 
@@ -63,33 +63,37 @@ Tests: 341 in 37 files in the engine plus 22 in the VS Code extension, all passi
 ## 4. Architecture as built
 
 ```
- INTERFACES   Chat window (local web app in an Edge/Chrome app window)
+ INTERFACES   Tauri 2 Desktop + React 19 / shadcn/ui Web App (web/)
+              Workspace (3-column model picker, attachments, 3D bot) · QA Harness · Settings
               CLI (aura-guard ...) - MCP server over stdio (dev/qa/support scopes)
               Claude Code plugin (marketplace + skills + commit hook)
- ROLES        Scribe (diary) - Reviewer/Refactor - QA planner + Playwright runner
-              Support writer - Rules pipeline - daily routine
- BRAIN        Claude via API key OR your Claude plan through the Claude Code CLI
+ HARNESS      7 specialist agents (configurable prompts & budgets) · 3-layer QA memory
+              Automation triggers · execution checkpoints · Quality Gate verdicts
+ BRAIN        Multi-provider CLI subscriptions (Antigravity, Claude, OpenCode) + API keys
               (text-only: no tools, no MCP, empty temp folder); always behind masking
  SEARCH       FTS5 word search - history - co-change - stale notes - code graph
               (graphify, local AST) - blast radius
- MEMORY       Obsidian vault (truth, git-versioned) + one disposable SQLite index
+ MEMORY       Obsidian vault (truth, git-versioned) + 3-layer QA memory + SQLite index
  INGEST       Aura + ERP-MCP git history and docs (read-only), Claude Code sessions,
-              Azure DevOps PR threads (read-only GET), the AI activity log
+              Azure DevOps & GitHub PR threads (read-only GET), the AI activity log
 ```
 
 ### Tech
 
 - **Desktop Shell:** Tauri 2 (`src-tauri/`, Rust + WebView2) spawning `node bin/aura-guard.mjs ui --no-open` as a managed child process.
-- **Core Engine:** TypeScript on Node 26 run directly (`--experimental-strip-types`, no build); `node:sqlite` (FTS5); deps: MCP SDK, zod, yaml, playwright-core (attach only, no browser download).
-- **UI & Drivers:** Zero-build CSP-strict Control Room UI (`ui/`); Windows UIA desktop crawler (`bin/win-uia-crawler.ps1`), `cua-driver`, and Playwright CDP.
+- **Web App (`web/`):** React 19 + Vite + Tailwind CSS v4 + shadcn/ui + Three.js (`ReoBot3D`) + `motion` (CSP-strict, built to `web/dist`).
+- **Core Engine:** TypeScript on Node 24+ run directly (`--experimental-strip-types`, no build); `node:sqlite` (FTS5); deps: MCP SDK, zod, yaml, playwright-core (attach only, no browser download).
+- **UI & Drivers:** Windows UIA desktop crawler (`bin/win-uia-crawler.ps1`), `cua-driver`, and Playwright CDP.
 - **Code Graph:** `graphify` runs from a local Python venv (`.venv/`, not in git).
 
 ### Folder layout
 
 ```
-engine/src/  ingest index vault mask guard brain roles sessions graph mcp cli
-             chat server review qa prs quiz rules logcheck support
-engine/test/ 25 test files      ui/  chat app (plain HTML/CSS/JS)
+engine/src/  agents automation brain capture chat cli defects followups graph guard
+             health index ingest logcheck mask mcp memory plugins prs qa qe quiz
+             reports repos review roles rules server sessions steps support tools usage vault
+web/         React 19 + Vite + Tailwind v4 + shadcn/ui frontend (built to web/dist)
+src-tauri/   Tauri 2 (Rust + WebView2) desktop shell
 vault/       notes: rules adr patterns domain diary choices incidents journeys
              support inbox _templates   (Obsidian vault)
 roles/       role configs: scribe, reviewer, refactor, qa-planner, review-rules.json, daily.json
