@@ -29,6 +29,7 @@ import { analyzeRefinementAndKbDrift } from "../qe/refine.ts";
 import { analyzeCommitTrajectory } from "../qe/trajectory.ts";
 import { getSkill, listSkills } from "../roles/skills.ts";
 import { n8nListExecutions, n8nListWorkflows, n8nTriggerWebhook } from "../plugins/n8n.ts";
+import { generatedSkillsDir, runCompositeTool } from "../agents/creations.ts";
 import { executeReoTool } from "../tools/execute.ts";
 import type { Audience, DocKind, GuardConfig } from "../types.ts";
 
@@ -248,7 +249,8 @@ export function buildServer(db: Db | null, scope: Scope, cfg?: GuardConfig): Mcp
       inputSchema: { category: z.enum(["security", "qa", "qe", "core"]).optional() },
     },
     ({ category }) => {
-      const skills = listSkills(resolveCfg().root, category);
+      const c = resolveCfg();
+      const skills = listSkills(c.root, category, generatedSkillsDir(c.dataDir));
       return text(JSON.stringify(skills, null, 2));
     },
   );
@@ -260,7 +262,8 @@ export function buildServer(db: Db | null, scope: Scope, cfg?: GuardConfig): Mcp
       inputSchema: { name: z.string() },
     },
     ({ name }) => {
-      const skill = getSkill(resolveCfg().root, name);
+      const c = resolveCfg();
+      const skill = getSkill(c.root, name, generatedSkillsDir(c.dataDir));
       if (!skill) return text(`Skill not found: ${name}`);
       return text(`# ${skill.name} [${skill.category}]\n${skill.description}\n\n${skill.body}`);
     },
@@ -514,6 +517,24 @@ export function buildServer(db: Db | null, scope: Scope, cfg?: GuardConfig): Mcp
     durationSeconds: z.number().int().min(1).max(10).optional(),
     p95BudgetMs: z.number().optional(),
   });
+
+  server.registerTool(
+    "run_reo_composite_tool",
+    {
+      description: "Execute a REO-created composite tool pipeline (reo_<slug>) with optional arguments.",
+      inputSchema: {
+        id: z.string(),
+        args: z.record(z.string(), z.unknown()).optional(),
+      },
+    },
+    async ({ id, args }) => {
+      try {
+        return text(JSON.stringify(await runCompositeTool(resolveCfg(), id, args ?? {}), null, 2));
+      } catch (e) {
+        return text(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+  );
 
   return server;
 }

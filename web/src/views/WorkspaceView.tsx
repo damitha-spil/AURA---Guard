@@ -52,6 +52,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { ChatModelPicker } from "@/components/app/chat-model-picker";
+import { AgentSwarm, type SwarmState } from "@/components/app/agent-swarm";
 import { cn } from "@/lib/utils";
 import { useAppearance } from "@/lib/appearance";
 import { BASIC_COMMANDS, SLASH_MENU, isRunnerCommand, slashName } from "@/lib/slash";
@@ -70,6 +71,7 @@ interface ChatMsg {
   pending?: boolean;
   sources?: { ref: string; title?: string; kind?: string; status?: string }[];
   work?: { secs: number; steps: WorkStep[] };
+  swarm?: SwarmState;
   /** Marks the reply of a run started in this window, so updates reach only that bubble. */
   run?: number;
 }
@@ -210,6 +212,7 @@ export function WorkspaceView({
   const [runnerNames, setRunnerNames] = React.useState<string[]>(BASIC_COMMANDS);
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [activeMissionId, setActiveMissionId] = React.useState<string | null>(null);
   const [harnessOpen, setHarnessOpen] = React.useState(false);
   const [missionSub, setMissionSub] = React.useState("Ready for multi-agent execution");
   const [planSteps, setPlanSteps] = React.useState<MissionStep[]>([]);
@@ -353,13 +356,157 @@ export function WorkspaceView({
     async (text: string) => {
       const q = text.trim();
       if (!q || busy) return;
+      recall.current = null;
+
+      // 1. Live swarm steering while an active swarm mission is already running
+      if (activeMissionId) {
+        const isSteer = /^(stop|cancel|abort|skip\s+[a-z0-9_-]+)\b/i.test(q) || /@[a-z0-9-]+/i.test(q);
+        if (isSteer) {
+          setMessages((prev) => [...prev, { role: "user", text: q }]);
+          const r = await apiPost<{ ok?: boolean; action?: string; target?: string }>(
+            `/api/reo/mission/${activeMissionId}/message`,
+            { text: q },
+          );
+          if (r.ok) {
+            toast.success(`Swarm command: ${r.data.action || "sent"}`);
+          } else {
+            toast.error(r.error || "Could not steer running swarm");
+          }
+          return;
+        }
+        // Regular chat message while swarm runs: pass as a note to swarm AND ask REO chat concurrently
+        apiPost(`/api/reo/mission/${activeMissionId}/message`, { text: q }).catch(() => {});
+      }
+
+      // 2. Natural-language asset creation: "create an agent / tool / skill ..."
+      const createMatch = /^(?:create|make|build)\s+(?:an?\s+)?(agent|tool|skill)\s+([\s\S]+)$/i.exec(q);
+      if (createMatch) {
+        const kind = createMatch[1]!.toLowerCase() as "agent" | "tool" | "skill";
+        const description = createMatch[2]!.trim();
+        setBusy(true);
+        setMessages((prev) => [...prev, { role: "user", text: q }, { role: "assistant", text: "Creating with REO...", pending: true }]);
+        const res = await apiPost<{ ok: boolean; item?: { id?: string; name: string } }>("/api/reo/create", { kind, description });
+        setBusy(false);
+        const msg = res.ok
+          ? `Created ${kind}: **${res.data.item?.name || ""}** (${res.data.item?.id || "ready"}) — tagged **Created by REO** in the Agents view.`
+          : `Could not create ${kind}: ${res.error || "failed"}`;
+        setMessages((prev) => [...prev.slice(0, -1), { role: "assistant", text: msg, error: !res.ok }]);
+        apiGet<{ agents: AgentLite[] }>("/api/reo/agents").then((r) => {
+          if (r.ok) setAgents(r.data.agents || []);
+        });
+        return;
+      }
+
+      // 3. Multi-agent Swarm Mission (runs non-blocking so user can chat while swarm runs!)
+      const name = slashName(q);
+      const runner = isRunnerCommand(q, runnerNames);
+      const isMission =
+        (!name || name === "qa") &&
+        !runner &&
+        (/^@(qa|qe|review|security|api|report|a11y|perf|release|architect|triage|knowledge|custom-[a-z0-9-]+)\b/i.test(q) ||
+          /\b(run mission|audit|probe|crawl|qa )\b/i.test(q));
+
+      if (isMission) {
+        const missionId = `mission-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+        setActiveMissionId(missionId);
+        setPlanSteps([]);
+        setToolLogs([]);
+        setAutoDefects([]);
+        setMissionSub("Launching parallel REO agent swarm...");
+
+        const initSwarm: SwarmState = {
+          id: missionId,
+          status: "running",
+          startedAt: Date.now(),
+          agents: [],
+          tools: [],
+          chat: [],
+          defects: [],
+          learned: [],
+        };
+        setMessages((prev) => [...prev, { role: "user", text: q }, { role: "assistant", text: "", swarm: initSwarm }]);
+
+        const patchSwarm = (updater: (cur: SwarmState) => SwarmState) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.swarm?.id === missionId ? { ...m, swarm: updater(m.swarm) } : m)),
+          );
+        };
+
+        void streamNdjson(
+          "/api/reo/mission",
+          { prompt: q, missionId },
+          (ev) => {
+            if (ev.type === "mission") {
+              const ag = Array.isArray(ev.agents) ? ev.agents.join(", ") : "";
+              setMissionSub(ev.status === "started" ? `Active agents: ${ag}` : `Completed (${ag})`);
+              if (ev.status === "done") {
+                patchSwarm((cur) => ({ ...cur, status: "done" }));
+                setActiveMissionId((curId) => (curId === missionId ? null : curId));
+                apiGet<{ agents: AgentLite[] }>("/api/reo/agents").then((r) => {
+                  if (r.ok) setAgents(r.data.agents || []);
+                });
+              }
+            } else if (ev.type === "agent") {
+              const nextAg = {
+                agent: String(ev.agent || ""),
+                name: String(ev.name || ev.agent || ""),
+                status: (ev.status as "queued" | "running" | "done" | "error" | "skipped") || "queued",
+                detail: typeof ev.detail === "string" ? ev.detail : undefined,
+                createdBy: ev.createdBy as "reo" | "user" | "system" | undefined,
+              };
+              patchSwarm((cur) => {
+                const idx = cur.agents.findIndex((a) => a.agent === nextAg.agent);
+                const agentsList = idx < 0 ? [...cur.agents, nextAg] : cur.agents.map((a, i) => (i === idx ? nextAg : a));
+                return { ...cur, agents: agentsList };
+              });
+            } else if (ev.type === "plan" && Array.isArray(ev.steps)) {
+              setPlanSteps(ev.steps as MissionStep[]);
+            } else if (ev.type === "tool") {
+              const tl = {
+                agent: String(ev.agent || ""),
+                tool: String(ev.tool || ""),
+                status: String(ev.status || ""),
+                detail: String(ev.detail || ""),
+                output: ev.output,
+              };
+              setToolLogs((prev) => [...prev, tl]);
+              patchSwarm((cur) => ({
+                ...cur,
+                tools: [...cur.tools, { agent: tl.agent, tool: tl.tool, status: tl.status, detail: tl.detail }],
+              }));
+            } else if (ev.type === "chat") {
+              patchSwarm((cur) => ({
+                ...cur,
+                chat: [...cur.chat, { from: ev.from === "user" ? "user" : "reo", text: String(ev.text || ""), action: typeof ev.action === "string" ? ev.action : undefined }],
+              }));
+            } else if (ev.type === "learned") {
+              const summary = String(ev.summary || "");
+              if (summary) patchSwarm((cur) => ({ ...cur, learned: [...cur.learned, summary] }));
+            } else if (ev.type === "defect" && ev.defect) {
+              const d = ev.defect as { id: string; title: string };
+              setAutoDefects((prev) => [...prev, d]);
+              patchSwarm((cur) => ({
+                ...cur,
+                defects: cur.defects.some((x) => x.id === d.id) ? cur.defects : [...cur.defects, d],
+              }));
+              toast(`Defect filed: ${d.id}`);
+            } else if (ev.type === "verdict") {
+              patchSwarm((cur) => ({ ...cur, verdict: String(ev.verdict || "") }));
+            }
+          },
+        ).finally(() => {
+          patchSwarm((cur) => (cur.status === "running" ? { ...cur, status: "done" } : cur));
+          setActiveMissionId((curId) => (curId === missionId ? null : curId));
+        });
+        return;
+      }
+
       setBusy(true);
       const started = Date.now();
       const work: WorkStep[] = [];
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       const run = ++runSeq.current;
-      recall.current = null;
 
       const startedIn = activeRef.current;
       let cid = startedIn;
@@ -396,50 +543,6 @@ export function WorkspaceView({
         });
       };
       let output = "";
-
-      // Slash lines other than /qa never start a mission, even if they contain words like "audit".
-      const name = slashName(q);
-      const runner = isRunnerCommand(q, runnerNames);
-      const isMission =
-        (!name || name === "qa") &&
-        !runner &&
-        (/^@(qa|qe|review|security|api|report)\b/i.test(q) || /\b(run mission|audit|probe|crawl|qa )\b/i.test(q));
-      if (isMission) {
-        setHarnessOpen(true);
-        setPlanSteps([]);
-        setToolLogs([]);
-        setAutoDefects([]);
-        setMissionSub("Planning specialist sub-agent mission...");
-        await streamNdjson(
-          "/api/reo/mission",
-          { prompt: q },
-          (ev) => {
-            if (ev.type === "mission") {
-              const ag = Array.isArray(ev.agents) ? ev.agents.join(", ") : "";
-              setMissionSub(ev.status === "started" ? `Active agents: ${ag}` : `Completed (${ag})`);
-            } else if (ev.type === "plan" && Array.isArray(ev.steps)) {
-              setPlanSteps(ev.steps as MissionStep[]);
-            } else if (ev.type === "tool") {
-              work.push({ label: `${String(ev.agent || "").toUpperCase()} · ${String(ev.tool || "")}`, status: String(ev.status || "") });
-              setToolLogs((prev) => [
-                ...prev,
-                {
-                  agent: String(ev.agent || ""),
-                  tool: String(ev.tool || ""),
-                  status: String(ev.status || ""),
-                  detail: String(ev.detail || ""),
-                  output: ev.output,
-                },
-              ]);
-            } else if (ev.type === "defect" && ev.defect) {
-              const d = ev.defect as { id: string; title: string };
-              setAutoDefects((prev) => [...prev, d]);
-              toast(`Defect filed: ${d.id}`);
-            }
-          },
-          ctrl.signal,
-        ).catch(() => {});
-      }
 
       if (runner) {
         let finished = false;
@@ -493,7 +596,7 @@ export function WorkspaceView({
       setBusy(false);
       refreshChats();
     },
-    [busy, notesOnly, webSearch, runnerNames],
+    [busy, activeMissionId, notesOnly, webSearch, runnerNames],
   );
 
   React.useEffect(() => {
@@ -830,6 +933,11 @@ export function WorkspaceView({
             ))}
           </div>
         )}
+        {activeMissionId && (
+          <div className="mb-1.5 flex items-center justify-between gap-2 rounded-full border border-primary/30 bg-primary/5 px-3 py-1 text-xs">
+            <span>Swarm running — messages steer the swarm (<code>stop</code>, <code>skip &lt;agent&gt;</code>, <code>@agent</code>) or ask a question concurrently.</span>
+          </div>
+        )}
         <Textarea
           ref={inputRef}
           value={input}
@@ -1119,14 +1227,25 @@ export function WorkspaceView({
                           </CollapsibleContent>
                         </Collapsible>
                       )}
-                      <div
-                        className={cn(
-                          "text-sm leading-relaxed break-words whitespace-pre-wrap",
-                          m.error && "border-destructive text-destructive rounded-2xl border p-3",
-                        )}
-                      >
-                        {m.pending ? <Skeleton className="h-4 w-40" /> : <Marked text={m.text} query={findOpen ? findQuery : ""} />}
-                      </div>
+                      {m.swarm && (
+                        <AgentSwarm
+                          mission={m.swarm}
+                          onOpenDefects={onOpenDefects}
+                          onStop={(mid) => {
+                            apiPost(`/api/reo/mission/${mid}/stop`, {}).catch(() => {});
+                          }}
+                        />
+                      )}
+                      {(!m.swarm || m.text) && (
+                        <div
+                          className={cn(
+                            "text-sm leading-relaxed break-words whitespace-pre-wrap",
+                            m.error && "border-destructive text-destructive rounded-2xl border p-3",
+                          )}
+                        >
+                          {m.pending ? <Skeleton className="h-4 w-40" /> : <Marked text={m.text} query={findOpen ? findQuery : ""} />}
+                        </div>
+                      )}
                       {m.sources && m.sources.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
                           {m.sources.map((s) => (

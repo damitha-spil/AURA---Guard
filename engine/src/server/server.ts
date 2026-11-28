@@ -52,6 +52,27 @@ import { PREBUILT_AGENTS, routeIntentToAgents } from "../agents/registry.ts";
 import type { AgentId } from "../agents/registry.ts";
 import { getEffectiveAgents, saveAgentProfile } from "../agents/profiles.ts";
 import { runAgenticMission } from "../agents/runner.ts";
+import { abortMission, listActiveMissions, postMissionMessage } from "../agents/mission-control.ts";
+import {
+  createCompositeTool,
+  createCustomAgent,
+  createGeneratedSkill,
+  deleteCompositeTool,
+  deleteCustomAgent,
+  deleteGeneratedSkill,
+  generatedSkillsDir,
+  listCompositeTools,
+  listCustomAgents,
+  updateCompositeToolStatus,
+  updateCustomAgentStatus,
+} from "../agents/creations.ts";
+import {
+  deleteLesson,
+  getLearnedRouting,
+  loadLearningStore,
+  recordFeedback as recordMissionFeedback,
+  resetLearning,
+} from "../learning/self-learning.ts";
 import { addMemory, deleteMemory, listMemory, verifyMemory } from "../memory/qa-memory.ts";
 import type { MemoryConfidence, MemoryLayer } from "../memory/qa-memory.ts";
 import { deleteAutomationRule, listAutomationRules, listCheckpoints, upsertAutomationRule } from "../automation/harness.ts";
@@ -765,12 +786,12 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     if (path === "/api/skills" && method === "GET") {
       const cat = new URL(req.url ?? "/", "http://x").searchParams.get("category");
       const valid = cat === "security" || cat === "qa" || cat === "qe" || cat === "core" ? (cat as SkillCategory) : undefined;
-      return json(res, 200, { skills: listSkills(dcfg.root, valid) });
+      return json(res, 200, { skills: listSkills(dcfg.root, valid, generatedSkillsDir(dcfg.dataDir)) });
     }
 
     if (path === "/api/skill" && method === "GET") {
       const name = new URL(req.url ?? "/", "http://x").searchParams.get("name") ?? "";
-      const skill = getSkill(dcfg.root, name);
+      const skill = getSkill(dcfg.root, name, generatedSkillsDir(dcfg.dataDir));
       if (!skill) throw new HttpError(404, "No such skill.");
       return json(res, 200, skill);
     }
@@ -861,7 +882,14 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     }
 
     if (path === "/api/reo/agents" && method === "GET") {
-      return json(res, 200, { agents: getEffectiveAgents(dcfg.dataDir), tools: BUILTIN_TOOLS });
+      const prebuilt = getEffectiveAgents(dcfg.dataDir).map((a) => ({ ...a, createdBy: "system" as const, origin: "built-in" as const }));
+      const custom = listCustomAgents(dcfg.dataDir);
+      const builtinTools = BUILTIN_TOOLS.map((t) => ({ ...t, createdBy: "system" as const, origin: "built-in" as const, status: "active" as const }));
+      const compositeTools = listCompositeTools(dcfg.dataDir);
+      return json(res, 200, {
+        agents: [...prebuilt, ...custom],
+        tools: [...builtinTools, ...compositeTools],
+      });
     }
 
     const agentProfMatch = /^\/api\/reo\/agents\/([a-z]+)$/.exec(path);
@@ -879,7 +907,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         repos: dcfg.repos.map((r) => ({ id: r.id, label: r.module || r.id, path: r.path })),
         vaultNotes: notes.length,
         vaultProblems: problems.length,
-        skillsCount: listSkills(dcfg.root).length,
+        skillsCount: listSkills(dcfg.root, undefined, generatedSkillsDir(dcfg.dataDir)).length,
         defectsCount: listProductionDefects(dcfg.dataDir).length,
         guardrails: {
           readOnlyRepos: true,
@@ -908,18 +936,158 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     if (path === "/api/reo/route" && method === "POST") {
       const body = await readJson(req);
       const prompt = typeof body["prompt"] === "string" ? body["prompt"] : "";
-      return json(res, 200, routeIntentToAgents(prompt));
+      return json(res, 200, routeIntentToAgents(prompt, getLearnedRouting(dcfg.dataDir)));
     }
 
     if (path === "/api/reo/mission" && method === "POST") {
       const body = await readJson(req);
       const prompt = typeof body["prompt"] === "string" ? body["prompt"].trim() : "";
       if (!prompt) throw new HttpError(400, "prompt is required.");
+      const rawMid = typeof body["missionId"] === "string" ? body["missionId"].trim() : "";
+      const missionId = rawMid && /^mission-[a-z0-9]+$/.test(rawMid) ? rawMid : undefined;
+      const ac = new AbortController();
+      req.on("close", () => ac.abort());
       res.writeHead(200, { "Content-Type": NDJSON, "Cache-Control": "no-store" });
-      await runAgenticMission(dcfg, prompt, (ev) => {
-        if (!res.writableEnded) res.write(JSON.stringify(ev) + "\n");
-      });
+      await runAgenticMission(
+        dcfg,
+        prompt,
+        (ev) => {
+          if (!res.writableEnded) res.write(JSON.stringify(ev) + "\n");
+        },
+        { ...(missionId ? { missionId } : {}), signal: ac.signal },
+      );
       return void res.end();
+    }
+
+    const missionMsgMatch = /^\/api\/reo\/mission\/(mission-[a-z0-9]+)\/message$/.exec(path);
+    if (missionMsgMatch && method === "POST") {
+      const body = await readJson(req);
+      const text = typeof body["text"] === "string" ? body["text"] : "";
+      const out = postMissionMessage(missionMsgMatch[1]!, text);
+      if (!out.accepted) throw new HttpError(out.reason === "Mission is not active." ? 404 : 400, out.reason || "Rejected.");
+      return json(res, 200, { ok: true, ...out });
+    }
+
+    const missionStopMatch = /^\/api\/reo\/mission\/(mission-[a-z0-9]+)\/stop$/.exec(path);
+    if (missionStopMatch && method === "POST") {
+      if (!abortMission(missionStopMatch[1]!)) throw new HttpError(404, "Mission is not active.");
+      return json(res, 200, { ok: true });
+    }
+
+    const missionFbMatch = /^\/api\/reo\/mission\/(mission-[a-z0-9-]+)\/feedback$/.exec(path);
+    if (missionFbMatch && method === "POST") {
+      const body = await readJson(req);
+      const rating = body["rating"];
+      if (rating !== "up" && rating !== "down") throw new HttpError(400, "rating must be 'up' or 'down'.");
+      const note = typeof body["note"] === "string" ? body["note"] : undefined;
+      try {
+        recordMissionFeedback(dcfg.dataDir, missionFbMatch[1]!, rating, note);
+        return json(res, 200, { ok: true });
+      } catch (e) {
+        throw new HttpError(400, (e as Error).message);
+      }
+    }
+
+    if (path === "/api/reo/missions/active" && method === "GET") {
+      return json(res, 200, { missions: listActiveMissions() });
+    }
+
+    if (path === "/api/reo/create" && method === "POST") {
+      const body = await readJson(req);
+      const kind = body["kind"];
+      const description = typeof body["description"] === "string" ? body["description"].trim() : "";
+      const name = typeof body["name"] === "string" ? body["name"].trim() : undefined;
+      if (!description) throw new HttpError(400, "description is required.");
+      try {
+        if (kind === "agent") {
+          const item = createCustomAgent(dcfg.dataDir, dcfg.root, { description, ...(name ? { name } : {}), createdBy: "reo", origin: "chat" });
+          return json(res, 201, { ok: true, kind, item });
+        }
+        if (kind === "tool") {
+          const item = createCompositeTool(dcfg.dataDir, dcfg.root, { description, ...(name ? { name } : {}), createdBy: "reo", origin: "chat" });
+          return json(res, 201, { ok: true, kind, item });
+        }
+        if (kind === "skill") {
+          const skillName = (name || description.split(/\s+/).slice(0, 3).join("-")).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "qa-custom";
+          const item = createGeneratedSkill(dcfg.dataDir, dcfg.root, {
+            name: skillName,
+            description,
+            body: `# ${skillName}\n\n${description}\n\n1. Run targeted read-only checks cleanly.\n2. Record findings in Defects.`,
+            origin: "chat",
+          });
+          return json(res, 201, { ok: true, kind, item });
+        }
+        throw new HttpError(400, "kind must be agent, tool, or skill.");
+      } catch (e) {
+        if (e instanceof HttpError) throw e;
+        throw new HttpError(400, (e as Error).message);
+      }
+    }
+
+    const customAgentMatch = /^\/api\/reo\/custom-agents\/(custom-[a-z0-9-]+)$/.exec(path);
+    if (customAgentMatch && method === "PATCH") {
+      const body = await readJson(req);
+      const st = body["status"];
+      if (st !== "active" && st !== "disabled") throw new HttpError(400, "status must be active or disabled.");
+      const updated = updateCustomAgentStatus(dcfg.dataDir, customAgentMatch[1]!, st);
+      if (!updated) throw new HttpError(404, "Custom agent not found.");
+      return json(res, 200, { ok: true, agent: updated });
+    }
+    if (customAgentMatch && method === "DELETE") {
+      if (!deleteCustomAgent(dcfg.dataDir, customAgentMatch[1]!)) throw new HttpError(404, "Custom agent not found.");
+      return json(res, 200, { ok: true });
+    }
+
+    const customToolMatch = /^\/api\/reo\/custom-tools\/(reo_[a-z0-9_]+)$/.exec(path);
+    if (customToolMatch && method === "PATCH") {
+      const body = await readJson(req);
+      const st = body["status"];
+      if (st !== "active" && st !== "disabled") throw new HttpError(400, "status must be active or disabled.");
+      const updated = updateCompositeToolStatus(dcfg.dataDir, customToolMatch[1]!, st);
+      if (!updated) throw new HttpError(404, "Composite tool not found.");
+      return json(res, 200, { ok: true, tool: updated });
+    }
+    if (customToolMatch && method === "DELETE") {
+      if (!deleteCompositeTool(dcfg.dataDir, customToolMatch[1]!)) throw new HttpError(404, "Composite tool not found.");
+      return json(res, 200, { ok: true });
+    }
+
+    const genSkillMatch = /^\/api\/reo\/generated-skills\/([a-z0-9-]+)$/.exec(path);
+    if (genSkillMatch && method === "DELETE") {
+      if (!deleteGeneratedSkill(dcfg.dataDir, genSkillMatch[1]!)) throw new HttpError(404, "Generated skill not found.");
+      return json(res, 200, { ok: true });
+    }
+
+    if (path === "/api/reo/learning" && method === "GET") {
+      const store = loadLearningStore(dcfg.dataDir);
+      const createdAgents = listCustomAgents(dcfg.dataDir).filter((a) => a.createdBy === "reo");
+      const createdTools = listCompositeTools(dcfg.dataDir).filter((t) => t.createdBy === "reo");
+      const createdSkills = listSkills(dcfg.root, undefined, generatedSkillsDir(dcfg.dataDir)).filter((s) => s.createdBy === "reo");
+      return json(res, 200, {
+        routing: store.routing,
+        toolStats: store.toolStats,
+        patterns: store.patterns.slice(0, 30),
+        lessons: store.lessons,
+        feedbackCount: store.feedback.length,
+        createdItems: [
+          ...createdAgents.map((a) => ({ kind: "agent", id: a.id, name: a.name, origin: a.origin, createdAt: a.createdAt })),
+          ...createdTools.map((t) => ({ kind: "tool", id: t.id, name: t.name, origin: t.origin, createdAt: t.createdAt })),
+          ...createdSkills.map((s) => ({ kind: "skill", id: s.name, name: s.name, origin: s.origin || "chat", createdAt: "" })),
+        ],
+      });
+    }
+
+    const lessonDelMatch = /^\/api\/reo\/learning\/lessons\/(les-[a-z0-9]+)$/.exec(path);
+    if (lessonDelMatch && method === "DELETE") {
+      if (!deleteLesson(dcfg.dataDir, lessonDelMatch[1]!)) throw new HttpError(404, "Lesson not found.");
+      return json(res, 200, { ok: true });
+    }
+
+    if (path === "/api/reo/learning/reset" && method === "POST") {
+      const body = await readJson(req);
+      if (body["confirm"] !== true) throw new HttpError(400, "confirm: true is required.");
+      resetLearning(dcfg.dataDir);
+      return json(res, 200, { ok: true });
     }
 
     if (path === "/api/reo/memory" && method === "GET") {

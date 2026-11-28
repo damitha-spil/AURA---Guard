@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { AppearanceSettings } from "@/components/app/appearance-settings";
 import { DiffSettings } from "@/components/app/diff-settings";
 import { ProvidersSettings } from "@/components/app/providers-settings";
@@ -12,7 +12,7 @@ import { SourceControlSettings } from "@/components/app/source-control-settings"
 import { SystemHealth } from "@/components/app/system-health";
 import { KeyboardSettings } from "@/components/app/keyboard-settings";
 import { NotificationSettings } from "@/components/app/notification-settings";
-import { SETTINGS_TABS, type SettingsTab } from "@/lib/settings-tabs";
+import type { SettingsTab } from "@/lib/settings-tabs";
 import type { ColorTheme, Radius } from "@/lib/themes";
 import { Page, PageHeader } from "@/components/app/page";
 import { apiGet, apiPost } from "@/lib/api";
@@ -75,12 +75,7 @@ export function SettingsView({
     <Page>
       <PageHeader title="Settings" description="Appearance, providers, source control, diffs and index maintenance." />
 
-      <Tabs value={tab} onValueChange={(v) => onTab(v as SettingsTab)} orientation="vertical" className="flex-col gap-6 lg:flex-row">
-        <TabsList className="h-auto w-full shrink-0 flex-row justify-start overflow-x-auto lg:w-48 lg:flex-col lg:items-stretch">
-          {SETTINGS_TABS.map((t) => (
-            <TabsTrigger key={t.id} value={t.id} className="justify-start">{t.label}</TabsTrigger>
-          ))}
-        </TabsList>
+      <Tabs value={tab} onValueChange={(v) => onTab(v as SettingsTab)} className="flex-col gap-6">
         <div className="min-w-0 flex-1">
 
         <TabsContent value="general">

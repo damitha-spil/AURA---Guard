@@ -12,6 +12,7 @@ import type { RunTaskList } from "./system.ts";
 import { webFetch, webSearch } from "./web.ts";
 import type { WebDeps, WebHit } from "./web.ts";
 import { getN8nStatus, n8nListExecutions, n8nListWorkflows, n8nTriggerWebhook } from "../../plugins/n8n.ts";
+import { createCompositeTool, createCustomAgent, createGeneratedSkill, generatedSkillsDir } from "../../agents/creations.ts";
 
 export interface NativeDeps extends WebDeps, BrowserDeps { runTaskList?: RunTaskList }
 
@@ -102,6 +103,38 @@ const TOOL_LINES: Record<string, ToolLine> = {
         const msg = e instanceof Error ? e.message : String(e);
         throw new ToolError(msg, msg.startsWith("Blocked n8n webhook trigger"));
       }
+    },
+  },
+  "/create": {
+    usage: "/create agent|tool|skill <description or name: description>",
+    needsArg: true,
+    kind: "context",
+    label: "Created by REO",
+    run: (cfg, arg) => {
+      const m = /^(agent|tool|skill)\s+([\s\S]+)$/i.exec(arg.trim());
+      if (!m) throw new ToolError("Usage: /create agent|tool|skill <description or name: description>");
+      const kind = m[1]!.toLowerCase();
+      const rest = m[2]!.trim();
+      if (kind === "agent") {
+        const ag = createCustomAgent(cfg.dataDir, cfg.root, { description: rest, createdBy: "reo", origin: "chat" });
+        return `Created custom agent @${ag.id} (${ag.name}) — tools: ${ag.allowedTools.join(", ")}`;
+      }
+      if (kind === "tool") {
+        const tl = createCompositeTool(cfg.dataDir, cfg.root, { description: rest, createdBy: "reo", origin: "chat" });
+        return `Created composite tool ${tl.id} (${tl.name}) — steps: ${tl.steps.map((s) => s.tool).join(" -> ")}`;
+      }
+      const colonIdx = rest.indexOf(":");
+      const rawName = colonIdx > 0 ? rest.slice(0, colonIdx).trim() : rest.split(/\s+/).slice(0, 3).join("-");
+      const desc = colonIdx > 0 ? rest.slice(colonIdx + 1).trim() : rest;
+      const slug = rawName.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "qa-custom-skill";
+      const sk = createGeneratedSkill(cfg.dataDir, cfg.root, {
+        name: slug,
+        description: desc,
+        body: `# ${slug}\n\n${desc}\n\n1. Inspect scope safely within configured read-only repos or localhost.\n2. Record findings in Defects.`,
+        origin: "chat",
+      });
+      void generatedSkillsDir(cfg.dataDir);
+      return `Created skill ${sk.name} (${sk.file}) — Created by REO`;
     },
   },
 };

@@ -39,9 +39,10 @@ Status: updated 2026-11-28. Open decisions are marked **OPEN**. See [docs/README
 │ MCP server (stdio) · CLI (aura-guard) · Azure DevOps / GitHub │
 └───────────────────────────────┬───────────────────────────────┘
 ┌─────────────── 5. AUTONOMOUS QA HARNESS & AGENTS ─────────────┐
-│ Orchestrator + 7 Specialist Agents (qa, qe, review, security, │
-│ api, knowledge, report) with configurable profiles & budgets  │
-│ Automation Triggers · Execution Checkpoints · Quality Gate    │
+│ Orchestrator + 12 Specialist Agents (qa, qe, review, security,│
+│ api, a11y, perf, release, architect, triage, knowledge,       │
+│ report) + REO-Created Custom Agents, Composite Tools & Skills │
+│ Parallel Swarm · Live Steering · Self-Learning · OTel Traces  │
 └───────────────────────────────┬───────────────────────────────┘
 ┌────────────── 4. MULTI-PROVIDER BRAIN & MASKING ──────────────┐
 │ Official CLI Subscriptions (Antigravity, Claude, OpenCode)    │

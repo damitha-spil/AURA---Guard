@@ -19,9 +19,9 @@ test("Skill Registry loads all Security, QA, QE, and Core skills cleanly with ze
   const qe = listSkills(ROOT, "qe");
   const core = listSkills(ROOT, "core");
 
-  assert.equal(sec.length, 10);
+  assert.equal(sec.length, 14);
   assert.ok(qa.length >= 12);
-  assert.equal(qe.length, 6);
+  assert.ok(qe.length >= 12);
   assert.ok(core.length >= 4);
 
   for (const s of all) {
@@ -51,7 +51,7 @@ test("MCP list_skills and get_skill expose modular skills on dev/qa scopes", asy
   const listed = await client.callTool({ name: "list_skills", arguments: { category: "security" } });
   const listText = ((listed.content as { text: string }[])[0]!).text;
   const parsed = JSON.parse(listText) as { name: string }[];
-  assert.equal(parsed.length, 10);
+  assert.equal(parsed.length, 14);
   assert.ok(parsed.some((s) => s.name === "sec-auth-access"));
 
   const fetched = await client.callTool({ name: "get_skill", arguments: { name: "qe-release-gate" } });

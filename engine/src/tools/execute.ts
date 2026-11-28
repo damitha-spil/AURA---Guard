@@ -109,6 +109,10 @@ export async function executeReoTool(
         ...(num(args["p95BudgetMs"]) !== undefined ? { p95BudgetMs: num(args["p95BudgetMs"]) } : {}),
       });
     default:
+      if (toolId.startsWith("reo_")) {
+        const { runCompositeTool } = await import("../agents/creations.ts");
+        return runCompositeTool(cfg, toolId, args);
+      }
       throw new Error(`Unsupported or unknown Wave 1-3 tool: ${toolId}`);
   }
 }

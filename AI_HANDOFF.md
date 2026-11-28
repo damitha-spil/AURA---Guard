@@ -6,6 +6,21 @@
 
 ---
 
+## REO Agent Swarm v2: 12 Specialist Agents, Live Swarm UI, Chat Steering, REO Creations & Self-Learning (2026-11-28)
+
+- **What changed:**
+  - `engine/src/agents/registry.ts`: Extended `AgentId` and `PREBUILT_AGENTS` with `a11y`, `perf`, `release`, `architect`, and `triage` (12 specialist agents total), added `defectSourceFor`, added `@custom-<slug>` detection, and upgraded `routeIntentToAgents` to apply learned keyword-routing weights.
+  - `engine/src/agents/mission-control.ts`: Added active mission registry & live chat-in steering (`registerMission`, `postMissionMessage`, `abortMission`, `drainInbox`, `isAgentSkipped`) supporting `stop`/`abort`, `skip <agent>`, `@<agent>` hot-add, and masked notes fed to user-correction learning.
+  - `engine/src/agents/runner.ts`: Refactored into modular `STEP_RUNNERS` with bounded concurrency (`MAX_PARALLEL_AGENTS = 3`), per-agent timeout enforcement (`maxTimeSeconds`), live `agent`/`chat`/`learned` NDJSON events, custom agent `allowedTools` guarding, and post-mission `recordMissionOutcome` + `maybeSelfCreate`.
+  - `engine/src/agents/creations.ts` & `engine/src/roles/skills.ts`: Added REO-created `custom-<slug>` agents, `reo_<slug>` composite tool pipelines (`runCompositeTool` excluding `external_notify`), `data/generated-skills/*/SKILL.md` skills (`createdBy: "reo"`), deterministic `designFromDescription`, `/create` command in `tools/native/chat.ts` & `web/src/lib/slash.ts`, and autonomous `maybeSelfCreate` capped at `MAX_SELF_CREATED = 20`.
+  - `engine/src/learning/self-learning.ts`: Added continuous `learning.json` store with keyword routing weights (+0.25 reward, 0.98 decay, 0..3 clamp), tool reliability stats, repeated patterns, `recordFeedback` (`up`/`down`), and `recordUserCorrection` promoting confirmed lessons into verified procedural `qa-memory`.
+  - `engine/src/server/server.ts` & `engine/src/mcp/server.ts`: Added live mission control (`/api/reo/mission/:id/{message,stop,feedback}`, `/api/reo/missions/active`), creation CRUD (`/api/reo/create`, `/api/reo/custom-{agents,tools}/:id`, `/api/reo/generated-skills/:name`), learning routes (`/api/reo/learning*`), and `run_reo_composite_tool` (41 MCP tools on `dev`/`qa`; `support` stays isolated to 2).
+  - `web/src/components/app/agent-swarm.tsx`, `web/src/views/WorkspaceView.tsx`, `web/src/views/AgentsView.tsx`, `web/src/views/HarnessView.tsx`: Added inline `AgentSwarm` live grid + activity feed + steering + thumbs feedback card in chat without locking the composer, "Created by REO" badges & "Create with REO" form in Agents, and the **Self-Learning** tab in QA Harness.
+  - `plugin/aura-guard/skills/{qa-swarm-orchestration,qe-self-learning}/SKILL.md`, `engine/test/swarm-learning.test.ts`, & `engine/test/mcp.test.ts`: Added playbooks and full test coverage.
+- **Not verified:** Live browser rendering of the inline `AgentSwarm` card, active chat-while-running flow, and **Self-Learning** tab in a live browser window.
+
+---
+
 ## Wave 1–3 Full Suite Implementation: Browser/Visual/A11y, Tier 0 AST/Mutation, DevSecOps, API Fuzz/Hurl/k6, Observatory, Eval Lab & Skill Proposals (2026-11-28)
 
 - **What changed:**

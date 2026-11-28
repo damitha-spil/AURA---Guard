@@ -10,6 +10,7 @@ export const TOOL_COMMANDS = [
   { name: "processes", usage: "/processes", help: "Show running programs" },
   { name: "time", usage: "/time", help: "Show the date and time" },
   { name: "n8n", usage: "/n8n status|workflows|executions|trigger <path>", help: "Inspect or trigger n8n workflows" },
+  { name: "create", usage: "/create agent|tool|skill <description>", help: "Let REO create an agent, composite tool, or skill" },
 ];
 
 export const SLASH_MENU = [

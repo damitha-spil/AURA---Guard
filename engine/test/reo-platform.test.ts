@@ -40,8 +40,8 @@ test("REO orchestrator: general knowledge stays on landing, operational tasks ro
   assert.equal(mention.destination, "workspace");
   assert.ok(mention.agents.includes("review"));
 
-  assert.equal(PREBUILT_AGENTS.length, 7);
-  assert.ok(BUILTIN_TOOLS.length >= 17);
+  assert.equal(PREBUILT_AGENTS.length, 12);
+  assert.ok(BUILTIN_TOOLS.length >= 45);
 });
 
 test("defects store: deduplicates by SHA-256 fingerprint, updates status, and exports escaped HTML report", () => {

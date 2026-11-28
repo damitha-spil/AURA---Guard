@@ -14,6 +14,7 @@ import {
   Library,
   MessageSquare,
   Monitor,
+  LayoutDashboard,
   Moon,
   Plug,
   Plus,
@@ -22,11 +23,14 @@ import {
   Keyboard,
   Sun,
   Workflow,
+  SlidersHorizontal,
+  ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import {
   CommandDialog,
   CommandEmpty,
@@ -37,17 +41,6 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
@@ -76,6 +69,7 @@ import { useEngineStatus } from "@/lib/connection";
 import { SHORTCUTS, keysFor, label as keyLabel, useOverrides, useShortcut } from "@/lib/keybindings";
 import { SETTINGS_TABS, type SettingsTab } from "@/lib/settings-tabs";
 import { useAppearance } from "@/lib/appearance";
+import { SettingsMenu } from "@/components/app/settings-menu";
 import { COLOR_THEMES, readRadius, readTheme, writeRadius, writeTheme, type ColorTheme, type Radius } from "@/lib/themes";
 import { ScrollArea } from "@/components/ui/scroll-area";
 const ActivityView = React.lazy(() => import("@/views/ActivityView").then((m) => ({ default: m.ActivityView })));
@@ -95,8 +89,8 @@ const ReposView = React.lazy(() => import("@/views/ReposView").then((m) => ({ de
 const SettingsView = React.lazy(() => import("@/views/SettingsView").then((m) => ({ default: m.SettingsView })));
 
 const NAV_ITEMS = [
-  { id: "home", label: "Home", icon: Home },
-  { id: "workspace", label: "Workspace", icon: MessageSquare },
+  { id: "workspace", label: "Home", icon: Home },
+  { id: "home", label: "Overview", icon: LayoutDashboard },
   { id: "activity", label: "Activity", icon: Activity },
   { id: "qa", label: "QA Lab", icon: FlaskConical },
   { id: "runs", label: "QA Runs", icon: History },
@@ -112,13 +106,25 @@ const NAV_ITEMS = [
   { id: "settings", label: "Settings", icon: Settings },
 ] as const;
 
+type NavId = (typeof NAV_ITEMS)[number]["id"];
+
+/** The only pages in the sidebar. Settings sits at the bottom of it. */
+const SIDEBAR_NAV: readonly NavId[] = ["workspace", "home", "qa", "defects", "pulls", "repos"];
+
+/** Every other page is listed in the Settings menu. */
+const SETTINGS_PAGES: { heading: string; icon: React.ComponentType<{ className?: string }>; ids: readonly NavId[] }[] = [
+  { heading: "Quality work", icon: ShieldCheck, ids: ["activity", "runs", "followups", "harness"] },
+  { heading: "Assistant", icon: Sparkles, ids: ["agents", "knowledge", "plugins", "usage"] },
+];
+const IN_SETTINGS: ReadonlySet<string> = new Set(["settings", ...SETTINGS_PAGES.flatMap((g) => g.ids)]);
+
 type ViewId = (typeof NAV_ITEMS)[number]["id"];
 type Scheme = "light dark" | "light" | "dark";
 type SearchHit = { kind: string; ref: string; title: string };
 
 export function App() {
-  const [view, setView] = React.useState<ViewId>("home");
-  const [workspaceSeen, setWorkspaceSeen] = React.useState(false);
+  const [view, setView] = React.useState<ViewId>("workspace");
+  const [workspaceSeen, setWorkspaceSeen] = React.useState(true);
   const [pendingPrompt, setPendingPrompt] = React.useState<string | undefined>(undefined);
   const [routeNotice, setRouteNotice] = React.useState<string | undefined>(undefined);
   const [resetKey, setResetKey] = React.useState(0);
@@ -303,7 +309,6 @@ export function App() {
 
   const clearInitial = React.useCallback(() => setPendingPrompt(undefined), []);
   const current = NAV_ITEMS.find((n) => n.id === view)!;
-  const engineLabel = engine.state === "checking" ? "Connecting" : online ? "Engine Ready" : engine.state === "unpaired" ? "Not paired" : "Offline";
 
   return (
     <MotionConfig reducedMotion={appearance.reduceMotion ? "always" : "user"}>
@@ -313,7 +318,7 @@ export function App() {
           <SidebarHeader>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton size="lg" onClick={() => goTo("home")}>
+                <SidebarMenuButton size="lg" onClick={() => goTo("workspace")}>
                   <BrandAvatar />
                   <div className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-medium">SPIL REO</span>
@@ -333,13 +338,9 @@ export function App() {
             <SidebarGroup>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {NAV_ITEMS.map((item) => (
+                  {SIDEBAR_NAV.map((id) => NAV_ITEMS.find((n) => n.id === id)!).map((item) => (
                     <SidebarMenuItem key={item.id}>
-                      <SidebarMenuButton
-                        tooltip={item.label}
-                        isActive={view === item.id}
-                        onClick={() => goTo(item.id)}
-                      >
+                      <SidebarMenuButton tooltip={item.label} isActive={view === item.id} onClick={() => goTo(item.id)}>
                         <item.icon />
                         <span>{item.label}</span>
                       </SidebarMenuButton>
@@ -348,51 +349,15 @@ export function App() {
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
-            <div ref={setListSlot} className="flex min-h-0 flex-1 flex-col" />
+            <div ref={setListSlot} className="flex min-h-72 flex-1 flex-col empty:hidden" />
           </SidebarContent>
           <SidebarFooter>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton tooltip={`${engineLabel}. Click to check again.`} onClick={engine.check}>
-                  <span
-                    className={
-                      "size-2 shrink-0 rounded-full " +
-                      (engine.state === "checking" ? "bg-muted-foreground" : online ? "bg-primary" : "bg-destructive")
-                    }
-                  />
-                  <span>{engineLabel}</span>
+                <SidebarMenuButton tooltip="Settings" isActive={IN_SETTINGS.has(view)} onClick={() => goTo("settings")}>
+                  <Settings />
+                  <span>Settings</span>
                 </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <SidebarMenuButton tooltip="Theme">
-                      {scheme === "dark" ? <Moon /> : scheme === "light" ? <Sun /> : <Monitor />}
-                      <span>Theme</span>
-                    </SidebarMenuButton>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent side="right" align="end">
-                    <DropdownMenuRadioGroup value={scheme} onValueChange={(v) => applyScheme(v as Scheme)}>
-                      <DropdownMenuRadioItem value="light dark">System</DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger>Colour</DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent>
-                        <DropdownMenuRadioGroup value={colorTheme} onValueChange={(v) => applyTheme(v as ColorTheme)}>
-                          {themeChoices.map((t) => (
-                            <DropdownMenuRadioItem key={t.id} value={t.id}>
-                              <span data-theme={t.id} className="bg-primary mr-2 inline-block size-3 rounded-full" />
-                              {t.label}
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                  </DropdownMenuContent>
-                </DropdownMenu>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarFooter>
@@ -405,6 +370,12 @@ export function App() {
             <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
             <Breadcrumb className="min-w-0">
               <BreadcrumbList>
+                {IN_SETTINGS.has(view) && view !== "settings" && (
+                  <>
+                    <BreadcrumbItem>Settings</BreadcrumbItem>
+                    <BreadcrumbSeparator />
+                  </>
+                )}
                 <BreadcrumbItem>
                   <BreadcrumbPage>{current.label}</BreadcrumbPage>
                 </BreadcrumbItem>
@@ -466,7 +437,24 @@ export function App() {
               </div>
             )}
             {view !== "workspace" && (
-              <ScrollArea className="min-h-0 flex-1">
+              <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+              {IN_SETTINGS.has(view) && (
+                <SettingsMenu
+                  groups={[
+                    {
+                      heading: "Preferences",
+                      icon: SlidersHorizontal,
+                      items: SETTINGS_TABS.map((t) => ({ key: t.id, label: t.label, active: view === "settings" && settingsTab === t.id, open: () => openSettings(t.id) })),
+                    },
+                    ...SETTINGS_PAGES.map((g) => ({
+                      heading: g.heading,
+                      icon: g.icon,
+                      items: g.ids.map((id) => ({ key: id, label: NAV_ITEMS.find((n) => n.id === id)!.label, active: view === id, open: () => goTo(id) })),
+                    })),
+                  ]}
+                />
+              )}
+              <ScrollArea className="min-h-0 min-w-0 flex-1">
                 <ErrorBoundary key={view} what="This page">
                 <React.Suspense fallback={<div className="space-y-3 p-6"><Skeleton className="h-8 w-48" /><Skeleton className="h-40 w-full" /></div>}>
                 <AnimatePresence mode="wait" initial={false}>
@@ -511,6 +499,7 @@ export function App() {
                 </React.Suspense>
                 </ErrorBoundary>
               </ScrollArea>
+              </div>
             )}
           </div>
         </SidebarInset>

@@ -133,7 +133,7 @@ export function QaLabView() {
                 id="ast-pattern"
                 value={astPattern}
                 onChange={(e) => setAstPattern(e.target.value)}
-                placeholder="e.g. dangerouslySetInnerHTML"
+                placeholder="e.g. console.log"
               />
             </CardContent>
             <CardFooter className="grid gap-2 sm:grid-cols-2">

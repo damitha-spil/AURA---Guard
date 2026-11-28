@@ -1,7 +1,20 @@
 // SPIL REO — Prebuilt Sub-Agent Registry & Intent Orchestrator.
 // Routes general knowledge queries on Landing vs. operational/automation tasks to Workspace.
+// Supports learned routing weights and custom REO-created agents (`custom-<slug>`).
 
-export type AgentId = "qa" | "qe" | "review" | "security" | "api" | "knowledge" | "report";
+export type AgentId =
+  | "qa"
+  | "qe"
+  | "review"
+  | "security"
+  | "api"
+  | "knowledge"
+  | "report"
+  | "a11y"
+  | "perf"
+  | "release"
+  | "architect"
+  | "triage";
 
 export interface SubAgentSpec {
   id: AgentId;
@@ -34,6 +47,7 @@ export const PREBUILT_AGENTS: readonly SubAgentSpec[] = [
       "qa-visual-regression",
       "qa-wcag-gate",
       "qa-cwv-audit",
+      "qa-swarm-orchestration",
     ],
     allowedTools: [
       "qa_crawl_desktop_app",
@@ -70,6 +84,7 @@ export const PREBUILT_AGENTS: readonly SubAgentSpec[] = [
       "qe-architecture-guard",
       "qe-mutation-audit",
       "qe-model-benchmark",
+      "qe-self-learning",
     ],
     allowedTools: [
       "qe_commit_trajectory",
@@ -136,6 +151,56 @@ export const PREBUILT_AGENTS: readonly SubAgentSpec[] = [
     enabled: true,
   },
   {
+    id: "a11y",
+    name: "Accessibility & Visual Agent",
+    role: "WCAG, ARIA & Visual Regression",
+    description: "Audits semantic ARIA trees, WCAG 2.1/2.2 Axe compliance, OmniParser UI grounding, visual screenshot diffs, and CWV budgets.",
+    defaultSkills: ["qa-wcag-gate", "qa-visual-regression", "qa-playwright-mcp", "qa-visual-yaml-assertions", "qa-accessibility-responsive"],
+    allowedTools: ["qa_a11y_tree_snapshot", "qa_axe_audit", "qa_visual_diff", "qa_vision_ground_screen", "qa_lighthouse_budget"],
+    riskTier: "local_action",
+    enabled: true,
+  },
+  {
+    id: "perf",
+    name: "Performance & Load Agent",
+    role: "Localhost Latency & CWV Budgets",
+    description: "Benchmarks localhost response times with bounded k6 smoke loads, Lighthouse Core Web Vitals budgets, and API fuzz resilience.",
+    defaultSkills: ["qa-perf-budget", "qa-cwv-audit"],
+    allowedTools: ["qa_k6_smoke_load", "qa_lighthouse_budget", "api_schemathesis_fuzz"],
+    riskTier: "local_action",
+    enabled: true,
+  },
+  {
+    id: "release",
+    name: "Release Manager Agent",
+    role: "Go-Live Gate & CVE Sign-off",
+    description: "Evaluates lockfile CVEs, commit churn trajectory, bug sheets, AST hygiene, and architecture boundaries for release readiness.",
+    defaultSkills: ["qe-release-gate", "sec-sca-gate"],
+    allowedTools: ["sec_dependency_cves", "qe_commit_trajectory", "qa_bug_sheet", "review_ast_grep", "qe_arch_boundaries"],
+    riskTier: "read_only",
+    enabled: true,
+  },
+  {
+    id: "architect",
+    name: "Architecture Agent",
+    role: "Module Boundaries & Coupling",
+    description: "Enforces module boundaries, catches circular imports, surfaces dead exports/deps, and computes AST blast radius.",
+    defaultSkills: ["qe-architecture-guard", "qe-dead-code"],
+    allowedTools: ["qe_arch_boundaries", "qe_dead_code_scan", "get_blast_radius", "co_changed", "qe_recommend_constraint"],
+    riskTier: "read_only",
+    enabled: true,
+  },
+  {
+    id: "triage",
+    name: "Root-Cause Triage Agent",
+    role: "Defect Clustering & Blame Analysis",
+    description: "Correlates recurring defects, recent git commits, co-change coupling, and Vault knowledge to pinpoint likely root causes.",
+    defaultSkills: ["qa-triage", "qa-bug-sheet"],
+    allowedTools: ["qa_bug_sheet", "trace_history", "search_knowledge", "co_changed", "qe_commit_trajectory"],
+    riskTier: "read_only",
+    enabled: true,
+  },
+  {
     id: "knowledge",
     name: "Knowledge & Scribe Agent",
     role: "Vault Q&A & Engineering Memory",
@@ -157,34 +222,84 @@ export const PREBUILT_AGENTS: readonly SubAgentSpec[] = [
   },
 ];
 
+export const PREBUILT_AGENT_IDS: ReadonlySet<AgentId> = new Set(PREBUILT_AGENTS.map((a) => a.id));
+
+export function isPrebuiltAgentId(id: string): id is AgentId {
+  return PREBUILT_AGENT_IDS.has(id as AgentId);
+}
+
+/** Map any agent id (including new specialist or custom agents) to DefectRecord.agentSource. */
+export function defectSourceFor(agent: string): "qa" | "review" | "security" | "api" | "qe" {
+  switch (agent) {
+    case "qa":
+    case "a11y":
+      return "qa";
+    case "review":
+      return "review";
+    case "security":
+      return "security";
+    case "api":
+    case "perf":
+      return "api";
+    default:
+      return "qe";
+  }
+}
+
 export interface OrchestrationRoute {
   destination: "landing" | "workspace";
   agents: AgentId[];
+  customAgents?: string[];
   reason: string;
 }
 
 const OPERATIONAL_PATTERNS: Array<{ re: RegExp; agent: AgentId; reason: string }> = [
-  { re: /\b(qa|uat|test|retest|crawl|click|playwright|uia|journey|smoke[- ]?test|regression|bug[- ]?sheet|axe|wcag|lighthouse|cwv|visual[- ]?diff|omniparser|a11y)\b/i, agent: "qa", reason: "QA / UI / A11y / Visual automation request" },
+  { re: /\b(wcag|a11y|accessib|axe|aria|visual)\b/i, agent: "a11y", reason: "Accessibility / visual inspection request" },
+  { re: /\b(perf|latency|load|k6|lighthouse|cwv|slow)\b/i, agent: "perf", reason: "Performance / load testing request" },
+  { re: /\b(release|ship|go[- ]?live|rc|gate)\b/i, agent: "release", reason: "Release readiness / gate check" },
+  { re: /\b(architect|boundar|cycle|circular|dead[- ]?code|refactor)\b/i, agent: "architect", reason: "Architecture / dependency hygiene check" },
+  { re: /\b(root[- ]?cause|why\b.*\bfail|triage|flaky|regress)\b/i, agent: "triage", reason: "Root-cause triage request" },
+  { re: /\b(qa|uat|test|retest|crawl|click|playwright|uia|journey|smoke[- ]?test|regression|bug[- ]?sheet|omniparser|visual[- ]?diff)\b/i, agent: "qa", reason: "QA / UI / Visual automation request" },
   { re: /\b(security|sec|owasp|pentest|probe|sqli|xss|idor|vulnerab|audit|secret[- ]?scan|semgrep|sarif|gitleaks|cve|osv|trivy|nuclei)\b/i, agent: "security", reason: "Cyber security / DevSecOps audit request" },
-  { re: /\b(review|pr\s*#?\d+|diff|code[- ]?review|refactor|lint|tier\s*0|ast[- ]?grep)\b/i, agent: "review", reason: "Code review / AST Tier 0 request" },
-  { re: /\b(trajectory|churn|blast[- ]?radius|kb[- ]?drift|constraint|release[- ]?gate|qe|knip|dead[- ]?code|boundar|mutation|stryker|benchmark|promptfoo)\b/i, agent: "qe", reason: "Quality engineering analysis request" },
-  { re: /\b(openapi|swagger|endpoint|contract[- ]?test|api[- ]?test|schemathesis|fuzz|hurl|k6|load[- ]?test)\b/i, agent: "api", reason: "API contract, fuzz, or load verification request" },
-  { re: /\b(defect|pdf|report|teams|notify|triage)\b/i, agent: "report", reason: "Defect report or notification request" },
+  { re: /\b(review|pr\s*#?\d+|diff|code[- ]?review|lint|tier\s*0|ast[- ]?grep)\b/i, agent: "review", reason: "Code review / AST Tier 0 request" },
+  { re: /\b(trajectory|churn|blast[- ]?radius|kb[- ]?drift|constraint|release[- ]?gate|qe|knip|mutation|stryker|benchmark|promptfoo)\b/i, agent: "qe", reason: "Quality engineering analysis request" },
+  { re: /\b(openapi|swagger|endpoint|contract[- ]?test|api[- ]?test|schemathesis|fuzz|hurl|load[- ]?test)\b/i, agent: "api", reason: "API contract, fuzz, or load verification request" },
+  { re: /\b(defect|pdf|report|teams|notify)\b/i, agent: "report", reason: "Defect report or notification request" },
   { re: /\b(n8n|workflow[- ]?automation|webhook)\b/i, agent: "report", reason: "n8n workflow automation request" },
 ];
 
+const ROUTE_STOPWORDS = new Set([
+  "the", "and", "for", "with", "that", "this", "from", "into", "check", "run", "please", "what", "when", "where", "how",
+]);
+
 /** Decides whether a prompt stays on the Landing Knowledge box or redirects to the Main Workspace. */
-export function routeIntentToAgents(prompt: string): OrchestrationRoute {
+export function routeIntentToAgents(
+  prompt: string,
+  learned?: Record<string, Partial<Record<string, number>>>,
+): OrchestrationRoute {
   const text = (prompt || "").trim();
   if (!text) return { destination: "landing", agents: ["knowledge"], reason: "Empty prompt" };
+
+  // Explicit @custom-<slug> mentions
+  const customAgents: string[] = [];
+  for (const m of text.matchAll(/@(custom-[a-z0-9-]+)\b/gi)) {
+    const id = m[1]!.toLowerCase();
+    if (!customAgents.includes(id)) customAgents.push(id);
+  }
 
   // Explicit @agent mentions always route to workspace
   const mentioned: AgentId[] = [];
   for (const a of PREBUILT_AGENTS) {
     if (new RegExp(`@${a.id}\\b`, "i").test(text)) mentioned.push(a.id);
   }
-  if (mentioned.length > 0) {
-    return { destination: "workspace", agents: mentioned, reason: `Explicit @${mentioned.join(", @")} mention` };
+  if (mentioned.length > 0 || customAgents.length > 0) {
+    const label = [...mentioned.map((x) => `@${x}`), ...customAgents.map((x) => `@${x}`)].join(", ");
+    return {
+      destination: "workspace",
+      agents: mentioned,
+      ...(customAgents.length ? { customAgents } : {}),
+      reason: `Explicit ${label} mention`,
+    };
   }
 
   // Slash commands always route to workspace
@@ -192,7 +307,7 @@ export function routeIntentToAgents(prompt: string): OrchestrationRoute {
     return { destination: "workspace", agents: ["qa", "review"], reason: "Slash command" };
   }
 
-  // Pure conceptual questions ("what is QA?", "where are the tests?") stay on landing
+  // Pure conceptual questions stay on landing
   if (/^(what is|what are|why does|where are|explain|how does|tell me about)\b/i.test(text) && !/\b(run|execute|crawl|audit|review|check|test this|qa this|qa the)\b/i.test(text)) {
     return { destination: "landing", agents: ["knowledge"], reason: "General knowledge question" };
   }
@@ -205,6 +320,29 @@ export function routeIntentToAgents(prompt: string): OrchestrationRoute {
       reasons.push(p.reason);
     }
   }
+
+  // Learned routing weights (summed across prompt tokens; threshold >= 1)
+  if (learned && Object.keys(learned).length > 0) {
+    const tokens = [...new Set(text.toLowerCase().split(/[^a-z0-9_-]+/).filter((w) => w.length >= 3 && !ROUTE_STOPWORDS.has(w)))];
+    const scores = new Map<AgentId, number>();
+    for (const tok of tokens) {
+      const row = learned[tok];
+      if (!row) continue;
+      for (const [ag, wt] of Object.entries(row)) {
+        if (!isPrebuiltAgentId(ag) || typeof wt !== "number" || wt <= 0) continue;
+        scores.set(ag, (scores.get(ag) ?? 0) + wt);
+      }
+    }
+    let learnedAdded = false;
+    for (const [ag, sum] of scores.entries()) {
+      if (sum >= 1 && !matched.includes(ag)) {
+        matched.push(ag);
+        learnedAdded = true;
+      }
+    }
+    if (learnedAdded) reasons.push("Learned routing");
+  }
+
   if (matched.length > 0) {
     return { destination: "workspace", agents: matched, reason: reasons.join(" + ") };
   }

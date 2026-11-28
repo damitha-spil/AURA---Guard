@@ -1,11 +1,13 @@
 import * as React from "react";
 import {
   Activity,
+  Brain,
   CheckCircle2,
   FlaskConical,
   History,
   Play,
   Plus,
+  RotateCcw,
   Search,
   ShieldAlert,
   Sparkles,
@@ -131,6 +133,14 @@ interface SkillProposal {
   vaultDraftPath?: string;
 }
 
+interface LearningSummary {
+  routing: Record<string, Record<string, number>>;
+  toolStats: Record<string, { runs: number; errors: number; avgMs: number }>;
+  lessons: Array<{ id: string; text: string; source: string; confirmations: number; promoted: boolean; createdAt: string }>;
+  feedbackCount: number;
+  createdItems: Array<{ kind: string; id: string; name: string; origin: string; createdAt: string }>;
+}
+
 function verdictBadge(v?: QualityVerdict) {
   if (!v) return null;
   if (v === "PASS") return <Badge>PASS</Badge>;
@@ -147,6 +157,7 @@ export function HarnessView() {
   const [traces, setTraces] = React.useState<MissionTrace[]>([]);
   const [benchmarks, setBenchmarks] = React.useState<ModelBenchmarkRun[]>([]);
   const [proposals, setProposals] = React.useState<SkillProposal[]>([]);
+  const [learning, setLearning] = React.useState<LearningSummary | null>(null);
   const [layerFilter, setLayerFilter] = React.useState<string>("all");
   const [memQuery, setMemQuery] = React.useState("");
 
@@ -176,13 +187,14 @@ export function HarnessView() {
   const [propPatch, setPropPatch] = React.useState("");
 
   const loadAll = React.useCallback(async () => {
-    const [m, r, c, t, b, p] = await Promise.all([
+    const [m, r, c, t, b, p, l] = await Promise.all([
       apiGet<{ entries: MemoryEntry[] }>("/api/reo/memory"),
       apiGet<{ rules: AutomationRule[] }>("/api/reo/automation"),
       apiGet<{ checkpoints: Checkpoint[] }>("/api/reo/checkpoints"),
       apiGet<{ traces: MissionTrace[] }>("/api/reo/traces"),
       apiGet<{ benchmarks: ModelBenchmarkRun[] }>("/api/reo/benchmarks"),
       apiGet<{ proposals: SkillProposal[] }>("/api/reo/skill-proposals"),
+      apiGet<LearningSummary>("/api/reo/learning"),
     ]);
     if (m.ok && Array.isArray(m.data.entries)) setMemories(m.data.entries);
     if (r.ok && Array.isArray(r.data.rules)) setRules(r.data.rules);
@@ -190,6 +202,7 @@ export function HarnessView() {
     if (t.ok && Array.isArray(t.data.traces)) setTraces(t.data.traces);
     if (b.ok && Array.isArray(b.data.benchmarks)) setBenchmarks(b.data.benchmarks);
     if (p.ok && Array.isArray(p.data.proposals)) setProposals(p.data.proposals);
+    if (l.ok && l.data) setLearning(l.data);
   }, []);
 
   React.useEffect(() => {
@@ -340,6 +353,7 @@ export function HarnessView() {
             <TabsTrigger value="observatory">Observatory</TabsTrigger>
             <TabsTrigger value="evals">Evaluation Lab</TabsTrigger>
             <TabsTrigger value="proposals">Skill Proposals</TabsTrigger>
+            <TabsTrigger value="learning">Self-Learning</TabsTrigger>
           </TabsList>
         </div>
 
@@ -814,6 +828,134 @@ export function HarnessView() {
               </Card>
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="learning" className="grid gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Brain className="size-4" />
+              <span>Continuous Self-Learning Telemetry</span>
+              <Badge variant="outline">{learning?.feedbackCount ?? 0} feedback</Badge>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                if (!window.confirm("Reset all learned routing weights, lessons, and tool telemetry?")) return;
+                const r = await apiPost("/api/reo/learning/reset", { confirm: true });
+                if (r.ok) {
+                  toast.success("Reset learned telemetry");
+                  loadAll();
+                }
+              }}
+            >
+              <RotateCcw />
+              Reset learning
+            </Button>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Learned Routing Weights</CardTitle>
+                <CardDescription className="text-xs">Keywords automatically reinforced toward high-performing specialist agents.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-2 text-xs">
+                {Object.entries(learning?.routing ?? {}).slice(0, 15).map(([kw, weights]) => (
+                  <div key={kw} className="grid gap-1 rounded border p-2">
+                    <div className="font-mono font-medium">{kw}</div>
+                    {Object.entries(weights).map(([ag, wt]) => {
+                      const barW = Math.max(8, Math.min(180, Math.round((Number(wt) / 3) * 180)));
+                      return (
+                        <div key={ag} className="grid grid-cols-[6rem_1fr_3rem] items-center gap-2">
+                          <span className="truncate">@{ag}</span>
+                          <svg viewBox="0 0 180 8" className="h-2 w-full" aria-hidden="true">
+                            <rect x="0" y="1" width="180" height="6" rx="2" className="fill-muted" />
+                            <rect x="0" y="1" width={barW} height="6" rx="2" className="fill-primary" />
+                          </svg>
+                          <span className="text-right font-mono">{Number(wt).toFixed(2)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+                {Object.keys(learning?.routing ?? {}).length === 0 && (
+                  <p className="text-muted-foreground py-4 text-center">Run missions or rate swarms to build learned routing weights.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Tool Reliability &amp; REO-Created Assets</CardTitle>
+                <CardDescription className="text-xs">Success rates, average latency, and autonomous skills/tools created by REO.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-2 text-xs">
+                {Object.entries(learning?.toolStats ?? {}).slice(0, 10).map(([tid, st]) => {
+                  const pct = st.runs > 0 ? Math.round(((st.runs - st.errors) / st.runs) * 100) : 100;
+                  return (
+                    <div key={tid} className="flex items-center justify-between gap-2 rounded border px-2.5 py-1.5">
+                      <code className="truncate">{tid}</code>
+                      <div className="flex items-center gap-2 font-mono">
+                        <span>{st.runs}x</span>
+                        <Badge variant={pct >= 80 ? "secondary" : "destructive"} className="text-[10px]">
+                          {pct}%
+                        </Badge>
+                        <span className="text-muted-foreground">{st.avgMs}ms</span>
+                      </div>
+                    </div>
+                  );
+                })}
+                {(learning?.createdItems ?? []).map((it) => (
+                  <div key={`${it.kind}-${it.id}`} className="bg-primary/5 flex items-center justify-between gap-2 rounded border px-2.5 py-1.5">
+                    <span className="flex items-center gap-1.5 truncate">
+                      <Sparkles className="text-primary size-3.5 shrink-0" />
+                      <strong>{it.kind}</strong>: {it.name}
+                    </span>
+                    <Badge variant="outline" className="text-[10px]">{it.origin}</Badge>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Learned User Corrections &amp; Lessons</CardTitle>
+              <CardDescription className="text-xs">Rules observed from live steering notes and feedback (promoted after confirmation).</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              {(learning?.lessons ?? []).map((l) => (
+                <div key={l.id} className="flex items-center justify-between gap-2 rounded border p-2.5 text-xs">
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center gap-1.5">
+                      <Badge variant={l.promoted ? "default" : "secondary"}>{l.promoted ? "promoted" : "hypothesis"}</Badge>
+                      <span className="text-muted-foreground font-mono text-[10px]">{l.confirmations}x confirmed</span>
+                    </div>
+                    <p className="break-words">{l.text}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Delete lesson"
+                    onClick={async () => {
+                      const r = await apiDelete(`/api/reo/learning/lessons/${l.id}`);
+                      if (r.ok) loadAll();
+                    }}
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              ))}
+              {(learning?.lessons ?? []).length === 0 && (
+                <p className="text-muted-foreground py-4 text-center text-xs">
+                  No lessons learned yet. Steer a running swarm or send rule feedback (e.g. &quot;Always check WCAG first&quot;).
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </Page>
