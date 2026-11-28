@@ -12,6 +12,7 @@ import { SourceControlSettings } from "@/components/app/source-control-settings"
 import { SystemHealth } from "@/components/app/system-health";
 import { KeyboardSettings } from "@/components/app/keyboard-settings";
 import { NotificationSettings } from "@/components/app/notification-settings";
+import { MemorySettings } from "@/components/app/memory-settings";
 import type { SettingsTab } from "@/lib/settings-tabs";
 import type { ColorTheme, Radius } from "@/lib/themes";
 import { Page, PageHeader } from "@/components/app/page";
@@ -123,6 +124,9 @@ export function SettingsView({
         </TabsContent>
         <TabsContent value="notifications">
           <NotificationSettings />
+        </TabsContent>
+        <TabsContent value="memory">
+          <MemorySettings />
         </TabsContent>
 
         <TabsContent value="health">

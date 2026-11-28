@@ -77,3 +77,21 @@ export async function streamNdjson(
     }
   }
 }
+
+/** Sends one file's bytes (not JSON) to the engine. The engine needs this exact content type. */
+export async function apiUpload<T>(url: string, file: File): Promise<ApiResponse<T>> {
+  try {
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-File-Type": file.type.slice(0, 100) }, body: file });
+    const text = await res.text();
+    let parsed: unknown = {};
+    try {
+      parsed = text ? JSON.parse(text) : {};
+    } catch {
+      parsed = { error: text };
+    }
+    const err = typeof (parsed as { error?: string })?.error === "string" ? (parsed as { error: string }).error : undefined;
+    return { ok: res.ok, status: res.status, data: parsed as T, ...(err ? { error: err } : {}) };
+  } catch (e) {
+    return { ok: false, status: 0, data: {} as T, error: (e as Error).message };
+  }
+}

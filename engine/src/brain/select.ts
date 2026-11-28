@@ -17,6 +17,7 @@ import type { SecretBackend } from "./keystore.ts";
 import { effectiveBrain, loadSettings, machineDataDir } from "./settings.ts";
 import { binaryPathProblem, HOME_DIR_ENV, homeDirProblem } from "./provider-config.ts";
 import { maskAll } from "./client.ts";
+import { CancelledError, StreamUnmasker } from "./stream.ts";
 import type { CompleteFn, CompleteRequest, CompleteResult } from "./client.ts";
 
 /** Backends in the order `auto` tries them. */
@@ -148,6 +149,7 @@ export function createBrain(
   const runId = `run-${randomBytes(6).toString("hex")}`;
 
   async function complete(req: CompleteRequest): Promise<CompleteResult> {
+    if (req.signal?.aborted) throw new CancelledError();
     const { parts, map, replaced } = maskAll([...req.system, req.user], req.dictionary);
     const picked = await pickBackend(cfg, opts);
     used = picked.backend.id;
@@ -162,8 +164,13 @@ export function createBrain(
         ok: r !== null, reported,
       });
     };
+    // Streaming: masked pieces are unmasked here, holding back a trailing word so a placeholder is never
+    // shown half-way. Backends that cannot stream ignore onText and the whole reply comes at the end.
+    const unmasker = req.onText && picked.backend.streams ? new StreamUnmasker(map) : null;
     const call = picked.backend.complete({
       role: req.role,
+      ...(req.signal ? { signal: req.signal } : {}),
+      ...(unmasker && req.onText ? { onText: (d: string) => { const t = unmasker.push(d); if (t) req.onText?.(t); } } : {}),
       system: parts.slice(0, -1),
       user: parts[parts.length - 1]!,
       maxTokens: req.maxTokens,
@@ -187,6 +194,7 @@ export function createBrain(
       throw e;
     });
     record(r);
+    if (unmasker) { const tail = unmasker.end(); if (tail) req.onText?.(tail); }
     return { text: unmask(r.text, map), usage: r.usage };
   }
   return { complete, backendUsed: () => used };

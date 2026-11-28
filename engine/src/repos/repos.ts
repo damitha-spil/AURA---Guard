@@ -210,12 +210,15 @@ function untrackedChunk(root: string, rel: string): { chunk: string; note: strin
 }
 
 /** The patch text between a commit and another commit or the working tree. */
-export async function rawDiff(path: string, base: string, head: string, ignoreWhitespace = false): Promise<RawDiff & { notes: Map<string, string> }> {
+export async function rawDiff(path: string, base: string, head: string, ignoreWhitespace = false, sinceFork = false): Promise<RawDiff & { notes: Map<string, string> }> {
   const { branches } = await listBranches(path);
   const baseSha = await resolveRef(path, base, branches);
   const headSha = head === WORKTREE ? null : await resolveRef(path, head, branches);
+  // sinceFork: "base...head", the changes on head since it left base (what a pull request shows). git works
+  // out the fork point itself, so the merge-base command is not needed.
+  const range = sinceFork && headSha ? [`${baseSha}...${headSha}`] : [baseSha, ...(headSha ? [headSha] : [])];
   let text = await safeGit(path, [
-    "diff", "-M", "-U3", "--src-prefix=a/", "--dst-prefix=b/", ...(ignoreWhitespace ? ["-w"] : []), baseSha, ...(headSha ? [headSha] : []), "--",
+    "diff", "-M", "-U3", "--src-prefix=a/", "--dst-prefix=b/", ...(ignoreWhitespace ? ["-w"] : []), ...range, "--",
   ]);
   const notes = new Map<string, string>();
   if (!headSha) {
@@ -282,10 +285,10 @@ export function withheldReason(path: string, oldPath: string, patch: string): st
   return detectSecrets(patch).length ? "the change looks like it contains a secret" : null;
 }
 
-export async function diffView(path: string, base: string, head: string, ignoreWhitespace = false) {
+export async function diffView(path: string, base: string, head: string, ignoreWhitespace = false, sinceFork = false) {
   let raw;
   try {
-    raw = await rawDiff(path, base, head, ignoreWhitespace);
+    raw = await rawDiff(path, base, head, ignoreWhitespace, sinceFork);
   } catch (e) {
     if (e instanceof GitError && e.tooLarge) throw new HttpError(413, "That diff is too large to show. Compare closer commits.");
     throw e;

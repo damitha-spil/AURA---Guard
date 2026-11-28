@@ -58,7 +58,7 @@ test("ndjson ask: real steps arrive in order, then the answer; the model step sp
   const s = await start({ complete: async () => { await new Promise((r) => setTimeout(r, 60)); return { text: "The AI has no create tool [rule-erp-create] and [made-up-ref-1].", usage }; } });
   try {
     const id = await s.chat();
-    const r = await s.post(`/api/chats/${id}/ask`, { question: "ERP create tool" }, { Accept: NDJSON });
+    const r = await s.post(`/api/chats/${id}/ask`, { question: "ERP create tool", agent: false }, { Accept: NDJSON });
     assert.equal(r.status, 200);
     assert.match(String(r.headers["content-type"]), /application\/x-ndjson/);
     const ev = events(r.body);

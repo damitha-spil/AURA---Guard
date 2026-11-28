@@ -1,6 +1,8 @@
 // Unified dispatcher for executing SPIL REO's Wave 1-3 QA, QE, Security, Visual, A11y, and API tools.
 
 import type { GuardConfig } from "../types.ts";
+import { composioExecuteAction, composioListConnections } from "../plugins/composio.ts";
+import { callExternalMcpTool } from "../plugins/mcp-hub.ts";
 import { apiHurlRunner, apiSchemathesisFuzz, qaK6SmokeLoad } from "../qa/api_and_load.ts";
 import { secDependencyCves, secGitleaksHistory, secNucleiLocal, secSemgrepScan } from "../qa/devsecops_suite.ts";
 import { qaA11yTreeSnapshot, qaAxeAudit, qaLighthouseBudget, qaVisionGroundScreen, qaVisualDiff } from "../qa/visual_and_a11y.ts";
@@ -108,7 +110,32 @@ export async function executeReoTool(
         ...(num(args["durationSeconds"]) !== undefined ? { durationSeconds: num(args["durationSeconds"]) } : {}),
         ...(num(args["p95BudgetMs"]) !== undefined ? { p95BudgetMs: num(args["p95BudgetMs"]) } : {}),
       });
+    case "composio_list_connections":
+      return composioListConnections(cfg.dataDir);
+    case "composio_execute_action":
+      return composioExecuteAction(cfg.dataDir, {
+        actionName: str(args["actionName"]) ?? "",
+        ...(str(args["entityId"]) ? { entityId: str(args["entityId"]) } : {}),
+        ...(str(args["connectedAccountId"]) ? { connectedAccountId: str(args["connectedAccountId"]) } : {}),
+        ...(args["params"] && typeof args["params"] === "object" ? { params: args["params"] as Record<string, unknown> } : {}),
+      });
+    case "mcp_hub_call_tool":
+      return callExternalMcpTool(
+        cfg.dataDir,
+        str(args["serverId"]) ?? "",
+        str(args["toolName"]) ?? "",
+        args["args"] && typeof args["args"] === "object" ? (args["args"] as Record<string, unknown>) : {},
+      );
     default:
+      if (toolId.startsWith("mcp__")) {
+        const rest = toolId.slice("mcp__".length);
+        const sepIdx = rest.indexOf("__");
+        if (sepIdx > 0) {
+          const serverId = rest.slice(0, sepIdx);
+          const remoteTool = rest.slice(sepIdx + 2);
+          return callExternalMcpTool(cfg.dataDir, serverId, remoteTool, args);
+        }
+      }
       if (toolId.startsWith("reo_")) {
         const { runCompositeTool } = await import("../agents/creations.ts");
         return runCompositeTool(cfg, toolId, args);

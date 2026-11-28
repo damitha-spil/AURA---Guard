@@ -30,7 +30,7 @@ const CONFIG = JSON.stringify({
     [OPENCODE_AGENT]: {
       mode: "primary",
       description: "Text only",
-      prompt: "You are a text-only language model inside SPIL AURA QA Bot. You have no tools and no files. Follow the instructions in the user's text and reply with only what they ask for.",
+      prompt: "You are a text-only language model inside SPIL REO. You have no tools and no files. Follow the instructions in the user's text and reply with only what they ask for.",
       tools: { "*": false },
       permission: { "*": "deny" },
     },

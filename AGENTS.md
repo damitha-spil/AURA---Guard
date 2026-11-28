@@ -17,6 +17,16 @@ Do not commit or push unless the owner asks.
   and it never comments or votes on a pull request. Repos the user loads in the app
   go through `engine/src/repos/safe-git.ts`, which runs with `--no-optional-locks`
   and with hooks, fsmonitor, external diff, textconv and filters switched off.
+- **Models get no direct tools.** A model (API or CLI) is only ever text in, text out; a CLI is run with
+  its own tools switched off. In chat's Agent mode (default on, "Agent" toggle) a model may *ask* in a strict
+  JSON text format for one tool; REO validates the request, runs it itself, masks and caps the result, marks
+  it untrusted, and asks again (max 8 tool steps, 15 after a visible plan of 3+ steps, 5 role passes, time and
+  size caps, cancellable). Only the allow-listed READ-ONLY tools in `engine/src/chat/agent-loop.ts` exist:
+  search notes, read a note, list/read/find files (secret files refused, values redacted), git log/branches/diff
+  (hardened runner), web search/fetch (only when Web search is on), defects, QA runs, health, pull request list.
+  There is no write, shell, git write, PR comment, ERP, desktop-click or notification tool. Adding one needs the
+  owner's separate decision and an ADR. "Sub-agents" are role passes of the same selected model, run one after
+  another, never separate programs.
 - Guard **suggests**. It never commits, merges or writes to an ERP.
 - Every outgoing paid-model call goes through `engine/src/mask/`. A call with a
   detected secret is not sent.

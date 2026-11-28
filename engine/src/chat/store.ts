@@ -5,9 +5,10 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { join } from "node:path";
 import { maskOutgoing } from "../mask/mask.ts";
 import type { ChatSource, Step } from "./answer.ts";
+import type { CreatedItem } from "./follow-through.ts";
 
 /** A trace is a handful of short rows; this stops a runaway one from filling a chat file. */
-export const MAX_TRACE_STEPS = 12;
+export const MAX_TRACE_STEPS = 40;
 export const MAX_STEP_TEXT = 300;
 
 /** Stops a runaway chat file; the oldest messages are dropped first. */
@@ -27,9 +28,18 @@ export interface StoredMessage {
   trace?: Step[];
   /** The structured result of a sub-agent (the QA agent), masked and capped, so it survives a reload. */
   qa?: unknown;
+  /** Files sent with this message (metadata only; the files are in data/attachments). */
+  attachments?: StoredAttachment[];
   /** A question the QA agent asked, with its answer chips. */
   needsInput?: { question: string; options: { id: string; label: string; value: string }[] };
+  /** Items agent mode created in REO's own data for this answer; the screen shows them as links. */
+  created?: CreatedItem[];
+  /** Set when a background mission wrote this answer. */
+  mission?: string;
 }
+
+/** What a message keeps about an attached file. */
+export interface StoredAttachment { id: string; name: string; size: number; type: string; kind: string; status: string; note?: string; chars?: number }
 
 export interface Chat {
   id: string;
@@ -167,7 +177,7 @@ export class ChatStore {
   }
 
   /** Appends a message (masked) and keeps the title in step with the first question. */
-  append(id: string, m: { role: "user" | "assistant"; text: string; sources?: ChatSource[]; error?: boolean; trace?: Step[]; qa?: unknown; needsInput?: StoredMessage["needsInput"] }): Chat | null {
+  append(id: string, m: { role: "user" | "assistant"; text: string; sources?: ChatSource[]; error?: boolean; trace?: Step[]; qa?: unknown; needsInput?: StoredMessage["needsInput"]; attachments?: StoredAttachment[]; created?: CreatedItem[]; mission?: string }): Chat | null {
     const chat = this.get(id);
     if (!chat) return null;
     const text = maskForStorage(m.text);
@@ -187,10 +197,13 @@ export class ChatStore {
       if (JSON.stringify(safe).length <= MAX_STORED_AGENT_CHARS) msg.qa = safe;
     }
     if (m.needsInput) msg.needsInput = maskDeep(m.needsInput);
+    if (m.created?.length) msg.created = m.created.slice(0, 10).map((c) => ({ kind: c.kind, id: c.id, label: maskForStorage(c.label).slice(0, 80) }));
+    if (m.mission && /^[a-f0-9]{16}$/.test(m.mission)) msg.mission = m.mission;
+    if (m.attachments?.length) msg.attachments = m.attachments.slice(0, 10).map((a) => ({ id: a.id, name: a.name, size: a.size, type: a.type, kind: a.kind, status: a.status, ...(a.note ? { note: a.note } : {}), ...(typeof a.chars === "number" ? { chars: a.chars } : {}) }));
     chat.messages.push(msg);
     if (chat.messages.length > MAX_STORED_MESSAGES) chat.messages.splice(0, chat.messages.length - MAX_STORED_MESSAGES);
     if (m.role === "user" && chat.title === "New chat") {
-      chat.title = text === WITHHELD ? "New chat" : text.replace(/\s+/g, " ").slice(0, MAX_TITLE_CHARS);
+      chat.title = text === WITHHELD ? "New chat" : text.replace(/\s+/g, " ").slice(0, MAX_TITLE_CHARS) || (m.attachments?.[0]?.name ?? "New chat").slice(0, MAX_TITLE_CHARS);
     }
     chat.updated = msg.ts;
     this.save(chat);

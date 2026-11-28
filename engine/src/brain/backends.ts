@@ -8,6 +8,7 @@ import type { CompleteResult, Usage } from "./client.ts";
 import { MODEL_ID_RE } from "./models.ts";
 import { windowsFromClaudeStream, windowsFromHeaders } from "../usage/limits.ts";
 import type { StoredWindow } from "../usage/limits.ts";
+import { CancelledError } from "./stream.ts";
 
 /**
  * A model backend. It only ever receives text that has ALREADY been masked and
@@ -24,6 +25,13 @@ export interface BackendRequest {
   audit: (outgoing: string, model: string) => void;
   /** Rate-limit facts the provider returned with this call. */
   limits?: (windows: StoredWindow[]) => void;
+  /** Aborts the call in flight. */
+  signal?: AbortSignal;
+  /**
+   * Streaming sink, MASKED text pieces as they arrive. Only backends with `streams: true` call it; the
+   * caller (select.ts) unmasks safely across chunk boundaries. The full masked text is still returned.
+   */
+  onText?: (maskedDelta: string) => void;
 }
 
 export interface BackendStatus { ok: boolean; detail: string }
@@ -31,6 +39,8 @@ export interface BackendStatus { ok: boolean; detail: string }
 export interface Backend {
   id: string;
   kind: "api" | "cli";
+  /** True when `complete` honours `onText` (token streaming). Others return whole replies. */
+  streams?: boolean;
   available(): Promise<BackendStatus>;
   /** Returns the model's raw (still masked) text. The caller unmasks. */
   complete(req: BackendRequest): Promise<CompleteResult>;
@@ -80,14 +90,15 @@ const CLAUDE_SIGN_IN_HELP =
  *                          instructions go on stdin so they are not limited by the command line length.
  * And as a runtime guard parseClaudeStream refuses the run if init reports any tool or MCP server.
  */
-const CLAUDE_SYSTEM = "You are a text-only language model inside SPIL AURA QA Bot. You have no tools and no files. Follow the instructions in the user's text and reply with only what they ask for.";
+const CLAUDE_SYSTEM = "You are a text-only language model inside SPIL REO. You have no tools and no files. Follow the instructions in the user's text and reply with only what they ask for.";
 const DENIED_TOOLS = "Bash PowerShell Edit Write NotebookEdit WebFetch WebSearch Task Agent";
 
-export function claudeArgs(model: string): string[] {
+export function claudeArgs(model: string, partial = false): string[] {
   return [
     "-p",
     "--output-format", "stream-json",
     "--verbose", // stream-json needs it with -p
+    ...(partial ? ["--include-partial-messages"] : []), // token-level text_delta events; the final lines are the same
     "--model", model,
     "--permission-mode", "dontAsk",
     "--tools", "",
@@ -165,6 +176,10 @@ export interface RunOptions {
   env: Record<string, string | undefined>;
   /** Called with the (empty) working folder, for tests. */
   onCwd?: (cwd: string) => void;
+  /** Kills the program and rejects with CancelledError. */
+  signal?: AbortSignal;
+  /** Sees each stdout piece as it arrives (the full text is still collected). */
+  onStdout?: (chunk: string) => void;
 }
 
 export interface RunResult { code: number | null; stdout: string; stderr: string }
@@ -197,10 +212,17 @@ export function runProgram(o: RunOptions): Promise<RunResult> {
     let stderr = "";
     let size = 0;
     let settled = false;
+    const onAbort = (): void => {
+      child.kill();
+      finish(() => reject(new CancelledError()));
+    };
+    if (o.signal?.aborted) queueMicrotask(onAbort);
+    else o.signal?.addEventListener("abort", onAbort, { once: true });
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      o.signal?.removeEventListener("abort", onAbort);
       done(fn);
     };
     const timer = setTimeout(() => {
@@ -217,6 +239,7 @@ export function runProgram(o: RunOptions): Promise<RunResult> {
         return;
       }
       stdout += d;
+      try { o.onStdout?.(d); } catch { /* a broken listener must not break the run */ }
     });
     child.stderr.on("data", (d: string) => { if (stderr.length < 20_000) stderr += d; });
     child.on("error", (e) => finish(() => reject(new CliError(`Could not start the program: ${e.message}`))));
@@ -281,6 +304,33 @@ export function parseClaudeStream(stdout: string): CompleteResult {
   return { text: reply, usage, ...(model ? { model } : {}) };
 }
 
+/**
+ * Reads the live stdout of `claude -p --output-format stream-json --include-partial-messages` and hands
+ * each text_delta to `onText`. Text is released only after the init line proved the CLI has no tools and
+ * no MCP servers (the same refusal parseClaudeStream applies at the end). Not-JSON lines are ignored.
+ */
+export class ClaudeDeltaReader {
+  private buf = "";
+  private ok = false;
+  private readonly onText: (t: string) => void;
+  constructor(onText: (t: string) => void) { this.onText = onText; }
+  push(chunk: string): void {
+    this.buf += chunk;
+    let at: number;
+    while ((at = this.buf.indexOf("\n")) >= 0) {
+      const line = this.buf.slice(0, at).trim();
+      this.buf = this.buf.slice(at + 1);
+      let v: any;
+      try { v = JSON.parse(line); } catch { continue; }
+      if (v?.type === "system" && v.subtype === "init") {
+        this.ok = !(Array.isArray(v.tools) && v.tools.length > 0) && !(Array.isArray(v.mcp_servers) && v.mcp_servers.length > 0);
+      } else if (this.ok && v?.type === "stream_event" && v.event?.type === "content_block_delta" && v.event.delta?.type === "text_delta" && typeof v.event.delta.text === "string") {
+        this.onText(v.event.delta.text);
+      }
+    }
+  }
+}
+
 // ---- backends ----
 
 export interface BackendOptions {
@@ -305,6 +355,7 @@ export function anthropicApiBackend(o: BackendOptions = {}): Backend {
   return {
     id: "anthropic-api",
     kind: "api",
+    streams: true,
     async available() {
       if (env.ANTHROPIC_API_KEY) return { ok: true, detail: `ANTHROPIC_API_KEY is set (model ${model()})` };
       if (o.storedKey && (await o.storedKey.exists().catch(() => false))) {
@@ -316,10 +367,12 @@ export function anthropicApiBackend(o: BackendOptions = {}): Backend {
       // The stored key is read for this one call and not kept.
       const key = env.ANTHROPIC_API_KEY || (o.storedKey ? await o.storedKey.get() : null);
       if (!key) throw new CliError("No API key is set. Set ANTHROPIC_API_KEY, or save a key in Guard.");
-      const payload = buildPayload(model(), req.maxTokens, req.system, req.user);
+      const payload = buildPayload(model(), req.maxTokens, req.system, req.user, !!req.onText);
       req.audit(payload, model());
       return postMessages({
         key, payload, fetch: o.fetch ?? fetch,
+        ...(req.signal ? { signal: req.signal } : {}),
+        ...(req.onText ? { onText: req.onText } : {}),
         sleep: o.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms))),
         onHeaders: (h) => req.limits?.(windowsFromHeaders(h)),
       });
@@ -343,6 +396,7 @@ export function claudeCliBackend(o: BackendOptions = {}): Backend {
   return {
     id: "claude-cli",
     kind: "cli",
+    streams: true,
     async available() {
       const l = find();
       if (!l) return { ok: false, detail: `Claude Code not found. ${CLAUDE_INSTALL_HELP}` };
@@ -361,10 +415,14 @@ export function claudeCliBackend(o: BackendOptions = {}): Backend {
       if (!l) throw new CliError(`Claude Code was not found. ${CLAUDE_INSTALL_HELP}`);
       // Everything goes on stdin: a Windows command line holds about 32,000 characters.
       const prompt = `=== INSTRUCTIONS ===\n${req.system.join("\n\n")}\n\n=== INPUT ===\n${req.user}\n`;
-      req.audit(claudeArgs(model).join(" ") + "\n" + prompt, `claude-cli/${model}`);
+      const args = claudeArgs(model, !!req.onText);
+      req.audit(args.join(" ") + "\n" + prompt, `claude-cli/${model}`);
+      const reader = req.onText ? new ClaudeDeltaReader(req.onText) : null;
       const r = await runProgram({
-        launcher: l, args: claudeArgs(model), stdin: prompt,
+        launcher: l, args, stdin: prompt,
         timeoutMs: o.cliTimeoutMs ?? CLI_TIMEOUT_MS, env: childEnv(req.maxTokens),
+        ...(req.signal ? { signal: req.signal } : {}),
+        ...(reader ? { onStdout: (c: string) => reader.push(c) } : {}),
         ...(o.onCwd ? { onCwd: o.onCwd } : {}),
       });
       req.limits?.(windowsFromClaudeStream(r.stdout));

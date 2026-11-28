@@ -49,6 +49,9 @@ export function DiffSettings() {
           <Row title="Default diff file state" description={`How files start in a diff. Files over ${LARGE_FILE_LINES} diff lines always start collapsed.`}>
             <Pick<DiffPrefs["files"]> label="Default diff file state" value={prefs.files} options={[["expanded", "Expanded"], ["collapsed", "Collapsed"]]} onChange={(files) => updateDiffPrefs({ files })} />
           </Row>
+          <Row title="Changed files list" description="A flat list, or folders you can open and close with their + and - totals. You can also switch in the diff itself.">
+            <Pick<DiffPrefs["fileList"]> label="Changed files list" value={prefs.fileList} options={[["list", "List"], ["tree", "Folder tree"]]} onChange={(fileList) => updateDiffPrefs({ fileList })} />
+          </Row>
           <Row title="Diff colors" description="Added and removed lines keep their + and - marks with either choice.">
             <Pick<DiffPrefs["colors"]> label="Diff colors" value={prefs.colors} options={[["red-green", "Red & green"], ["orange-blue", "Orange & blue"]]} onChange={(colors) => updateDiffPrefs({ colors })} />
           </Row>

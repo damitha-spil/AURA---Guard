@@ -3,15 +3,18 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowUp,
+  BookOpen,
   Bot,
   Check,
   ChevronDown,
   Copy,
-  FileText,
+  Eye,
   FlaskConical,
   GitPullRequest,
+  Globe,
   PanelRight,
   Paperclip,
+  Play,
   Plus,
   RotateCcw,
   Search,
@@ -42,7 +45,13 @@ import { ChatList, chatTitle, type ChatSummary } from "@/components/app/chat-lis
 import { FindBar, Marked } from "@/components/app/chat-find";
 import { SavedPrompts } from "@/components/app/saved-prompts";
 import { ErrorBoundary } from "@/components/app/error-boundary";
-import { HISTORY_NOTE, MAX_MESSAGE_CHARS, chatMarkdown, composeMessage, recallable } from "@/lib/chat";
+import { HISTORY_NOTE, MAX_FILES_PER_MESSAGE, MAX_MESSAGE_CHARS, MAX_UPLOAD_BYTES, chatMarkdown, formatBytes, legacyAttachments, recallable } from "@/lib/chat";
+import type { AttachmentInfo } from "@/lib/chat";
+import { AttachmentViewer, FileCard } from "@/components/app/attachments";
+import type { CardFile } from "@/components/app/attachments";
+import { ApprovalCardView, CreatedLinks, MissionCard } from "@/components/app/chat-extras";
+import { upsertById } from "@/lib/missions";
+import type { ApprovalInfo, CreatedInfo, MissionInfo } from "@/lib/missions";
 import { useShortcut } from "@/lib/keybindings";
 import { notifyReply } from "@/lib/notify";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -56,11 +65,20 @@ import { AgentSwarm, type SwarmState } from "@/components/app/agent-swarm";
 import { cn } from "@/lib/utils";
 import { useAppearance } from "@/lib/appearance";
 import { BASIC_COMMANDS, SLASH_MENU, isRunnerCommand, slashName } from "@/lib/slash";
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut, streamNdjson } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, apiUpload, streamNdjson } from "@/lib/api";
 
 interface WorkStep {
+  /** Engine step id: the same id again updates the same row. */
+  id?: string;
   label: string;
   status: string;
+}
+
+/** A stored trace shown as the "Worked for" list. */
+function workFromTrace(trace?: { id?: string; label: string; status: string; ms?: number }[]): { secs: number; steps: WorkStep[] } | undefined {
+  if (!trace?.length) return undefined;
+  const ms = trace.reduce((n, t) => n + (t.ms ?? 0), 0);
+  return { secs: Math.max(1, Math.round(ms / 1000)), steps: trace.map((t) => ({ ...(t.id ? { id: t.id } : {}), label: t.label, status: t.status })) };
 }
 
 interface ChatMsg {
@@ -70,8 +88,17 @@ interface ChatMsg {
   error?: boolean;
   pending?: boolean;
   sources?: { ref: string; title?: string; kind?: string; status?: string }[];
+  trace?: { id?: string; label: string; status: string; ms?: number }[];
+  /** Files sent with this (user) message. */
+  attachments?: AttachmentInfo[];
   work?: { secs: number; steps: WorkStep[] };
   swarm?: SwarmState;
+  /** True while answer text is arriving token by token; the text is shown as it grows. */
+  streaming?: boolean;
+  /** Approve / Decline cards the agent raised while writing this reply. */
+  approvals?: ApprovalInfo[];
+  /** Items REO created in its own data for this reply. */
+  created?: CreatedInfo[];
   /** Marks the reply of a run started in this window, so updates reach only that bubble. */
   run?: number;
 }
@@ -108,30 +135,10 @@ interface AgentLite {
   role: string;
 }
 
-interface AttachedFile {
-  id: string;
-  name: string;
-  size: number;
-  type: string;
-  text?: string;
-}
-
-/** Most files and most text read from each; file text is shortened again to fit the message limit. */
-const MAX_ATTACHMENTS = 5;
-const MAX_ATTACHMENT_CHARS = 12_000;
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function isTextResource(file: File): boolean {
-  if (file.type.startsWith("text/")) return true;
-  if (/json|xml|javascript|typescript|yaml|toml|csv|svg/i.test(file.type)) return true;
-  return /\.(txt|md|markdown|json|ya?ml|toml|xml|csv|tsv|log|ts|tsx|js|jsx|mjs|cjs|py|java|rs|go|cs|css|scss|html|sql|sh|ps1|bat|env|ini|conf)$/i.test(
-    file.name,
-  );
+/** A file chosen in the composer. It is uploaded when the message is sent. */
+interface AttachedFile extends CardFile {
+  key: string;
+  file?: File;
 }
 
 const PRESETS = [
@@ -177,6 +184,7 @@ export function WorkspaceView({
   listSlot,
   onClearInitial,
   onOpenDefects,
+  onOpenView,
   openRequest,
 }: {
   initialPrompt?: string;
@@ -187,6 +195,8 @@ export function WorkspaceView({
   listSlot: HTMLElement | null;
   onClearInitial: () => void;
   onOpenDefects: () => void;
+  /** Opens another page (the list a created item lives in). */
+  onOpenView?: (view: string) => void;
   /** A chat picked outside this page (command palette). `n` changes on each pick. */
   openRequest?: { id: string; n: number };
 }) {
@@ -209,6 +219,8 @@ export function WorkspaceView({
   const [showWork, setShowWork] = React.useState(appearance.showWork);
   React.useEffect(() => setShowWork(appearance.showWork), [appearance.showWork]);
   const [webSearch, setWebSearch] = React.useState(false);
+  // Agent mode: the model may ask REO to run read-only tools. On by default.
+  const [agentOn, setAgentOn] = React.useState(true);
   const [runnerNames, setRunnerNames] = React.useState<string[]>(BASIC_COMMANDS);
   const inputRef = React.useRef<HTMLTextAreaElement | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -224,6 +236,8 @@ export function WorkspaceView({
   const [deleteTarget, setDeleteTarget] = React.useState<ChatSummary | null>(null);
   const [presetGaze, setPresetGaze] = React.useState(0);
   const [attachments, setAttachments] = React.useState<AttachedFile[]>([]);
+  const [uploading, setUploading] = React.useState(false);
+  const [viewer, setViewer] = React.useState<CardFile | null>(null);
   const [dragOver, setDragOver] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [justReplied, setJustReplied] = React.useState(false);
@@ -238,6 +252,12 @@ export function WorkspaceView({
     prevBusyRef.current = busy;
   }, [busy, messages.length]);
   const abortRef = React.useRef<AbortController | null>(null);
+  // Background missions of the open chat. Polled; the engine keeps them going while this page is closed.
+  const [missionList, setMissionList] = React.useState<MissionInfo[]>([]);
+  const [missionTick, setMissionTick] = React.useState(0);
+  const seenRunning = React.useRef(new Set<string>());
+  const busyRef = React.useRef(false);
+  busyRef.current = busy;
   const endRef = React.useRef<HTMLDivElement | null>(null);
   const isXl = useIsXl();
 
@@ -307,7 +327,7 @@ export function WorkspaceView({
     const r = await apiGet<{ id: string; messages: ChatMsg[] }>(`/api/chats/${id}`);
     if (seq !== openSeq.current) return;
     if (!r.ok) return void toast.error(r.error || "Could not open the chat.");
-    showChat(id, r.data.messages || []);
+    showChat(id, (r.data.messages || []).map((m) => (m.role === "assistant" && m.trace && !m.work ? { ...m, work: workFromTrace(m.trace) } : m)));
     if (find) {
       setFindQuery(find);
       setFindOpen(true);
@@ -352,14 +372,49 @@ export function WorkspaceView({
     });
   }
 
+  async function decideApproval(id: string, approve: boolean) {
+    const r = await apiPost(`/api/approvals/${id}`, { approve });
+    if (!r.ok) toast.error(r.error || "That card is not waiting any more.");
+    setMissionTick((n) => n + 1);
+  }
+
+  async function cancelMission(id: string) {
+    const r = await apiPost(`/api/missions/${id}/cancel`, {});
+    if (!r.ok) toast.error(r.error || "Could not cancel the mission.");
+    setMissionTick((n) => n + 1);
+  }
+
+  React.useEffect(() => {
+    seenRunning.current = new Set();
+    if (!activeId) { setMissionList([]); return; }
+    let stop = false;
+    let timer: number | undefined;
+    const tick = async () => {
+      const r = await apiGet<{ missions: MissionInfo[] }>(`/api/missions?chat=${activeId}`);
+      if (stop) return;
+      const running = (r.ok ? r.data.missions || [] : []).filter((m) => m.status === "running");
+      setMissionList(running);
+      const now = new Set(running.map((m) => m.id));
+      const ended = [...seenRunning.current].some((id) => !now.has(id));
+      seenRunning.current = now;
+      // A mission that ended has saved its answer in the chat: load it.
+      if (ended && !busyRef.current) { void openChat(activeId); void refreshChats(); }
+      timer = window.setTimeout(tick, now.size ? 1500 : 5000);
+    };
+    void tick();
+    return () => { stop = true; window.clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, missionTick]);
+
   const runPrompt = React.useCallback(
-    async (text: string) => {
+    async (text: string, files?: AttachmentInfo[], opts?: { mission?: boolean }) => {
       const q = text.trim();
-      if (!q || busy) return;
+      const withFiles = !!files?.length;
+      if ((!q && !withFiles) || busy) return;
       recall.current = null;
 
       // 1. Live swarm steering while an active swarm mission is already running
-      if (activeMissionId) {
+      if (activeMissionId && !withFiles) {
         const isSteer = /^(stop|cancel|abort|skip\s+[a-z0-9_-]+)\b/i.test(q) || /@[a-z0-9-]+/i.test(q);
         if (isSteer) {
           setMessages((prev) => [...prev, { role: "user", text: q }]);
@@ -379,7 +434,7 @@ export function WorkspaceView({
       }
 
       // 2. Natural-language asset creation: "create an agent / tool / skill ..."
-      const createMatch = /^(?:create|make|build)\s+(?:an?\s+)?(agent|tool|skill)\s+([\s\S]+)$/i.exec(q);
+      const createMatch = withFiles ? null : /^(?:create|make|build)\s+(?:an?\s+)?(agent|tool|skill)\s+([\s\S]+)$/i.exec(q);
       if (createMatch) {
         const kind = createMatch[1]!.toLowerCase() as "agent" | "tool" | "skill";
         const description = createMatch[2]!.trim();
@@ -399,8 +454,9 @@ export function WorkspaceView({
 
       // 3. Multi-agent Swarm Mission (runs non-blocking so user can chat while swarm runs!)
       const name = slashName(q);
-      const runner = isRunnerCommand(q, runnerNames);
+      const runner = !withFiles && isRunnerCommand(q, runnerNames);
       const isMission =
+        !withFiles &&
         (!name || name === "qa") &&
         !runner &&
         (/^@(qa|qe|review|security|api|report|a11y|perf|release|architect|triage|knowledge|custom-[a-z0-9-]+)\b/i.test(q) ||
@@ -526,7 +582,7 @@ export function WorkspaceView({
       if (here()) {
         setMessages((prev) => [
           ...prev,
-          { role: "user", text: q },
+          { role: "user", text: q, ...(withFiles ? { attachments: files } : {}) },
           { role: "assistant", text: "Working...", pending: true, run },
         ]);
       }
@@ -543,6 +599,8 @@ export function WorkspaceView({
         });
       };
       let output = "";
+      let streamed = "";
+      let approvals: ApprovalInfo[] = [];
 
       if (runner) {
         let finished = false;
@@ -568,12 +626,31 @@ export function WorkspaceView({
       } else if (cid) {
         await streamNdjson(
           `/api/chats/${cid}/ask`,
-          { question: q, notesOnly, ...(webSearch && !notesOnly ? { webSearch: true } : {}) },
+          { question: q, ...(withFiles ? { attachments: files!.map((f) => f.id) } : {}), notesOnly, ...(webSearch && !notesOnly ? { webSearch: true } : {}), ...(agentOn ? {} : { agent: false }), ...(opts?.mission ? { mission: true } : {}) },
           (ev) => {
-            if (ev.type === "answer") {
+            if (ev.type === "delta" && typeof ev.text === "string") {
+              // Answer text as the model writes it (only when the backend can stream; others send it whole).
+              streamed += ev.text;
+              reply({ text: streamed, pending: true, streaming: true, approvals: [...approvals], work: { secs: Math.max(1, Math.round((Date.now() - started) / 1000)), steps: [...work] } });
+            } else if (ev.type === "approval" && ev.approval && typeof ev.approval === "object") {
+              approvals = upsertById(approvals, ev.approval as ApprovalInfo);
+              reply({ text: streamed || "Working...", pending: true, streaming: streamed !== "", approvals: [...approvals], work: { secs: Math.max(1, Math.round((Date.now() - started) / 1000)), steps: [...work] } });
+            } else if (ev.type === "mission") {
+              setMissionTick((n) => n + 1);
+              reply({ text: "Started as a background mission. You can open another chat or page; progress shows in this chat and under Missions, and the answer is saved here when it ends." });
+            } else if (ev.type === "step" && ev.step && typeof ev.step === "object") {
+              // Each real step shows as it happens (Show work), not only at the end.
+              const st = ev.step as { id?: string; label?: string; status?: string };
+              const row: WorkStep = { id: String(st.id ?? ""), label: String(st.label ?? ""), status: String(st.status ?? "") };
+              const at = work.findIndex((w) => w.id === row.id);
+              if (at >= 0) work[at] = row; else work.push(row);
+              reply({ text: streamed || "Working...", pending: true, streaming: streamed !== "", approvals: [...approvals], work: { secs: Math.max(1, Math.round((Date.now() - started) / 1000)), steps: [...work] } });
+            } else if (ev.type === "answer") {
               reply({
                 text: String(ev.text || ""),
                 sources: Array.isArray(ev.sources) ? (ev.sources as ChatMsg["sources"]) : [],
+                ...(approvals.length ? { approvals } : {}),
+                ...(Array.isArray(ev.created) && ev.created.length ? { created: ev.created as CreatedInfo[] } : {}),
                 work: work.length ? { secs: Math.max(1, Math.round((Date.now() - started) / 1000)), steps: work } : undefined,
               });
             } else if (ev.type === "error") {
@@ -596,7 +673,7 @@ export function WorkspaceView({
       setBusy(false);
       refreshChats();
     },
-    [busy, activeMissionId, notesOnly, webSearch, runnerNames],
+    [busy, activeMissionId, notesOnly, webSearch, agentOn, runnerNames],
   );
 
   React.useEffect(() => {
@@ -649,54 +726,77 @@ export function WorkspaceView({
   useShortcut("focusComposer", () => inputRef.current?.focus(), active);
   useShortcut("toggleCanvas", () => setHarnessOpen((o) => !o), active);
 
-  async function attachFiles(files: FileList | File[]) {
+  function attachFiles(files: FileList | File[]) {
     const incoming = Array.from(files);
     if (incoming.length === 0) return;
-    const room = Math.max(0, MAX_ATTACHMENTS - attachments.length);
+    const room = Math.max(0, MAX_FILES_PER_MESSAGE - attachments.length);
     if (room === 0) {
-      toast.error(`You can attach up to ${MAX_ATTACHMENTS} files per message.`);
+      toast.error(`You can attach up to ${MAX_FILES_PER_MESSAGE} files per message.`);
       return;
     }
-    const slice = incoming.slice(0, room);
-    if (incoming.length > room) {
-      toast(`Only the first ${room} file${room === 1 ? "" : "s"} were attached (max ${MAX_ATTACHMENTS}).`);
-    }
-    const read = await Promise.all(
-      slice.map(async (file): Promise<AttachedFile> => {
-        let text: string | undefined;
-        if (isTextResource(file)) {
-          try {
-            const raw = await file.text();
-            text = raw.length > MAX_ATTACHMENT_CHARS ? `${raw.slice(0, MAX_ATTACHMENT_CHARS)}\n... [truncated]` : raw;
-          } catch {
-            text = undefined;
-          }
-        }
-        return {
-          id: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          name: file.name,
-          size: file.size,
-          type: file.type || "application/octet-stream",
-          text,
-        };
-      }),
-    );
-    setAttachments((prev) => [...prev, ...read]);
+    if (incoming.length > room) toast(`Only the first ${room} file${room === 1 ? "" : "s"} were attached (max ${MAX_FILES_PER_MESSAGE}).`);
+    const added = incoming.slice(0, room).map((file): AttachedFile => ({
+      key: `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      file,
+      name: file.name,
+      size: file.size,
+      ...(file.size > MAX_UPLOAD_BYTES ? { error: `Too large (limit ${formatBytes(MAX_UPLOAD_BYTES)})` } : file.size === 0 ? { error: "The file is empty" } : {}),
+    }));
+    setAttachments((prev) => [...prev, ...added]);
   }
 
-  const outgoing = composeMessage(
-    input,
-    attachments.map((a) => ({ name: a.name, sizeLabel: formatBytes(a.size), type: a.type, text: a.text })),
-  );
-  const canSend = outgoing.text.length > 0 && outgoing.fits;
-  const showMeter = attachments.length > 0 || outgoing.text.length > MAX_MESSAGE_CHARS * 0.75;
+  const typed = input.trim();
+  const fits = typed.length <= MAX_MESSAGE_CHARS;
+  const hasBadFile = attachments.some((a) => a.error && !a.uploading);
+  const canSend = (typed.length > 0 || attachments.length > 0) && fits && !uploading && !hasBadFile;
+  const showMeter = typed.length > MAX_MESSAGE_CHARS * 0.75;
 
-  function submit() {
+  async function submit(mission = false) {
     // While a reply is running the typed text stays in the box.
-    if (busy || !canSend) return;
+    if (busy || uploading || !canSend) return;
+    if (attachments.length === 0) {
+      setInput("");
+      void runPrompt(typed, undefined, mission ? { mission: true } : undefined);
+      return;
+    }
+    // Files belong to a chat: make one first if this is a new chat, then upload what is not uploaded yet.
+    setUploading(true);
+    let cid = activeRef.current;
+    if (!cid) {
+      const created = await apiPost<{ id: string }>("/api/chats", {});
+      if (!created.ok || !created.data.id) {
+        setUploading(false);
+        return void toast.error(created.error || "Could not start a chat for these files.");
+      }
+      cid = created.data.id;
+      activeRef.current = cid;
+      setActiveId(cid);
+    }
+    const sent: AttachmentInfo[] = [];
+    const next = [...attachments];
+    for (let i = 0; i < next.length; i++) {
+      const f = next[i]!;
+      if (f.id && f.status) {
+        sent.push(f as unknown as AttachmentInfo);
+        continue;
+      }
+      next[i] = { ...f, uploading: true };
+      setAttachments([...next]);
+      const r = await apiUpload<{ attachment: AttachmentInfo }>(`/api/chats/${cid}/attachments?name=${encodeURIComponent(f.name)}`, f.file!);
+      if (!r.ok) {
+        next[i] = { ...f, uploading: false, error: r.error || "Upload failed" };
+        setAttachments([...next]);
+        setUploading(false);
+        return;
+      }
+      const meta = r.data.attachment;
+      next[i] = { ...f, ...meta, uploading: false };
+      sent.push(meta);
+    }
+    setUploading(false);
     setInput("");
     setAttachments([]);
-    runPrompt(outgoing.text);
+    void runPrompt(typed, sent, mission ? { mission: true } : undefined);
   }
 
   /** Up and down arrows bring back messages already sent in this chat. */
@@ -749,6 +849,12 @@ export function WorkspaceView({
     setInput(`/${name} `);
     inputRef.current?.focus();
   }
+
+  // One short line when a quick, low-effort model is picked: it answers fast but plans and checks less.
+  const pickedModelLabel = brain?.picked ? brain.models.catalogue.find((m) => m.id === brain.models.current[brain.picked!])?.label ?? brain.models.current[brain.picked!] ?? "" : "";
+  const slowHint = /\b(low|lite|flash|mini|haiku|nano)\b/i.test(pickedModelLabel)
+    ? "A low-effort model answers quickly but thinks less. For multi-step work, pick a stronger model in the model menu."
+    : "";
 
   const modelPicker = brain ? (
     <ChatModelPicker
@@ -912,24 +1018,22 @@ export function WorkspaceView({
           </div>
         )}
         {attachments.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+          <div className="mb-2 flex flex-wrap gap-2.5 px-1 pt-1.5">
             {attachments.map((a) => (
-              <span
-                key={a.id}
-                className="bg-muted/80 inline-flex max-w-56 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
-              >
-                <FileText className="text-muted-foreground size-3.5 shrink-0" />
-                <span className="truncate font-medium">{a.name}</span>
-                <span className="text-muted-foreground shrink-0 text-[10px]">{formatBytes(a.size)}</span>
-                <button
-                  type="button"
-                  aria-label={`Remove ${a.name}`}
-                  onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                  className="text-muted-foreground hover:text-foreground shrink-0 rounded-full"
-                >
-                  <X className="size-3" />
-                </button>
-              </span>
+              <FileCard
+                key={a.key}
+                file={a}
+                variant="composer"
+                onOpen={a.id ? () => setViewer(a) : undefined}
+                onRemove={
+                  uploading
+                    ? undefined
+                    : () => {
+                        if (a.id && activeRef.current) void apiDelete(`/api/chats/${activeRef.current}/attachments/${a.id}`);
+                        setAttachments((prev) => prev.filter((x) => x.key !== a.key));
+                      }
+                }
+              />
             ))}
           </div>
         )}
@@ -961,52 +1065,113 @@ export function WorkspaceView({
           aria-label="Message"
         />
         {showMeter && (
-          <p role={outgoing.fits ? "status" : "alert"} className={cn("px-2 text-xs", outgoing.fits ? "text-muted-foreground" : "text-destructive")} title={HISTORY_NOTE}>
-            {outgoing.text.length.toLocaleString()} / {MAX_MESSAGE_CHARS.toLocaleString()} characters.
-            {!outgoing.fits && ` Too long to send: remove ${(outgoing.text.length - MAX_MESSAGE_CHARS).toLocaleString()} characters.`}
-            {outgoing.fits && outgoing.shortened && " Attached files will be shortened to fit."}
+          <p role={fits ? "status" : "alert"} className={cn("px-2 text-xs", fits ? "text-muted-foreground" : "text-destructive")} title={HISTORY_NOTE}>
+            {typed.length.toLocaleString()} / {MAX_MESSAGE_CHARS.toLocaleString()} characters.
+            {!fits && ` Too long to send: remove ${(typed.length - MAX_MESSAGE_CHARS).toLocaleString()} characters.`}
           </p>
         )}
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="border-border/50 mt-2 flex flex-wrap items-center justify-between gap-2 border-t pt-2">
           <div className="flex min-w-0 flex-wrap items-center gap-1">
             <Button
               type="button"
               size="icon-sm"
               variant="ghost"
-              className="rounded-full"
+              className="size-7 rounded-full"
               aria-label="Attach files or resources"
               title="Attach files or resources"
-              disabled={busy}
+              disabled={busy || uploading}
               onClick={() => fileInputRef.current?.click()}
             >
-              <Paperclip className="size-4" />
+              <Paperclip className="size-3.5" />
             </Button>
             <SavedPrompts draft={input} onInsert={editAgain} />
             {modelPicker}
-            <Button type="button" size="sm" variant={showWork ? "secondary" : "outline"} aria-pressed={showWork} onClick={() => setShowWork((v) => !v)} className="rounded-full text-xs">
-              Show work
+            <Button
+              type="button"
+              size="sm"
+              variant={showWork ? "secondary" : "ghost"}
+              aria-pressed={showWork}
+              onClick={() => setShowWork((v) => !v)}
+              title="Show or hide agent steps and tool calls"
+              className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+            >
+              <Eye className="size-3" />
+              Work
             </Button>
-            <Button type="button" size="sm" variant={notesOnly ? "secondary" : "outline"} aria-pressed={notesOnly} onClick={() => { if (!notesOnly) setWebSearch(false); setNotesOnly(!notesOnly); }} className="rounded-full text-xs">
-              Notes only
+            <Button
+              type="button"
+              size="sm"
+              variant={notesOnly ? "secondary" : "ghost"}
+              aria-pressed={notesOnly}
+              onClick={() => { if (!notesOnly) setWebSearch(false); setNotesOnly(!notesOnly); }}
+              title="Answer only from indexed Vault notes"
+              className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+            >
+              <BookOpen className="size-3" />
+              Notes
             </Button>
-            <Button type="button" size="sm" variant={webSearch ? "secondary" : "outline"} aria-pressed={webSearch} disabled={notesOnly} onClick={() => setWebSearch((v) => !v)} className="rounded-full text-xs">
-              Web search
+            <Button
+              type="button"
+              size="sm"
+              variant={webSearch ? "secondary" : "ghost"}
+              aria-pressed={webSearch}
+              disabled={notesOnly}
+              onClick={() => setWebSearch((v) => !v)}
+              title="Include masked web search"
+              className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+            >
+              <Globe className="size-3" />
+              Web
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={agentOn && !notesOnly ? "secondary" : "ghost"}
+              aria-pressed={agentOn && !notesOnly}
+              disabled={notesOnly}
+              title="Agent: the model may ask REO to look things up (files, notes, git history, defects) and, when you ask, save follow-ups, tasks, proposed notes or defect drafts in REO. Opening a file or link needs your Approve. It never changes repositories or any ERP. Turn off for a single plain answer."
+              onClick={() => setAgentOn((v) => !v)}
+              className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+            >
+              <Bot className="size-3" />
+              Agent
             </Button>
           </div>
           {busy ? (
-            <Button type="button" size="icon" variant="destructive" className="rounded-full" aria-label="Stop" onClick={() => abortRef.current?.abort()}>
-              <Square />
+            <Button type="button" size="icon-sm" variant="destructive" className="ml-auto size-8 shrink-0 rounded-full" aria-label="Stop" onClick={() => abortRef.current?.abort()}>
+              <Square className="size-3.5" />
             </Button>
           ) : (
-            <Button type="submit" size="icon" className="rounded-full" aria-label="Send" disabled={!canSend}>
-              <ArrowUp />
-            </Button>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              {agentOn && !notesOnly && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
+                  disabled={!canSend || missionList.length >= 1}
+                  title="Run as a background mission: the engine keeps working while you use other pages. One per chat, two at once."
+                  onClick={() => void submit(true)}
+                >
+                  <Play className="size-3" />
+                  Mission
+                </Button>
+              )}
+              <Button type="submit" size="icon-sm" className="size-8 rounded-full" aria-label="Send" disabled={!canSend}>
+                <ArrowUp className="size-4" />
+              </Button>
+            </div>
           )}
         </div>
       </form>
       <p className="text-muted-foreground mt-2 text-center text-xs" title={HISTORY_NOTE}>
         Enter to send · Shift+Enter new line · Up arrow for earlier messages
       </p>
+      {slowHint && (
+        <p className="text-muted-foreground mt-1 text-center text-xs">
+          {slowHint}
+        </p>
+      )}
     </div>
   );
 
@@ -1185,11 +1350,25 @@ export function WorkspaceView({
               {messages.map((m, i) => {
                 const isUser = m.role === "user";
                 if (isUser) {
+                  const old = m.attachments?.length ? { files: [] as { name: string; detail: string }[], rest: m.text } : legacyAttachments(m.text);
+                  const shown = old.rest;
                   return (
-                    <div key={i} className="group flex flex-col items-end gap-1">
+                    <div key={i} className="group flex flex-col items-end gap-1.5">
+                      {(m.attachments?.length || old.files.length > 0) && (
+                        <div className="flex max-w-[85%] flex-wrap justify-end gap-2">
+                          {(m.attachments ?? []).map((a) => (
+                            <FileCard key={a.id} file={a} variant="sent" onOpen={() => setViewer(a)} />
+                          ))}
+                          {old.files.map((f, k) => (
+                            <FileCard key={`old-${k}`} file={{ name: f.name, size: 0, legacy: true }} variant="sent" />
+                          ))}
+                        </div>
+                      )}
+                      {shown && (
                       <div className="bg-primary text-primary-foreground max-w-[85%] rounded-3xl px-4 py-2.5 text-sm leading-relaxed break-words whitespace-pre-wrap">
-                        <Marked text={m.text} query={findOpen ? findQuery : ""} />
+                        <Marked text={shown} query={findOpen ? findQuery : ""} />
                       </div>
+                      )}
                       <div className="flex opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                         <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => editAgain(m.text)}>
                           <RotateCcw />
@@ -1207,7 +1386,17 @@ export function WorkspaceView({
                   <div key={i} className="group flex gap-3">
                     <AssistantAvatar />
                     <div className="flex min-w-0 flex-1 flex-col gap-2">
-                      {showWork && m.work && (
+                      {showWork && m.work && m.pending && (
+                        <ul className="text-muted-foreground space-y-1 pl-1 text-xs" aria-live="polite">
+                          {m.work.steps.map((st, k) => (
+                            <li key={k} className="flex items-center justify-between gap-2">
+                              <span className="min-w-0 truncate">{st.label}</span>
+                              <Badge variant={statusVariant(st.status)}>{st.status}</Badge>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {showWork && m.work && !m.pending && (
                         <Collapsible>
                           <CollapsibleTrigger asChild>
                             <Button variant="ghost" size="sm" className="-ml-2 h-7 text-xs">
@@ -1243,9 +1432,13 @@ export function WorkspaceView({
                             m.error && "border-destructive text-destructive rounded-2xl border p-3",
                           )}
                         >
-                          {m.pending ? <Skeleton className="h-4 w-40" /> : <Marked text={m.text} query={findOpen ? findQuery : ""} />}
+                          {m.pending && !m.streaming ? <Skeleton className="h-4 w-40" /> : <Marked text={m.text} query={findOpen ? findQuery : ""} />}
                         </div>
                       )}
+                      {m.approvals?.map((a) => (
+                        <ApprovalCardView key={a.id} card={a} onDecide={decideApproval} />
+                      ))}
+                      {m.created && m.created.length > 0 && <CreatedLinks items={m.created} onOpenView={onOpenView} />}
                       {m.sources && m.sources.length > 0 && (
                         <div className="flex flex-wrap gap-1.5">
                           {m.sources.map((s) => (
@@ -1269,6 +1462,14 @@ export function WorkspaceView({
                   </div>
                 );
               })}
+              {missionList.map((mi) => (
+                <div key={mi.id} className="flex gap-3">
+                  <AssistantAvatar />
+                  <div className="min-w-0 flex-1">
+                    <MissionCard mission={mi} onCancel={cancelMission} onDecide={decideApproval} />
+                  </div>
+                </div>
+              ))}
               <div ref={endRef} />
             </div>
           </ScrollArea>
@@ -1365,6 +1566,8 @@ export function WorkspaceView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AttachmentViewer chatId={activeId} file={viewer} onClose={() => setViewer(null)} />
 
       <Sheet open={docSheet !== null} onOpenChange={(o) => !o && setDocSheet(null)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-xl">

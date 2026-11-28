@@ -4,6 +4,8 @@ import type { GuardConfig } from "../types.ts";
 import type { DictionaryTerm } from "../mask/detectors.ts";
 import { maskOutgoing, unmask } from "../mask/mask.ts";
 import { auditOutgoing } from "../mask/audit.ts";
+import { asCancel, CancelledError as CancelledErrorLocal, readSse, withAbort } from "./stream.ts";
+export { CancelledError } from "./stream.ts";
 
 /** Default paid model. Override with AURA_GUARD_MODEL. */
 export const DEFAULT_MODEL = "claude-sonnet-5-5";
@@ -62,6 +64,13 @@ export interface CompleteRequest {
   dictionary?: DictionaryTerm[];
   /** The chat this call belongs to, for the usage record only. Never sent. */
   sessionId?: string;
+  /** Aborts the call in flight (an HTTP request is cancelled, a CLI process is killed). Never sent. */
+  signal?: AbortSignal;
+  /**
+   * Optional streaming: called with already-unmasked pieces of the answer as they arrive, never with half
+   * a placeholder. Backends that cannot stream never call it; the whole text is still returned at the end.
+   */
+  onText?: (delta: string) => void;
 }
 
 export interface CompleteResult {
@@ -94,11 +103,11 @@ export function maskAll(blocks: string[], dictionary?: DictionaryTerm[]) {
 }
 
 /** The request body for the Messages API: cache_control on the last system block only. */
-export function buildPayload(model: string, maxTokens: number, sys: string[], userText: string): string {
+export function buildPayload(model: string, maxTokens: number, sys: string[], userText: string, stream = false): string {
   const system = sys.map((text, i) =>
     i === sys.length - 1 ? { type: "text", text, cache_control: { type: "ephemeral" } } : { type: "text", text },
   );
-  return JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: userText }] });
+  return JSON.stringify({ model, max_tokens: maxTokens, system, messages: [{ role: "user", content: userText }], ...(stream ? { stream: true } : {}) });
 }
 
 /** Sends an already-masked payload. One retry on 429 / 5xx. The key never appears in an error. */
@@ -106,18 +115,25 @@ export async function postMessages(a: {
   key: string; payload: string; fetch: typeof fetch; sleep: (ms: number) => Promise<void>;
   /** Sees the response headers, for rate limits. */
   onHeaders?: (headers: Headers) => void;
+  signal?: AbortSignal;
+  /** When set, the payload must ask for a stream; text pieces arrive here (still masked). */
+  onText?: (delta: string) => void;
 }): Promise<CompleteResult> {
   let res: Response | undefined;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    res = await a.fetch(API_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": a.key, "anthropic-version": API_VERSION },
-      body: a.payload,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    const retryable = res.status === 429 || res.status >= 500;
-    if (!retryable || attempt === 1) break;
-    await a.sleep(RETRY_BACKOFF_MS);
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      res = await a.fetch(API_URL, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": a.key, "anthropic-version": API_VERSION },
+        body: a.payload,
+        signal: withAbort(REQUEST_TIMEOUT_MS, a.signal),
+      });
+      const retryable = res.status === 429 || res.status >= 500;
+      if (!retryable || attempt === 1) break;
+      await a.sleep(RETRY_BACKOFF_MS);
+    }
+  } catch (e) {
+    throw asCancel(e, a.signal);
   }
   if (!res) throw new Error("No response");
   if (res.headers) a.onHeaders?.(res.headers);
@@ -129,9 +145,44 @@ export async function postMessages(a: {
     } catch { /* no body */ }
     throw new ApiError(res.status, detail.split(a.key).join("[key]"));
   }
+  if (a.onText && res.headers?.get("content-type")?.includes("text/event-stream")) return readAnthropicStream(res, a.onText, a.signal);
   const j = (await res.json()) as { content?: { type: string; text?: string }[]; usage?: Usage };
   const text = (j.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
   return { text, usage: j.usage ?? { input_tokens: 0, output_tokens: 0, reported: false } };
+}
+
+/** Reads the Messages API event stream: text_delta pieces go to `onText`; usage is collected from the events. */
+export async function readAnthropicStream(res: Response, onText: (delta: string) => void, signal?: AbortSignal): Promise<CompleteResult> {
+  let text = "";
+  const usage: Usage = { input_tokens: 0, output_tokens: 0, reported: false };
+  let failure = "";
+  try {
+    await readSse(res, (_event, data) => {
+      let v: any;
+      try { v = JSON.parse(data); } catch { return; }
+      if (v?.type === "content_block_delta" && v.delta?.type === "text_delta" && typeof v.delta.text === "string") {
+        text += v.delta.text;
+        onText(v.delta.text);
+      } else if (v?.type === "message_start" && v.message?.usage) {
+        const u = v.message.usage;
+        usage.input_tokens = Number(u.input_tokens ?? 0);
+        usage.output_tokens = Number(u.output_tokens ?? 0);
+        if (u.cache_creation_input_tokens != null) usage.cache_creation_input_tokens = Number(u.cache_creation_input_tokens);
+        if (u.cache_read_input_tokens != null) usage.cache_read_input_tokens = Number(u.cache_read_input_tokens);
+        delete usage.reported;
+      } else if (v?.type === "message_delta" && v.usage?.output_tokens != null) {
+        usage.output_tokens = Number(v.usage.output_tokens);
+      } else if (v?.type === "error") {
+        failure = String(v.error?.message ?? "stream error").slice(0, 200);
+        return false;
+      }
+    });
+  } catch (e) {
+    throw asCancel(e, signal);
+  }
+  if (signal?.aborted) throw new CancelledErrorLocal();
+  if (failure) throw new ApiError(500, failure);
+  return { text, usage };
 }
 
 export function createBrain(cfg: GuardConfig, opts: BrainOptions = {}): { complete: CompleteFn } {

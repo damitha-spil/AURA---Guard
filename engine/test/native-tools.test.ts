@@ -189,7 +189,7 @@ async function start(indexed: boolean, over: Partial<ServerDeps> = {}) {
   const headers = { Cookie: `${COOKIE_NAME}=${TOKEN}`, "Content-Type": "application/json" };
   const created = (await (await fetch(`${base}/api/chats`, { method: "POST", headers, body: "{}" })).json()) as { id: string };
   const raw = async (body: object, accept = "application/json"): Promise<string> =>
-    (await fetch(`${base}/api/chats/${created.id}/ask`, { method: "POST", headers: { ...headers, Accept: accept }, body: JSON.stringify(body) })).text();
+    (await fetch(`${base}/api/chats/${created.id}/ask`, { method: "POST", headers: { ...headers, Accept: accept }, body: JSON.stringify({ agent: false, ...body }) })).text();
   return {
     calls, net, raw,
     ask: async (body: object) => JSON.parse(await raw(body)) as Reply,

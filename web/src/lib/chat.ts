@@ -1,50 +1,74 @@
-// Pure helpers for the chat box: fitting a message to the engine's limit, recall of earlier
+// Pure helpers for the chat box: the message limit, attached-file descriptions, recall of earlier
 // messages, a plain Markdown copy of a chat, and marking search matches.
 
-/** The engine refuses a longer message (MAX_QUESTION_CHARS in engine/src/chat/answer.ts). */
+/** The engine refuses a longer typed message (MAX_QUESTION_CHARS in engine/src/chat/answer.ts). Files are sent separately. */
 export const MAX_MESSAGE_CHARS = 4000;
-/** What a model is given from earlier in the chat (MAX_HISTORY_TURNS and MAX_TURN_CHARS, same file). */
-export const HISTORY_NOTE = "A model sees your last 6 messages in this chat, up to 1,500 characters of each, plus this one.";
+/** What a model is given from earlier in the chat (MAX_HISTORY_TURNS and MAX_TURN_CHARS in engine/src/chat/prompt.ts). */
+export const HISTORY_NOTE = "A model sees your last 10 messages in this chat (up to 2,500 characters each), the files attached in this chat within a size budget, and this message.";
 
-export interface Attachment {
+/** Mirrors engine/src/chat/attachments.ts. */
+export const MAX_FILES_PER_MESSAGE = 5;
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+export interface AttachmentInfo {
+  id: string;
   name: string;
-  sizeLabel: string;
+  size: number;
   type: string;
-  text?: string;
+  kind: "text" | "pdf" | "docx" | "image" | "other";
+  status: "read" | "cut" | "unreadable" | "blocked";
+  note?: string;
+  chars?: number;
 }
 
-const CUT = "\n... [shortened to fit]";
-
-function block(a: Attachment, room: number): string {
-  const head = `[Attached resource: ${a.name} (${a.sizeLabel}`;
-  if (a.text === undefined) return `${head}, ${a.type})]`;
-  const body = a.text.length <= room ? a.text : `${a.text.slice(0, Math.max(0, room - CUT.length))}${CUT}`;
-  return `${head})]\n\`\`\`\n${body}\n\`\`\``;
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const ID = /^[a-f0-9]{16}$/;
 /**
- * The message that will be sent. File text is shortened, in equal shares, so the whole message stays
- * within the engine's limit. `fits` is false when even the names and the typed text are too long.
+ * The same-origin address of a stored file. Both ids come from the engine; anything else gives null,
+ * so no address is ever built from other data (see the web-safety test).
  */
-export function composeMessage(typed: string, files: Attachment[]): { text: string; shortened: boolean; fits: boolean } {
-  const val = typed.trim();
-  const join = (room: number) => [...files.map((f) => block(f, room)), val].filter(Boolean).join("\n\n");
-  const full = join(Number.MAX_SAFE_INTEGER);
-  if (full.length <= MAX_MESSAGE_CHARS) return { text: full, shortened: false, fits: true };
-  const withText = files.filter((f) => f.text !== undefined).length;
-  if (!withText) return { text: full, shortened: false, fits: false };
-  const bare = join(CUT.length).length;
-  const share = CUT.length + Math.max(0, Math.floor((MAX_MESSAGE_CHARS - bare) / withText));
-  const text = join(share);
-  return { text, shortened: true, fits: text.length <= MAX_MESSAGE_CHARS };
+export function attachmentUrl(chatId: string, attId: string, part: "" | "text" | "open" = ""): string | null {
+  return ID.test(chatId) && ID.test(attId) ? `/api/chats/${chatId}/attachments/${attId}${part ? `/${part}` : ""}` : null;
+}
+
+/** One line under the file name that says what REO could do with it. */
+export function attachmentSummary(a: Pick<AttachmentInfo, "status" | "note" | "kind" | "chars">): string {
+  if (a.status === "blocked") return `Not sent: ${a.note ?? "it looks like it holds a secret"}`;
+  if (a.status === "unreadable") return a.kind === "image" ? "Picture: shown here, not read" : `Not read: ${a.note ?? "no text found"}`;
+  const chars = a.chars ? `${a.chars.toLocaleString("en-US")} characters read` : "Read";
+  return a.status === "cut" ? `${chars}; ${a.note ?? "cut"}` : chars;
+}
+
+/** Older messages kept the file as text: [Attached resource: name (size, type)] and maybe a fenced body. */
+export function legacyAttachments(text: string): { files: { name: string; detail: string }[]; rest: string } {
+  const files: { name: string; detail: string }[] = [];
+  let rest = text;
+  const fence = String.fromCharCode(96).repeat(3);
+  const re = /^\[Attached resource: (.+?) \(([^()]*?)(?:, ([^(),]*))?\)\]\n?/;
+  for (let m = re.exec(rest); m; m = re.exec(rest)) {
+    files.push({ name: m[1]!, detail: [m[2], m[3]].filter(Boolean).join(", ") });
+    rest = rest.slice(m[0].length);
+    if (rest.startsWith(fence + "\n")) {
+      const end = rest.indexOf("\n" + fence, 4);
+      rest = end >= 0 ? rest.slice(end + 4) : "";
+    }
+    rest = rest.replace(/^\n+/, "");
+  }
+  return files.length ? { files, rest } : { files, rest: text };
 }
 
 /** Earlier messages that the up arrow can bring back, oldest first, without repeats in a row. */
 export function recallable(messages: { role: string; text: string }[]): string[] {
   const out: string[] = [];
   for (const m of messages) {
-    if (m.role !== "user" || m.text.startsWith("[Attached resource:")) continue;
-    if (out[out.length - 1] !== m.text) out.push(m.text);
+    if (m.role !== "user") continue;
+    const t = legacyAttachments(m.text).rest;
+    if (t && out[out.length - 1] !== t) out.push(t);
   }
   return out;
 }

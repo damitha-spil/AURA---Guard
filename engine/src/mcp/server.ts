@@ -536,6 +536,19 @@ export function buildServer(db: Db | null, scope: Scope, cfg?: GuardConfig): Mcp
     },
   );
 
+  registerReo("composio_list_connections", "List connected OAuth app toolkits (Jira, Slack, Linear, GitHub, Notion) in Composio.", {});
+  registerReo("composio_execute_action", "Execute a Composio toolkit action with secret-masked parameters.", {
+    actionName: z.string(),
+    entityId: z.string().optional(),
+    connectedAccountId: z.string().optional(),
+    params: z.record(z.string(), z.unknown()).optional(),
+  });
+  registerReo("mcp_hub_call_tool", "Call a tool on any configured external stdio, HTTP, or SSE MCP server.", {
+    serverId: z.string(),
+    toolName: z.string(),
+    args: z.record(z.string(), z.unknown()).optional(),
+  });
+
   return server;
 }
 

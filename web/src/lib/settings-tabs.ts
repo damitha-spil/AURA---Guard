@@ -6,6 +6,7 @@ export const SETTINGS_TABS = [
   { id: "diffs", label: "Diffs & pull requests" },
   { id: "keyboard", label: "Keyboard" },
   { id: "notifications", label: "Notifications" },
+  { id: "memory", label: "Memory" },
   { id: "index", label: "Repositories & index" },
   { id: "health", label: "System health" },
 ] as const;

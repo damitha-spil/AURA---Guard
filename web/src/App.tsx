@@ -18,6 +18,7 @@ import {
   Moon,
   Plug,
   Plus,
+  Rocket,
   Search,
   Settings,
   Keyboard,
@@ -83,6 +84,7 @@ const AgentsView = React.lazy(() => import("@/views/AgentsView").then((m) => ({ 
 const HarnessView = React.lazy(() => import("@/views/HarnessView").then((m) => ({ default: m.HarnessView })));
 const PluginsView = React.lazy(() => import("@/views/PluginsView").then((m) => ({ default: m.PluginsView })));
 const KnowledgeView = React.lazy(() => import("@/views/KnowledgeView").then((m) => ({ default: m.KnowledgeView })));
+const MissionsView = React.lazy(() => import("@/views/MissionsView").then((m) => ({ default: m.MissionsView })));
 const UsageView = React.lazy(() => import("@/views/UsageView").then((m) => ({ default: m.UsageView })));
 const PullsView = React.lazy(() => import("@/views/PullsView").then((m) => ({ default: m.PullsView })));
 const ReposView = React.lazy(() => import("@/views/ReposView").then((m) => ({ default: m.ReposView })));
@@ -96,6 +98,7 @@ const NAV_ITEMS = [
   { id: "runs", label: "QA Runs", icon: History },
   { id: "defects", label: "Defects", icon: Bug },
   { id: "followups", label: "Follow-ups", icon: ListTodo },
+  { id: "missions", label: "Missions", icon: Rocket },
   { id: "usage", label: "Usage", icon: Gauge },
   { id: "pulls", label: "Pull requests", icon: GitPullRequest },
   { id: "repos", label: "Repositories", icon: FolderGit2 },
@@ -113,7 +116,7 @@ const SIDEBAR_NAV: readonly NavId[] = ["workspace", "home", "qa", "defects", "pu
 
 /** Every other page is listed in the Settings menu. */
 const SETTINGS_PAGES: { heading: string; icon: React.ComponentType<{ className?: string }>; ids: readonly NavId[] }[] = [
-  { heading: "Quality work", icon: ShieldCheck, ids: ["activity", "runs", "followups", "harness"] },
+  { heading: "Quality work", icon: ShieldCheck, ids: ["activity", "missions", "runs", "followups", "harness"] },
   { heading: "Assistant", icon: Sparkles, ids: ["agents", "knowledge", "plugins", "usage"] },
 ];
 const IN_SETTINGS: ReadonlySet<string> = new Set(["settings", ...SETTINGS_PAGES.flatMap((g) => g.ids)]);
@@ -430,6 +433,7 @@ export function App() {
                   listSlot={listSlot}
                   onClearInitial={clearInitial}
                   onOpenDefects={() => goTo("defects")}
+                  onOpenView={(v) => goTo(v as ViewId)}
                   openRequest={openRequest}
                 />
                 </React.Suspense>
@@ -473,6 +477,7 @@ export function App() {
                 {view === "runs" && <RunsView />}
                 {view === "defects" && <DefectsView />}
                 {view === "followups" && <FollowupsView />}
+                {view === "missions" && <MissionsView onOpenChat={openChat} onOpenView={(v) => goTo(v as ViewId)} />}
                 {view === "agents" && (
                   <AgentsView
                     onRunMission={(prompt) =>

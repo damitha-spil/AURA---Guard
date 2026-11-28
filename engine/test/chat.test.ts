@@ -66,14 +66,14 @@ test("history is capped to the last turns", async () => {
   assert.ok(seen!.user.endsWith("Question: ERP create"));
 });
 
-test("no sources: says it does not know and calls no model", async () => {
+test("Notes only with no sources: says it does not know and calls no model", async () => {
   const db = seed();
   let calls = 0;
   const complete: CompleteFn = async () => {
     calls++;
     return { text: "x", usage };
   };
-  const r = await answer(cfg, db, { history: [], question: "zzzzqqqq" }, { complete });
+  const r = await answer(cfg, db, { history: [], question: "zzzzqqqq", notesOnly: true }, { complete });
   assert.equal(calls, 0);
   assert.equal(r.text, NOTHING_FOUND);
 });
@@ -156,4 +156,68 @@ test("heavy lock allows one at a time", () => {
   assert.equal(l.tryAcquire("diary"), false);
   l.release();
   assert.equal(l.tryAcquire("diary"), true);
+});
+
+test("no sources outside Notes only: general questions still reach the model, with the no-source rule and no chips", async () => {
+  const db = seed();
+  let seen: CompleteRequest | undefined;
+  const complete: CompleteFn = async (req) => { seen = req; return { text: "A mutex lets one thread at a time into a section.", usage }; };
+  const r = await answer(cfg, db, { history: [], question: "How does a mutex work?" }, { complete, backend: "Test plan (m1)" });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.sources, []);
+  const sys = seen!.system.join("\n");
+  assert.match(sys, /No project source matched/);
+  assert.match(sys, /SPIL REO running on Test plan \(m1\)/, "the model is told its product and backend");
+  assert.match(sys, /plain text only/i);
+});
+
+test("chit-chat and attachment questions do not retrieve project sources", async () => {
+  const db = seed();
+  const seen: CompleteRequest[] = [];
+  const complete: CompleteFn = async (req) => { seen.push(req); return { text: "ok", usage }; };
+  const steps: string[] = [];
+  await answer(cfg, db, { history: [], question: "tell me what is this and what model are you?" }, { complete, onStep: (s) => steps.push(s.label) });
+  assert.ok(!steps.includes("Searched notes, commits and files"), "no search for chit-chat");
+  assert.ok(!seen[0]!.system.join("\n").includes("rule-erp-create"));
+  const att = { current: [{ name: "essay.pdf", kind: "pdf", status: "read", text: "King Dutugamunu essay text about ERP create tools." }], earlier: [] };
+  const r = await answer(cfg, db, { history: [], question: "ERP create summary", attachments: att }, { complete });
+  assert.ok(seen[1]!.user.includes("<<<attachment name=\"essay.pdf\""), "file text goes in the user part, marked");
+  assert.match(seen[1]!.system.join("\n"), /untrusted data/);
+  assert.ok(!seen[1]!.system.join("\n").includes("rule-erp-create"), "attachment-focused: no project sources unless the project is named");
+  assert.deepEqual(r.sources, []);
+});
+
+test("a file that looks like a secret is named and nothing of it is sent; unreadable files are said plainly", async () => {
+  const db = seed();
+  const seen: CompleteRequest[] = [];
+  const complete: CompleteFn = async (req) => { maskAll([...req.system, req.user]); seen.push(req); return { text: "done", usage }; };
+  const att = {
+    current: [
+      { name: "keys.txt", kind: "text", status: "read", text: `token ${fakeSecret()}` },
+      { name: "scan.pdf", kind: "pdf", status: "unreadable", note: "no text was found in this PDF", text: "" },
+    ],
+    earlier: [],
+  };
+  const r = await answer(cfg, db, { history: [], question: "what is in these files", attachments: att }, { complete });
+  assert.equal(r.ok, true);
+  assert.ok(!seen[0]!.user.includes(fakeSecret()));
+  assert.match(r.text, /Not sent to the model: "keys\.txt"/);
+  assert.match(r.text, /Could not read "scan\.pdf"/);
+  assert.match(seen[0]!.user, /not read: no text was found/);
+});
+
+test("the prompt stays under the Antigravity limit and keeps the question last", async () => {
+  const db = seed();
+  let seen: CompleteRequest | undefined;
+  const complete: CompleteFn = async (req) => { seen = req; return { text: "ok", usage }; };
+  const big = "word ".repeat(40_000);
+  const history = Array.from({ length: 10 }, (_, i) => ({ role: "user" as const, text: "h".repeat(2500) + i }));
+  await answer(cfg, db, { history, question: "summarise the file", attachments: { current: [{ name: "big.txt", kind: "text", status: "read", text: big }], earlier: [] } }, { complete, backendId: "antigravity-cli" });
+  const total = seen!.system.join("\n\n").length + seen!.user.length;
+  assert.ok(total < 24_000, String(total));
+  assert.ok(seen!.user.endsWith("Question: summarise the file"));
+});
+
+test("stripInvented leaves code that looks like a bracket citation", () => {
+  assert.equal(stripInvented("use a[-1] and list[0:5] but not [fake-ref]", new Set()), "use a[-1] and list[0:5] but not");
 });

@@ -28,7 +28,7 @@ export interface RepoRouteContext {
   openIndex: () => { db: Db; release: () => void } | null;
 }
 
-const defaultLaunch = (command: string, args: string[]): Promise<void> =>
+export const defaultLaunch = (command: string, args: string[]): Promise<void> =>
   new Promise((done, fail) => {
     const child = spawn(command, args, { detached: true, stdio: "ignore", shell: false });
     child.once("error", fail);

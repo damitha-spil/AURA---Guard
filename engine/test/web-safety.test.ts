@@ -31,7 +31,11 @@ test("web: no markdown-to-HTML library is installed", () => {
 
 test("web: no link or frame takes its address from data", () => {
   // A new dynamic href, src or navigation needs its own protocol check and a test here.
-  assert.deepEqual(using(/\b(href|src|formAction)=\{|<form\b[^>]*\saction=/), []);
+  // The one image is a stored attachment whose address comes from attachmentUrl (lib/chat.ts), which accepts only two engine ids.
+  assert.deepEqual(using(/\b(href|src|formAction)=\{|<form\b[^>]*\saction=/), ["components/app/attachments.tsx"]);
+  const viewer = files.find((f) => f.name === "components/app/attachments.tsx")!.text;
+  assert.match(viewer, /const imageUrl = [^;]*attachmentUrl\(/);
+  assert.equal((viewer.match(/\b(?:src|href)=\{/g) ?? []).length, 1);
   assert.deepEqual(using(/\blocation\.(href\s*=|assign\(|replace\()/), []);
   // The one window.open shows the defect report the engine built (it escapes every field) from a blob.
   assert.deepEqual(using(/window\.open\(/), ["views/DefectsView.tsx"]);

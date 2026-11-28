@@ -8,6 +8,8 @@ export interface DiffPrefs {
   colors: "red-green" | "orange-blue";
   openPullsInApp: boolean;
   hideTests: boolean;
+  /** The changed-files list in the diff viewer: flat, or folders you can open and close. */
+  fileList: "list" | "tree";
 }
 
 export const DEFAULT_DIFF_PREFS: DiffPrefs = {
@@ -17,6 +19,7 @@ export const DEFAULT_DIFF_PREFS: DiffPrefs = {
   colors: "red-green",
   openPullsInApp: true,
   hideTests: false,
+  fileList: "list",
 };
 
 /** A file with more patch lines than this starts closed, so a large diff stays responsive. */
@@ -36,6 +39,7 @@ function load(): DiffPrefs {
       colors: pick(raw?.colors, ["red-green", "orange-blue"] as const, d.colors),
       openPullsInApp: pick(raw?.openPullsInApp, [true, false], d.openPullsInApp),
       hideTests: pick(raw?.hideTests, [true, false], d.hideTests),
+      fileList: pick(raw?.fileList, ["list", "tree"] as const, d.fileList),
     };
   } catch {
     return DEFAULT_DIFF_PREFS;

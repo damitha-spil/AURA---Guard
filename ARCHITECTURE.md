@@ -299,3 +299,21 @@ docs/         ADRs, plans, and feature guides (indexed in docs/README.md)
   the API key is stored encrypted by Windows and never shown again. See `docs/brain-settings.md`.
 - **Data contract.** `docs/capture-events.md`; the extension and engine share `repoKey`, with test
   vectors checked on both sides.
+
+## Chat: attachments, prompt budget and agent mode (2026-11-28)
+
+- **Attachments** (`engine/src/chat/attachments.ts`, `engine/src/server/attachment-routes.ts`): files are stored per
+  chat in `data/attachments/<chatId>/` (server-made ids, size and count caps, same cookie/Host/Origin checks, deleted
+  with the chat). Text is extracted in the engine: text/code, PDF (`unpdf`, a bundled pdf.js build, text only), DOCX
+  (`node:zlib`). Messages keep metadata only. File text reaches a model separately from the question, as untrusted
+  data, after the mask step; a file that fails the mask sends nothing of itself and is named in the answer.
+- **Prompt** (`engine/src/chat/prompt.ts`): rules, product and backend identity, attached files, history and project
+  sources are sized to a per-backend budget (Antigravity takes the prompt as one argument cut at 24,000 characters, so
+  its prompt is kept under 22,000). Project sources are looked up only when the message has topic words (and, with
+  files attached, names the project), a hit is kept only when it shares topic words, and only cited sources are shown.
+  Notes only keeps the strict rules.
+- **Agent mode** (`engine/src/chat/agent-loop.ts`): see the model rule in AGENTS.md. It uses the same masked
+  `complete` as every call, so it works for API and text-only CLI backends. Each step streams as a step event.
+- **Not built yet:** token streaming of answer text (the brain layer returns whole replies), background missions, a
+  memory store, creating follow-ups/notes/defect drafts from chat, and approval cards. No action outside REO's own
+  data exists, so there is nothing to approve.

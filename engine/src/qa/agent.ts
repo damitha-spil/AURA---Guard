@@ -118,7 +118,7 @@ export async function runQaAgent(deps: AgentDeps, input: AgentInput): Promise<Ag
   const t0 = Date.now();
   const emit = (id: Step["id"], status: Step["status"], label: string, since: number, detail?: string): void => {
     try {
-      deps.onStep?.({ id, kind: id, status, label, ...(detail ? { detail } : {}), ...(status === "running" ? {} : { ms: Date.now() - since }), agent: "qa" });
+      deps.onStep?.({ id, kind: id as Step["kind"], status, label, ...(detail ? { detail } : {}), ...(status === "running" ? {} : { ms: Date.now() - since }), agent: "qa" });
     } catch { /* a broken listener must not break the agent */ }
   };
 

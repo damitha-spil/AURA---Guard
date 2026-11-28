@@ -15,6 +15,19 @@ import type { BrainRouteOptions } from "./brain.ts";
 import { HttpError, MAX_BODY_BYTES, readJson, sendJson } from "./http.ts";
 import { projectSummary, suggestions } from "./project.ts";
 import { ChatStore } from "../chat/store.ts";
+import { AttachmentStore, canOpen, isAttachmentId, MAX_FILES_PER_MESSAGE } from "../chat/attachments.ts";
+import { ApprovalHub } from "../chat/approvals.ts";
+import type { ApprovalCard } from "../chat/approvals.ts";
+import { CreationLog } from "../chat/follow-through.ts";
+import { addMemory as addUserMemory, listMemory as listUserMemory, MAX_MEMORIES, MAX_MEMORY_CHARS, memoryBlock, parseRemember, removeMemory as removeUserMemory, updateMemory as updateUserMemory, isMemoryId } from "../chat/memory.ts";
+import { MAX_MISSIONS_RUNNING, MISSION_LOOP_MS, MissionManager } from "../chat/missions.ts";
+import { listTodos, setTodos } from "../chat/todos.ts";
+import { pickToolSet } from "../chat/agent-loop.ts";
+import { maskOutgoing as maskForSkill } from "../mask/mask.ts";
+import type { MissionView } from "../chat/missions.ts";
+import { fileOpenCommand } from "./attachment-routes.ts";
+import { createAttachmentRoutes } from "./attachment-routes.ts";
+import type { AttachmentsInput } from "../chat/prompt.ts";
 import { openDb } from "../index/db.ts";
 import { dbPath } from "../config.ts";
 import type { Db } from "../index/db.ts";
@@ -92,6 +105,21 @@ import { buildDailyDigest, DEFECT_STATUSES, generateDefectReportHtml, listDefect
 import { buildTeamsDefectPayload, listPlugins, listTeamMembers, removeTeamMember, updatePlugin, upsertTeamMember } from "../plugins/store.ts";
 import type { PluginId } from "../plugins/store.ts";
 import { getN8nStatus, n8nKeyStore, n8nListExecutions, n8nListWorkflows, n8nTriggerWebhook, validateN8nEndpoint } from "../plugins/n8n.ts";
+import {
+  composioExecuteAction,
+  composioKeyStore,
+  composioListActions,
+  composioListConnections,
+  getComposioStatus,
+} from "../plugins/composio.ts";
+import {
+  callExternalMcpTool,
+  deleteExternalMcpServer,
+  listDiscoveredMcpTools,
+  listExternalMcpServers,
+  probeExternalMcpServer,
+  upsertExternalMcpServer,
+} from "../plugins/mcp-hub.ts";
 import { validateApiKey } from "../brain/keystore.ts";
 import { addFollowup, addTask, isItemId, listFollowups, listTasks, updateFollowup, updateTask } from "../followups/store.ts";
 import { getStepList, isStepListId, listStepLists, replayStepList, saveStepList, stepsFromRun } from "../steps/store.ts";
@@ -104,7 +132,10 @@ import { answer, MAX_QUESTION_CHARS, UNTRUSTED_MARK } from "../chat/answer.ts";
 import { identityReply, isGreetingOrIdentity } from "../chat/identity.ts";
 import { NOTES_NEED_INDEX, openAnswer } from "../chat/open-answer.ts";
 import { createProviderRoutes } from "./providers.ts";
-import { createRepoRoutes } from "../repos/routes.ts";
+import { runAgent } from "../chat/agent-loop.ts";
+import { createPullLister } from "../prs/pulls.ts";
+import { createPrRoutes } from "../prs/pr-routes.ts";
+import { browserCommand, createRepoRoutes, defaultLaunch } from "../repos/routes.ts";
 import type { RepoRouteDeps } from "../repos/routes.ts";
 import { loadPrices } from "../usage/prices.ts";
 import { readUsage } from "../usage/record.ts";
@@ -114,7 +145,7 @@ import { limitsReport } from "../usage/limits.ts";
 import type { LimitsOptions } from "../usage/limits.ts";
 import { parseToolLine, runToolLine } from "../tools/native/chat.ts";
 import type { NativeDeps } from "../tools/native/chat.ts";
-import type { AnswerResult, ChatTurn, Step } from "../chat/answer.ts";
+import type { AnswerDeps, AnswerResult, ChatTurn, Step } from "../chat/answer.ts";
 import { recordFeedback } from "../chat/feedback.ts";
 import { isChatId, maskForStorage, WITHHELD } from "../chat/store.ts";
 import { addPrompt, listPrompts, removePrompt } from "../chat/prompts.ts";
@@ -182,6 +213,8 @@ export interface ServerDeps {
   limits?: LimitsOptions;
   /** Access used by the repo and pull request routes: tests inject fakes. */
   repos?: RepoRouteDeps;
+  /** Opens a stored attachment with the OS default app: tests inject a fake. */
+  openFile?: (command: string, args: string[]) => Promise<void>;
 }
 
 export function backendLabel(id: string | null): string {
@@ -223,6 +256,12 @@ export function newToken(): string {
 export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
   const uiDir = deps.uiDir ?? DEFAULT_UI_DIR;
   const store = new ChatStore(cfg.dataDir);
+  const attachments = new AttachmentStore(cfg.dataDir);
+  const attachmentRoutes = createAttachmentRoutes({ chats: store, files: attachments, launch: deps.openFile ?? defaultLaunch });
+  // Approval cards (generic Approve/Decline) and background missions live in memory for this engine run.
+  const approvals = new ApprovalHub();
+  const missions = new MissionManager();
+  const withApprovals = (m: MissionView): MissionView & { approvals: ApprovalCard[] } => ({ ...m, approvals: m.status === "running" ? approvals.list(m.chatId).filter((c) => c.state === "pending") : [] });
   // One lazily opened index handle for the one project.
   let cached: { file: string; db: Db } | null = null;
   const openIndex = (): { db: Db; release: () => void } | null => {
@@ -236,6 +275,8 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     return { db: cached.db, release: () => {} };
   };
   const repoRoutes = createRepoRoutes(deps.repos);
+  const prRoutes = createPrRoutes(deps.repos?.pulls);
+  const listPullsForAgent = createPullLister(deps.repos?.pulls);
   const providerRoutes = createProviderRoutes();
   const lock = new HeavyLock();
   const liveQa = new LiveSessionController();
@@ -294,6 +335,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     }
     const dcfg = cfg;
     if (await repoRoutes({ req, res, path, method, cfg, complete: deps.complete, openIndex })) return;
+    if (await prRoutes({ req, res, path, method, cfg })) return;
     // Cheap liveness answer for the app's connection check: no index, files or model.
     if (path === "/api/ping" && method === "GET") return json(res, 200, { ok: true });
     if (path === "/api/health" && method === "GET") return json(res, 200, await runHealth(dcfg, deps.brain ? { brain: deps.brain } : {}));
@@ -364,6 +406,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       return json(res, 200, doc);
     }
 
+    if (await attachmentRoutes(req, res, path, method)) return;
     if (path === "/api/chats" && method === "GET") return json(res, 200, { chats: store.list() });
     if (path === "/api/chats" && method === "POST") return json(res, 201, store.create());
     if (path === "/api/chats/search" && method === "GET") {
@@ -382,6 +425,76 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
     if (promptMatch && method === "DELETE") {
       if (!removePrompt(dcfg.dataDir, promptMatch[1] as string)) throw new HttpError(404, "No such prompt.");
       return json(res, 200, { deleted: true });
+    }
+
+    // Memory: facts the owner asked REO to remember. Per machine, capped, anything the masker flags is refused.
+    if (path === "/api/memory" && method === "GET") return json(res, 200, { entries: listUserMemory(dcfg.dataDir), max: MAX_MEMORIES, maxChars: MAX_MEMORY_CHARS });
+    if (path === "/api/memory" && method === "POST") {
+      const body = await readJson(req);
+      const r = addUserMemory(dcfg.dataDir, typeof body["text"] === "string" ? body["text"] : "");
+      if (!r.ok) throw new HttpError(400, r.error);
+      return json(res, 201, { entry: r.entry });
+    }
+    const memoryMatch = /^\/api\/memory\/([a-f0-9]{16})$/.exec(path);
+    if (memoryMatch && isMemoryId(memoryMatch[1] as string)) {
+      if (method === "PATCH") {
+        const body = await readJson(req);
+        const r = updateUserMemory(dcfg.dataDir, memoryMatch[1] as string, typeof body["text"] === "string" ? body["text"] : "");
+        if (!r) throw new HttpError(404, "No such memory.");
+        if (!r.ok) throw new HttpError(400, r.error);
+        return json(res, 200, { entry: r.entry });
+      }
+      if (method === "DELETE") {
+        if (!removeUserMemory(dcfg.dataDir, memoryMatch[1] as string)) throw new HttpError(404, "No such memory.");
+        return json(res, 200, { deleted: true });
+      }
+    }
+
+    // The visible to-do list of a chat (kept by agent mode; the owner may also clear it).
+    const todoMatch = /^\/api\/chats\/([a-f0-9]{16})\/todos$/.exec(path);
+    if (todoMatch) {
+      const cid = todoMatch[1] as string;
+      if (!store.get(cid)) throw new HttpError(404, "No such chat.");
+      if (method === "GET") return json(res, 200, { items: listTodos(dcfg.dataDir, cid) });
+      if (method === "PUT") {
+        const r = setTodos(dcfg.dataDir, cid, (await readJson(req))["items"]);
+        if (!r.ok) throw new HttpError(400, r.error);
+        return json(res, 200, { items: r.items });
+      }
+    }
+
+    // Approval cards: the owner's answer to an action outside REO's own data.
+    if (path === "/api/approvals" && method === "GET") {
+      const chat = new URL(req.url ?? "/", "http://x").searchParams.get("chat");
+      return json(res, 200, { approvals: approvals.list(chat && isChatId(chat) ? chat : undefined) });
+    }
+    const approvalMatch = /^\/api\/approvals\/([a-f0-9]{16})$/.exec(path);
+    if (approvalMatch && method === "POST") {
+      const body = await readJson(req);
+      if (typeof body["approve"] !== "boolean") throw new HttpError(400, "Send approve: true or false.");
+      const card = await approvals.decide(approvalMatch[1] as string, body["approve"]);
+      if (!card) throw new HttpError(404, "That card is not waiting any more.");
+      return json(res, 200, { approval: card });
+    }
+
+    // Background missions: list, look, cancel. Starting one is POST /api/chats/:id/ask with {"mission": true}.
+    if (path === "/api/missions" && method === "GET") {
+      const chat = new URL(req.url ?? "/", "http://x").searchParams.get("chat");
+      return json(res, 200, { missions: missions.list(chat && isChatId(chat) ? chat : undefined).map(withApprovals), maxRunning: MAX_MISSIONS_RUNNING });
+    }
+    const missionMatch = /^\/api\/missions\/([a-f0-9]{16})(\/cancel)?$/.exec(path);
+    if (missionMatch) {
+      const mid = missionMatch[1] as string;
+      if (!missionMatch[2] && method === "GET") {
+        const v = missions.get(mid);
+        if (!v) throw new HttpError(404, "No such mission.");
+        return json(res, 200, { mission: withApprovals(v) });
+      }
+      if (missionMatch[2] && method === "POST") {
+        const v = missions.cancel(mid);
+        if (!v) throw new HttpError(404, "No such mission.");
+        return json(res, 200, { mission: withApprovals(v) });
+      }
     }
 
     const m = /^\/api\/chats\/([^/]+)(\/ask)?$/.exec(path);
@@ -408,31 +521,52 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       }
       if (!m[2] && method === "DELETE") {
         if (!store.delete(id)) throw new HttpError(404, "No such chat.");
+        attachments.removeChat(id);
         return json(res, 200, { deleted: true });
       }
       if (m[2] && method === "POST") {
         const body = await readJson(req);
         const question = typeof body["question"] === "string" ? body["question"].trim() : "";
-        if (!question) throw new HttpError(400, "Type a question.");
+        const rawIds = Array.isArray(body["attachments"]) ? (body["attachments"] as unknown[]) : [];
+        const attIds = [...new Set(rawIds.filter((v): v is string => typeof v === "string" && isAttachmentId(v)))];
+        if (rawIds.length > MAX_FILES_PER_MESSAGE || attIds.length !== rawIds.length) throw new HttpError(400, `Attach up to ${MAX_FILES_PER_MESSAGE} files.`);
+        if (!question && attIds.length === 0) throw new HttpError(400, "Type a question.");
         if (question.length > MAX_QUESTION_CHARS) throw new HttpError(400, "That question is too long.");
         const chat = store.get(id);
         if (!chat) throw new HttpError(404, "No such chat.");
+        const currentMeta = attIds.map((a) => attachments.meta(id, a));
+        if (currentMeta.some((a) => a === null)) throw new HttpError(400, "A file is missing. Attach it again.");
+        const sentFiles = currentMeta.filter((a): a is NonNullable<typeof a> => a !== null);
         const history: ChatTurn[] = chat.messages.flatMap((x, i) => {
           if (x.error) return [];
           const asked = chat.messages[i - 1];
           const fromTool = x.role === "assistant" && asked?.role === "user" && parseToolLine(asked.text) !== null;
-          return [{ role: x.role, text: fromTool ? `${UNTRUSTED_MARK} ${x.text}` : x.text }];
+          const files = x.attachments?.length ? `[Attached: ${x.attachments.map((a) => a.name).join(", ")}]${x.text ? " " : ""}` : "";
+          return [{ role: x.role, text: fromTool ? `${UNTRUSTED_MARK} ${x.text}` : files + x.text }];
         });
-        store.append(id, { role: "user", text: question });
+        // Files from earlier messages stay usable in follow-ups, newest first, within the prompt budget.
+        const loaded = (a: { id: string; name: string; kind: string; status: string; note?: string }) => ({
+          name: a.name, kind: a.kind, status: a.status, ...(a.note ? { note: a.note } : {}), text: attachments.text(id, a.id),
+        });
+        const earlierFiles = chat.messages.slice().reverse().flatMap((x) => (x.attachments ?? []).slice().reverse())
+          .filter((a) => !attIds.includes(a.id) && a.status !== "blocked").slice(0, MAX_FILES_PER_MESSAGE).map(loaded);
+        const attachmentInput: AttachmentsInput | undefined = sentFiles.length || earlierFiles.length ? { current: sentFiles.map(loaded), earlier: earlierFiles } : undefined;
+        const hasFiles = sentFiles.length > 0;
+        store.append(id, { role: "user", text: question, ...(hasFiles ? { attachments: sentFiles } : {}) });
         const notesOnly = body["notesOnly"] === true;
         const streaming = wantsNdjson(req);
         const trace: Step[] = [];
         let live: ((ev: unknown) => void) | null = null;
         if (streaming) live = startStream(res);
+        // The client closing the request (the Stop button) aborts the model call in flight.
+        const ctrl = new AbortController();
+        res.on("close", () => { if (!res.writableEnded) ctrl.abort(); });
         // Names the chat on every model call, for the usage record.
-        const complete: CompleteFn = (r) => deps.complete({ ...r, sessionId: id });
-        const toolLine = parseToolLine(question);
-        const greeting = !toolLine && body["mode"] !== "qa" && isGreetingOrIdentity(question);
+        const complete: CompleteFn = (r) => deps.complete({ ...r, sessionId: id, signal: r.signal ?? ctrl.signal });
+        // Answer text is streamed as NDJSON "delta" events when the client asked for a stream.
+        const onText = live ? (t: string): void => live?.({ type: "delta", text: t }) : undefined;
+        const toolLine = hasFiles ? null : parseToolLine(question);
+        const greeting = !hasFiles && !toolLine && body["mode"] !== "qa" && isGreetingOrIdentity(question);
         const info = toolLine ? null : await cachedBackend().catch(() => null);
         const backend = info?.label ?? "the model";
         const onStep = (step: Step): void => {
@@ -444,9 +578,9 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         const modeIn = body["mode"] === "qa" || body["mode"] === "ask" ? (body["mode"] as RouteMode) : undefined;
         const runJourneys = body["runJourneys"] === true;
         const reply = (result: AnswerResult): void => {
-          const updated = store.append(id, { role: "assistant", text: result.text, sources: result.sources, trace, ...(result.ok ? {} : { error: true }) });
+          const updated = store.append(id, { role: "assistant", text: result.text, sources: result.sources, trace, ...(result.created?.length ? { created: result.created } : {}), ...(result.needsInput ? { needsInput: result.needsInput } : {}), ...(result.ok ? {} : { error: true }) });
           if (live) {
-            live(result.ok ? { type: "answer", text: result.text, sources: result.sources, chat: updated } : { type: "error", message: result.text, kind: result.error ?? null, chat: updated });
+            live(result.ok ? { type: "answer", text: result.text, sources: result.sources, ...(result.created?.length ? { created: result.created } : {}), ...(result.needsInput ? { needsInput: result.needsInput } : {}), chat: updated } : { type: "error", message: result.text, kind: result.error ?? null, chat: updated });
             return void res.end();
           }
           return json(res, 200, { ...result, chat: updated });
@@ -454,7 +588,15 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
         // A typed tool line runs the tool and shows its result: no model and no index.
         if (toolLine) return reply(await runToolLine(dcfg, toolLine, deps.native ?? {}, onStep));
         if (greeting) return reply({ ok: true, text: identityReply(info), sources: [] });
-        if (decideRoute(question, history, { mode: modeIn, runJourneys }).intent === "qa") {
+        // "remember ..." is handled here, with no model call: it stores a short fact in this machine's memory.
+        const toRemember = !hasFiles && !toolLine && body["mission"] !== true ? parseRemember(question) : null;
+        if (toRemember !== null) {
+          const r = addUserMemory(dcfg.dataDir, toRemember);
+          return reply(r.ok
+            ? { ok: true, text: `Remembered: ${r.entry.text}\nYou can edit or delete it in Settings > Memory.`, sources: [] }
+            : { ok: true, text: r.error, sources: [] });
+        }
+        if (!hasFiles && decideRoute(question, history, { mode: modeIn, runJourneys }).intent === "qa") {
           live?.({ type: "agent", agent: "qa", label: "QA agent", state: "started" });
           const h = openIndex();
           let out;
@@ -479,12 +621,104 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
           return json(res, 200, { ok: out.ok, text: out.text, sources: [], agent: "qa", trace, ...(qa ? { qa } : {}), ...(needsInput ? { needsInput } : {}), ...(out.ok ? {} : { error: out.kind === "blocked" ? "blocked" : "qa" }), chat: stored });
         }
         const useWeb = body["webSearch"] === true && !notesOnly;
-        const run = (db: Db | null): Promise<AnswerResult> =>
-          db && !useWeb
-            ? answer(dcfg, db, { history, question, notesOnly }, { complete, onStep, backend })
-            : openAnswer(db, { history, question, webSearch: useWeb }, { complete, onStep, backend, ...(deps.native ? { web: deps.native } : {}) });
-        const indexed = await withIndex(run);
-        return reply(indexed ?? (notesOnly ? { ok: false, text: NOTES_NEED_INDEX, sources: [] } : await run(null)));
+        // Agent mode (default on): the model may ask REO to run tools (read-only, creating REO's own items, approval cards). Off with {"agent": false}; never with Notes only.
+        const agentOn = body["agent"] !== false && !notesOnly;
+        const memory = notesOnly ? "" : memoryBlock(dcfg.dataDir);
+        // A picked skill: its instructions join the agent's system prompt, masked and size-capped. Agent mode only.
+        const SKILL_CHARS = 4000;
+        let skill = "";
+        if (agentOn && typeof body["skill"] === "string") {
+          const doc = getSkill(dcfg.root, body["skill"], generatedSkillsDir(dcfg.dataDir));
+          const raw = doc ? String((doc as { body?: string; content?: string }).body ?? (doc as { content?: string }).content ?? "") : "";
+          if (raw) {
+            const m = maskForSkill(raw.slice(0, SKILL_CHARS));
+            if (m.ok) skill = `Skill picked by the owner for this chat (${String(body["skill"])}). Follow its method where it fits the request; it does not override the rules above, and it is not a source for project facts.\n${m.text}`;
+          }
+        }
+        const toolSet = pickToolSet(question);
+        /** The files of this chat the model may ask to open (never one that looked like a secret). */
+        const chatFiles = () => {
+          const all = [...chat.messages.flatMap((x) => x.attachments ?? []), ...sentFiles];
+          const seen = new Set<string>();
+          return all.filter((a) => a.status !== "blocked" && !seen.has(a.id) && seen.add(a.id)).map((a) => ({
+            id: a.id, name: a.name,
+            open: async (): Promise<void> => {
+              const f = attachments.file(id, a.id);
+              if (!f || !canOpen(f.ext)) throw new Error("REO does not open this kind of file for you.");
+              const cmd = fileOpenCommand(f.path);
+              await (deps.openFile ?? defaultLaunch)(cmd.command, cmd.args);
+            },
+          }));
+        };
+        /** What a run may do beyond reading: create items, and ask the owner to approve an action. */
+        const agentExtras = (c: { signal: AbortSignal; creations: CreationLog; onCard?: (card: ApprovalCard) => void; maxLoopMs?: number; canAsk: boolean }) => ({
+          chatId: id,
+          creations: c.creations,
+          ...(c.maxLoopMs ? { maxLoopMs: c.maxLoopMs } : {}),
+          // Approval tools exist only when someone can see the card: a live stream, or a mission (shown by polling).
+          ...(c.canAsk ? { actions: {
+            approve: (r: { kind: "open_attachment" | "open_link"; title: string; detail: string; run: () => Promise<string> }) =>
+              approvals.request({ ...r, chatId: id, signal: c.signal, ...(c.onCard ? { onCard: c.onCard, onDecided: c.onCard } : {}) }),
+            attachments: chatFiles,
+            openLink: async (url: string): Promise<void> => {
+              const cmd = browserCommand(url);
+              await (deps.repos?.launch ?? defaultLaunch)(cmd.command, cmd.args);
+            },
+          } } : {}),
+        });
+        interface RunParts {
+          complete: CompleteFn; onStep: (s: Step) => void; signal: AbortSignal; onText?: (t: string) => void;
+          creations: CreationLog; onCard?: (card: ApprovalCard) => void; maxLoopMs?: number; canAsk: boolean;
+        }
+        const execute = (db: Db | null, c: RunParts): Promise<AnswerResult> => {
+          const agent: AnswerDeps["agent"] | undefined = agentOn
+            ? (a) => runAgent({ ...a, backend }, {
+              cfg: dcfg, db, complete: c.complete, onStep: c.onStep, ...(deps.native ? { web: deps.native } : {}), webOn: useWeb,
+              pulls: () => listPullsForAgent(dcfg, "open", false), signal: c.signal, ...(c.onText ? { onText: c.onText } : {}), ...agentExtras(c),
+              toolSet, todos: { get: () => listTodos(dcfg.dataDir, id), set: (items) => setTodos(dcfg.dataDir, id, items) },
+            })
+            : undefined;
+          const common = { complete: c.complete, onStep: c.onStep, backend, backendId: info?.picked ?? null, signal: c.signal, ...(c.onText ? { onText: c.onText } : {}), ...(memory ? { memory } : {}), ...(skill ? { skill } : {}), ...(agent ? { agent } : {}) };
+          return db && !useWeb
+            ? answer(dcfg, db, { history, question, notesOnly, ...(attachmentInput ? { attachments: attachmentInput } : {}) }, common)
+            : openAnswer(db, { history, question, webSearch: useWeb, ...(attachmentInput ? { attachments: attachmentInput } : {}) }, { ...common, ...(deps.native ? { web: deps.native } : {}) });
+        };
+        const runAll = async (c: RunParts): Promise<AnswerResult> => {
+          const indexed = await withIndex((db) => execute(db, c));
+          return indexed ?? (notesOnly ? { ok: false, text: NOTES_NEED_INDEX, sources: [] } : await execute(null, c));
+        };
+
+        // A background mission: the same run, but the engine keeps it going and writes the reply into the chat.
+        if (body["mission"] === true) {
+          if (!agentOn) return reply({ ok: false, text: "A mission needs Agent mode. Turn Agent on and try again.", sources: [] });
+          const started = missions.start({
+            chatId: id,
+            title: maskForStorage(question),
+            run: (m) => runAll({
+              complete: (r) => deps.complete({ ...r, sessionId: id, signal: r.signal ?? m.signal }),
+              onStep: m.onStep, signal: m.signal, creations: m.creations, maxLoopMs: MISSION_LOOP_MS, canAsk: true,
+            }),
+            onFinish: (view, result) => {
+              store.append(id, {
+                role: "assistant",
+                text: result?.text ?? view.summary ?? "The mission ended.",
+                sources: result?.sources ?? [], trace: view.steps, mission: view.id,
+                ...(view.created.length ? { created: view.created } : {}),
+                ...(view.status === "failed" ? { error: true } : {}),
+              });
+            },
+          });
+          if (!started.ok) return reply({ ok: false, text: started.error, sources: [] });
+          if (live) {
+            live({ type: "mission", mission: withApprovals(started.mission) });
+            return void res.end();
+          }
+          return json(res, 202, { ok: true, mission: withApprovals(started.mission) });
+        }
+
+        const creations = new CreationLog();
+        const onCard = live ? (card: ApprovalCard): void => live?.({ type: "approval", approval: card }) : undefined;
+        return reply(await runAll({ complete, onStep, signal: ctrl.signal, ...(onText ? { onText } : {}), creations, canAsk: !!live, ...(onCard ? { onCard } : {}) }));
       }
     }
 
@@ -886,9 +1120,10 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       const custom = listCustomAgents(dcfg.dataDir);
       const builtinTools = BUILTIN_TOOLS.map((t) => ({ ...t, createdBy: "system" as const, origin: "built-in" as const, status: "active" as const }));
       const compositeTools = listCompositeTools(dcfg.dataDir);
+      const mcpTools = listDiscoveredMcpTools(dcfg.dataDir).map((t) => ({ ...t, createdBy: "system" as const, origin: "external-mcp" as const, status: "active" as const }));
       return json(res, 200, {
         agents: [...prebuilt, ...custom],
-        tools: [...builtinTools, ...compositeTools],
+        tools: [...builtinTools, ...compositeTools, ...mcpTools],
       });
     }
 
@@ -1452,6 +1687,114 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
       }
     }
 
+    if (path === "/api/composio/status" && method === "GET") {
+      return json(res, 200, await getComposioStatus(dcfg.dataDir));
+    }
+
+    if (path === "/api/composio/key" && method === "PUT") {
+      const body = await readJson(req);
+      const chk = validateApiKey(body["key"]);
+      if (!chk.ok) throw new HttpError(400, chk.error);
+      await composioKeyStore(dcfg.dataDir).set(chk.key);
+      updatePlugin(dcfg.dataDir, "composio", { hasCredential: true });
+      return json(res, 200, { ok: true, ...(await getComposioStatus(dcfg.dataDir)) });
+    }
+
+    if (path === "/api/composio/key" && method === "DELETE") {
+      await composioKeyStore(dcfg.dataDir).remove();
+      updatePlugin(dcfg.dataDir, "composio", { hasCredential: false });
+      return json(res, 200, { ok: true, ...(await getComposioStatus(dcfg.dataDir)) });
+    }
+
+    if (path === "/api/composio/connections" && method === "GET") {
+      try {
+        return json(res, 200, { connections: await composioListConnections(dcfg.dataDir) });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not list Composio connections.");
+      }
+    }
+
+    if (path === "/api/composio/actions" && method === "GET") {
+      try {
+        const apps = new URL(req.url ?? "/", "http://127.0.0.1").searchParams.get("apps") || undefined;
+        return json(res, 200, { actions: await composioListActions(dcfg.dataDir, { ...(apps ? { apps } : {}) }) });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not list Composio actions.");
+      }
+    }
+
+    if (path === "/api/composio/execute" && method === "POST") {
+      const body = await readJson(req);
+      const actionName = typeof body["actionName"] === "string" ? body["actionName"].trim() : "";
+      if (!actionName) throw new HttpError(400, "actionName is required.");
+      const params = body["params"] && typeof body["params"] === "object" && !Array.isArray(body["params"])
+        ? (body["params"] as Record<string, unknown>)
+        : {};
+      try {
+        return json(res, 200, await composioExecuteAction(dcfg.dataDir, { actionName, params }));
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not execute Composio action.");
+      }
+    }
+
+    if (path === "/api/mcp-hub/servers" && method === "GET") {
+      return json(res, 200, { servers: listExternalMcpServers(dcfg.dataDir) });
+    }
+
+    if (path === "/api/mcp-hub/servers" && method === "POST") {
+      const body = await readJson(req);
+      const name = typeof body["name"] === "string" ? body["name"].trim() : "";
+      const transport = body["transport"] === "http" || body["transport"] === "sse" ? body["transport"] : "stdio";
+      const command = typeof body["command"] === "string" ? body["command"].trim() : undefined;
+      const args = Array.isArray(body["args"]) ? body["args"].map(String) : undefined;
+      const url = typeof body["url"] === "string" ? body["url"].trim() : undefined;
+      try {
+        const server = upsertExternalMcpServer(dcfg.dataDir, {
+          ...(typeof body["id"] === "string" ? { id: body["id"] } : {}),
+          name,
+          transport,
+          ...(command ? { command } : {}),
+          ...(args ? { args } : {}),
+          ...(url ? { url } : {}),
+          enabled: body["enabled"] !== false,
+        });
+        return json(res, 201, { ok: true, server });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Invalid MCP server configuration.");
+      }
+    }
+
+    const mcpProbeMatch = /^\/api\/mcp-hub\/servers\/([a-z0-9-]+)\/probe$/.exec(path);
+    if (mcpProbeMatch && method === "POST") {
+      try {
+        const server = await probeExternalMcpServer(dcfg.dataDir, mcpProbeMatch[1]!);
+        return json(res, 200, { ok: true, server });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "Could not connect to MCP server.");
+      }
+    }
+
+    const mcpDelMatch = /^\/api\/mcp-hub\/servers\/([a-z0-9-]+)$/.exec(path);
+    if (mcpDelMatch && method === "DELETE") {
+      if (!deleteExternalMcpServer(dcfg.dataDir, mcpDelMatch[1]!)) throw new HttpError(404, "MCP server not found.");
+      return json(res, 200, { ok: true });
+    }
+
+    if (path === "/api/mcp-hub/call" && method === "POST") {
+      const body = await readJson(req);
+      const serverId = typeof body["serverId"] === "string" ? body["serverId"].trim() : "";
+      const toolName = typeof body["toolName"] === "string" ? body["toolName"].trim() : "";
+      const args = body["args"] && typeof body["args"] === "object" && !Array.isArray(body["args"])
+        ? (body["args"] as Record<string, unknown>)
+        : {};
+      if (!serverId || !toolName) throw new HttpError(400, "serverId and toolName are required.");
+      try {
+        return json(res, 200, { ok: true, result: await callExternalMcpTool(dcfg.dataDir, serverId, toolName, args) });
+      } catch (e) {
+        throw new HttpError(400, e instanceof Error ? e.message : "External MCP tool call failed.");
+      }
+    }
+
     if (path === "/api/team" && method === "POST") {
       const body = await readJson(req);
       const name = typeof body["name"] === "string" ? body["name"].trim() : "";
@@ -1614,5 +1957,7 @@ export function createGuardServer(cfg: GuardConfig, deps: ServerDeps): Server {
   });
   // Close the index handle with the server.
   server.on("close", () => { try { cached?.db.close(); } catch { /* already closed */ } cached = null; });
+  // Closing the server stops every mission and declines every waiting card.
+  server.on("close", () => { missions.cancelAll(); approvals.declineAll(); });
   return server;
 }

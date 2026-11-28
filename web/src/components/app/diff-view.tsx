@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { isTestFile, useViewedMarks, viewedMark } from "@/lib/diff-review";
+import { DiffFileTree } from "@/components/app/diff-tree";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -203,6 +204,22 @@ export function DiffView({ diff, focus }: { diff: RepoDiff; focus: { path: strin
             </button>
           ))}
         </div>
+        <div role="group" aria-label="Changed files list" className="bg-muted flex gap-0.5 rounded-2xl p-[3px]">
+          {(["list", "tree"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={prefs.fileList === v}
+              onClick={() => updateDiffPrefs({ fileList: v })}
+              className={cn(
+                "focus-visible:ring-ring/50 rounded-xl px-2.5 py-0.5 text-xs font-medium outline-none focus-visible:ring-[3px]",
+                prefs.fileList === v ? "bg-background shadow-xs" : "text-muted-foreground",
+              )}
+            >
+              {v === "list" ? "List" : "Folders"}
+            </button>
+          ))}
+        </div>
         <Label className="flex items-center gap-2 text-xs">
           <Switch checked={prefs.hideWhitespace} onCheckedChange={(hideWhitespace) => updateDiffPrefs({ hideWhitespace })} />
           Hide whitespace
@@ -236,7 +253,20 @@ export function DiffView({ diff, focus }: { diff: RepoDiff; focus: { path: strin
           {hidden} file{hidden === 1 ? " is" : "s are"} hidden by the filter or by "Hide test files" (tests are told apart by name only).
         </p>
       )}
-      {files.length > 1 && (
+      {files.length > 1 && prefs.fileList === "tree" && (
+        <DiffFileTree
+          files={files}
+          isViewed={(p) => {
+            const f = files.find((x) => x.path === p);
+            return f ? isViewed(f) : false;
+          }}
+          onPick={(p) => {
+            setOverrides((o) => ({ ...o, [p]: true }));
+            window.setTimeout(() => document.getElementById(fileAnchor(p))?.scrollIntoView({ block: "start" }), 0);
+          }}
+        />
+      )}
+      {files.length > 1 && prefs.fileList === "list" && (
         <ul className="max-h-56 overflow-y-auto rounded-2xl border p-1" aria-label="Changed files">
           {files.map((f) => (
             <li key={f.path}>
